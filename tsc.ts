@@ -1,6 +1,7 @@
 import { ChildProcess, exec } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import ignoreFactory from 'ignore';
 
 const argv = process.argv.slice(2);
 let buildIgnore: string[] = [];
@@ -11,6 +12,10 @@ const isGUI = !(argv.length > 1 && argv[1] === 'false');
 if (!isTest) buildIgnore = ['*/\\.env', './config/setup.json'];
 
 if (!isGUI) buildIgnore = buildIgnore.concat(['./gui*', './build*', 'gui.ts']);
+
+const repositoryIgnore = ignoreFactory();
+const gitignorePath = path.join(__dirname, '.gitignore');
+if (fs.existsSync(gitignorePath)) repositoryIgnore.add(fs.readFileSync(gitignorePath, 'utf8'));
 
 const ignore = [
 	...buildIgnore,
@@ -126,6 +131,8 @@ function readDir(dir: string): {
 			if (ignoreItem.test(itemPath)) continue itemLoop;
 		}
 		const stats = fs.statSync(itemPath);
+		const relativePath = path.relative(__dirname, itemPath).split(path.sep).join('/');
+		if (repositoryIgnore.ignores(relativePath + (stats.isDirectory() ? '/' : ''))) continue itemLoop;
 		items.push({
 			path: itemPath,
 			stats
