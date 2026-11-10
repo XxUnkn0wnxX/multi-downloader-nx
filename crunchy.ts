@@ -368,6 +368,10 @@ export default class Crunchy implements ServiceClass {
 	}
 
 	public async doAuth(data: AuthData): Promise<AuthResponse> {
+		// GUI workaround: a UUID-shaped username is treated as an etp_rt cookie and logged in like --token
+		if (/^(etp_rt=)?[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(data.username.trim())) {
+			return (await this.loginWithToken(data.username)) ? { isOk: true, value: undefined } : { isOk: false, reason: new Error('Token Authentication failed') };
+		}
 		const basic = atob(api.basic_auth_token);
 		const client = basic.split(':');
 
@@ -392,6 +396,11 @@ export default class Crunchy implements ServiceClass {
 		const authReq = await this.req.getData(api.auth, authReqOpts);
 		if (!authReq.ok || !authReq.res) {
 			console.error('Authentication failed!');
+			if (authReq.res?.status === 400) {
+				console.warn(
+					'Crunchyroll may no longer accept username/password login. Log in with --token and the etp_rt cookie from your browser instead (GUI: paste it as the username).'
+				);
+			}
 			return { isOk: false, reason: new Error('Authentication failed') };
 		}
 
@@ -489,54 +498,50 @@ export default class Crunchy implements ServiceClass {
 		});
 	}
 
-	public async loginWithToken(refreshToken: string) {
-		const basic = atob(api.basic_auth_token);
-		const client = basic.split(':');
-
-		const uuid = randomUUID();
+	private async requestWebToken(refreshToken: string, deviceId: string, errorMessage: string): Promise<Record<string, any> | undefined> {
 		const authData = new URLSearchParams({
-			refresh_token: this.token.refresh_token,
-			grant_type: 'refresh_token',
-			//'grant_type': 'etp_rt_cookie',
-			scope: 'offline_access',
-			client_id: client[0],
-			client_secret: client[1],
-			device_id: uuid,
-			device_name: 'emu64xa',
-			device_type: 'ANDROIDTV'
+			device_id: deviceId,
+			device_type: 'Firefox on Windows',
+			grant_type: 'etp_rt_cookie'
 		}).toString();
 		const authReqOpts: FetchParams = {
 			method: 'POST',
-			headers: { ...api.crunchyAuthHeader, 'ETP-Anonymous-ID': uuid, Cookie: `etp_rt=${refreshToken}` },
+			headers: { ...api.crunchyWebAuthHeader, Cookie: `device_id=${deviceId}; etp_rt=${refreshToken}` },
 			body: authData,
 			useProxy: true
 		};
 		const authReq = await this.req.getData(api.auth, authReqOpts);
 		if (!authReq.ok || !authReq.res) {
-			console.error('Token Authentication failed!');
-			if (authReq.res?.status == 400) {
+			console.error(errorMessage);
+			if (authReq.res?.status === 400) {
 				console.warn('Token is likely wrong (Or invalid for given API), please login again!');
 			}
 			return;
 		}
-		// To prevent any Cloudflare errors in the future
-		if (authReq.res.headers.get('Set-Cookie')) {
-			api.crunchyDefHeader['Cookie'] = authReq.res.headers.get('Set-Cookie') as string;
-			api.crunchyAuthHeader['Cookie'] = authReq.res.headers.get('Set-Cookie') as string;
-		}
-		if (authReq.headers && authReq.headers['Set-Cookie']) {
-			api.crunchyDefHeader['Cookie'] = authReq.headers['Set-Cookie'];
-			api.crunchyAuthHeader['Cookie'] = authReq.headers['Set-Cookie'];
-			api.crunchyDefHeader['User-Agent'] = authReq.headers['User-Agent'];
-			api.crunchyAuthHeader['User-Agent'] = authReq.headers['User-Agent'];
+
+		const token = await authReq.res.json();
+		if (!token.access_token) {
+			console.error(errorMessage);
+			return;
 		}
 
-		this.token = await authReq.res.json();
-		this.token.device_id = uuid;
-		this.token.expires = new Date(Date.now() + this.token.expires_in * 1000);
+		token.auth_type = 'web';
+		token.device_id = deviceId;
+		token.expires = new Date(Date.now() + token.expires_in * 1000);
+		return token;
+	}
+
+	public async loginWithToken(refreshToken: string) {
+		const token = await this.requestWebToken(refreshToken.trim().replace(/^etp_rt=/, ''), randomUUID(), 'Token Authentication failed!');
+		if (!token) {
+			return false;
+		}
+
+		this.token = token;
 		yamlCfg.saveCRToken(this.token);
 		await this.getProfile(false);
 		await this.getCMStoken(true);
+		return true;
 	}
 
 	public async refreshToken(ifNeeded = false, silent = false) {
@@ -551,50 +556,60 @@ export default class Crunchy implements ServiceClass {
 				//console.info('[WARN] The token has expired compleatly. I will try to refresh the token anyway, but you might have to reauth.');
 			}
 
-			const basic = atob(api.basic_auth_token);
-			const client = basic.split(':');
-
-			const uuid = this.token.device_id || randomUUID();
-			const authData = new URLSearchParams({
-				grant_type: 'refresh_token',
-				refresh_token: this.token.refresh_token,
-				scope: 'offline_access',
-				client_id: client[0],
-				client_secret: client[1],
-				device_id: uuid,
-				device_name: 'emu64xa',
-				device_type: 'ANDROIDTV'
-			}).toString();
-			const authReqOpts: FetchParams = {
-				method: 'POST',
-				headers: { ...api.crunchyAuthHeader },
-				body: authData,
-				useProxy: true
-			};
-			const authReq = await this.req.getData(api.auth, authReqOpts);
-			if (!authReq.ok || !authReq.res) {
-				console.error('Token Refresh Failed!');
-				if (authReq.res?.status == 400) {
-					console.warn('Token is likely wrong, please login again!');
+			if (this.token.auth_type === 'web') {
+				// Token came from --token (etp_rt cookie), refresh it through the web client
+				const token = await this.requestWebToken(this.token.refresh_token, this.token.device_id || randomUUID(), 'Token Refresh Failed!');
+				if (!token) {
+					return;
 				}
-				return;
-			}
-			// To prevent any Cloudflare errors in the future
-			if (authReq.res.headers.get('Set-Cookie')) {
-				api.crunchyDefHeader['Cookie'] = authReq.res.headers.get('Set-Cookie') as string;
-				api.crunchyAuthHeader['Cookie'] = authReq.res.headers.get('Set-Cookie') as string;
-			}
-			if (authReq.headers && authReq.headers['Set-Cookie']) {
-				api.crunchyDefHeader['Cookie'] = authReq.headers['Set-Cookie'];
-				api.crunchyAuthHeader['Cookie'] = authReq.headers['Set-Cookie'];
-				api.crunchyDefHeader['User-Agent'] = authReq.headers['User-Agent'];
-				api.crunchyAuthHeader['User-Agent'] = authReq.headers['User-Agent'];
-			}
+				this.token = token;
+				yamlCfg.saveCRToken(this.token);
+			} else {
+				const basic = atob(api.basic_auth_token);
+				const client = basic.split(':');
 
-			this.token = await authReq.res.json();
-			this.token.device_id = uuid;
-			this.token.expires = new Date(Date.now() + this.token.expires_in * 1000);
-			yamlCfg.saveCRToken(this.token);
+				const uuid = this.token.device_id || randomUUID();
+				const authData = new URLSearchParams({
+					grant_type: 'refresh_token',
+					refresh_token: this.token.refresh_token,
+					scope: 'offline_access',
+					client_id: client[0],
+					client_secret: client[1],
+					device_id: uuid,
+					device_name: 'emu64xa',
+					device_type: 'ANDROIDTV'
+				}).toString();
+				const authReqOpts: FetchParams = {
+					method: 'POST',
+					headers: { ...api.crunchyAuthHeader },
+					body: authData,
+					useProxy: true
+				};
+				const authReq = await this.req.getData(api.auth, authReqOpts);
+				if (!authReq.ok || !authReq.res) {
+					console.error('Token Refresh Failed!');
+					if (authReq.res?.status == 400) {
+						console.warn('Token is likely wrong, please login again!');
+					}
+					return;
+				}
+				// To prevent any Cloudflare errors in the future
+				if (authReq.res.headers.get('Set-Cookie')) {
+					api.crunchyDefHeader['Cookie'] = authReq.res.headers.get('Set-Cookie') as string;
+					api.crunchyAuthHeader['Cookie'] = authReq.res.headers.get('Set-Cookie') as string;
+				}
+				if (authReq.headers && authReq.headers['Set-Cookie']) {
+					api.crunchyDefHeader['Cookie'] = authReq.headers['Set-Cookie'];
+					api.crunchyAuthHeader['Cookie'] = authReq.headers['Set-Cookie'];
+					api.crunchyDefHeader['User-Agent'] = authReq.headers['User-Agent'];
+					api.crunchyAuthHeader['User-Agent'] = authReq.headers['User-Agent'];
+				}
+
+				this.token = await authReq.res.json();
+				this.token.device_id = uuid;
+				this.token.expires = new Date(Date.now() + this.token.expires_in * 1000);
+				yamlCfg.saveCRToken(this.token);
+			}
 		}
 		if (this.token.refresh_token) {
 			await this.getProfile(silent);
@@ -1577,12 +1592,14 @@ export default class Crunchy implements ServiceClass {
 
 			//Make sure token is up-to-date
 			await this.refreshToken(true, true);
+			// Web logins (--token) only work with a browser user agent
+			const clientHeaders = this.token.auth_type === 'web' ? { ...api.crunchyDefHeader, 'User-Agent': api.crunchyWebUserAgent } : api.crunchyDefHeader;
 			let currentVersion;
 			let isPrimary = mMeta.isSubbed;
 			const AuthHeaders: FetchParams = {
 				headers: {
 					Authorization: `Bearer ${this.token.access_token}`,
-					...api.crunchyDefHeader
+					...clientHeaders
 				}
 			};
 
@@ -1776,7 +1793,7 @@ export default class Crunchy implements ServiceClass {
 			}
 
 			const videoPlaybackReq = await this.req.getData(
-				`https://cr-play-service.prd.crunchyrollsvc.com/v3/${currentVersion ? currentVersion.guid : currentMediaId}/${CrunchyVideoPlayStreams['androidtv']}/play?queue=0`,
+				`https://cr-play-service.prd.crunchyrollsvc.com/v3/${currentVersion ? currentVersion.guid : currentMediaId}/${CrunchyVideoPlayStreams[this.token.auth_type === 'web' ? 'chrome' : 'androidtv']}/play?queue=0`,
 				AuthHeaders
 			);
 			if (!videoPlaybackReq.ok || !videoPlaybackReq.res) {
@@ -2212,7 +2229,7 @@ export default class Crunchy implements ServiceClass {
 							if (cdm === 'widevine') {
 								encryptionKeysVideo = await getKeysWVD(chosenVideoSegments.pssh_wvd, api.drm_widevine, {
 									Authorization: `Bearer ${this.token.access_token}`,
-									...api.crunchyDefHeader,
+									...clientHeaders,
 									Pragma: 'no-cache',
 									'Cache-Control': 'no-cache',
 									'content-type': 'application/octet-stream',
@@ -2224,12 +2241,12 @@ export default class Crunchy implements ServiceClass {
 								if (chosenAudioSegments.pssh_wvd && chosenAudioSegments.pssh_wvd !== chosenVideoSegments.pssh_wvd) {
 									encryptionKeysAudio = await getKeysWVD(chosenAudioSegments.pssh_wvd, api.drm_widevine, {
 										Authorization: `Bearer ${this.token.access_token}`,
-										...api.crunchyDefHeader,
+										...clientHeaders,
 										Pragma: 'no-cache',
 										'Cache-Control': 'no-cache',
 										'content-type': 'application/octet-stream',
 										'x-cr-content-id': currentVersion ? currentVersion.guid : currentMediaId,
-										'x-cr-video-token': audioStream!.token
+										'x-cr-video-token': (audioStream ?? videoStream)!.token
 									});
 								} else {
 									encryptionKeysAudio = encryptionKeysVideo;
@@ -2240,7 +2257,7 @@ export default class Crunchy implements ServiceClass {
 							if (cdm === 'playready') {
 								encryptionKeysVideo = await getKeysPRD(chosenVideoSegments.pssh_prd, api.drm_playready, {
 									Authorization: `Bearer ${this.token.access_token}`,
-									...api.crunchyDefHeader,
+									...clientHeaders,
 									Pragma: 'no-cache',
 									'Cache-Control': 'no-cache',
 									'content-type': 'application/octet-stream',
@@ -2252,12 +2269,12 @@ export default class Crunchy implements ServiceClass {
 								if (chosenAudioSegments.pssh_prd && chosenAudioSegments.pssh_prd !== chosenVideoSegments.pssh_prd) {
 									encryptionKeysAudio = await getKeysPRD(chosenAudioSegments.pssh_prd, api.drm_playready, {
 										Authorization: `Bearer ${this.token.access_token}`,
-										...api.crunchyDefHeader,
+										...clientHeaders,
 										Pragma: 'no-cache',
 										'Cache-Control': 'no-cache',
 										'content-type': 'application/octet-stream',
 										'x-cr-content-id': currentVersion ? currentVersion.guid : currentMediaId,
-										'x-cr-video-token': audioStream!.token
+										'x-cr-video-token': (audioStream ?? videoStream)!.token
 									});
 								} else {
 									encryptionKeysAudio = encryptionKeysVideo;
