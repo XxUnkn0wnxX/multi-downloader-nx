@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { fileURLToPath } from 'node:url';
+import output from 'node:console';
+import process from 'node:process';
+import { fileURLToPath, URLSearchParams } from 'node:url';
 import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import ts from 'typescript';
@@ -16,7 +18,7 @@ try {
 	async function test(name, run) {
 		await run();
 		passed++;
-		console.log(`ok ${passed} - ${name}`);
+		output.log(`ok ${passed} - ${name}`);
 	}
 	function compile(file, requireFn, extra = {}) {
 		const source = fs.readFileSync(file, 'utf8');
@@ -25,7 +27,7 @@ try {
 		}).outputText;
 		const exports = {};
 		const module = { exports };
-		vm.runInNewContext(code, { exports, module, require: requireFn, process, console, URLSearchParams, Error, ...extra }, { filename: file });
+		vm.runInNewContext(code, { exports, module, require: requireFn, process, console: output, URLSearchParams, Error, ...extra }, { filename: file });
 		return module.exports;
 	}
 	const realHelper = compile(path.join(root, 'modules/module.crunchy-token.ts'), (id) => require(id));
@@ -192,7 +194,7 @@ try {
 		process.exitCode = undefined;
 	});
 
-	console.log(`1..${passed}`);
+	output.log(`1..${passed}`);
 } finally {
 	fs.rmSync(work, { recursive: true, force: true });
 }
