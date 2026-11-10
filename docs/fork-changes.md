@@ -54,6 +54,10 @@ Newer transitive esbuild binaries caused `_SecTrustCopyCertificateChain` loader 
 
 An upstream replacement must cover root, GUI, and generated `lib` dependencies. Check both lockfiles, resolved transitive versions, and native esbuild/tsx execution on Big Sur before replacing the compatibility approach. The fork's initial checks passed for frozen lockfiles and native esbuild/tsx smoke tests; a full GUI build was not validated.
 
+### Accept Crunchyroll cookies exports for `--token`
+
+On `develop`, `--token` accepts the Crunchyroll `etp_rt` UUID value directly or a path to a file containing that value or a Netscape cookies export. File names and extensions are unrestricted. Only the existing Crunchyroll web-token request is used; authentication reports failure unless both the profile and CMS token requests succeed. Keep the existing cookie-based authentication and refresh behavior.
+
 ## Already incorporated upstream
 
 The Android TV client credentials and User-Agent update from fork commit `78ea053` match upstream commit [`8599faa`](https://github.com/anidl/multi-downloader-nx/commit/8599faab539a878bcfb57a6fc07eac27dab1f873). The auth module has no remaining fork difference after that upstream merge. Follow upstream for subsequent auth changes; do not preserve the old credential values as a permanent fork requirement.
