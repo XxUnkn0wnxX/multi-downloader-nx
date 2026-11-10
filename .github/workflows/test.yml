@@ -2,9 +2,10 @@ name: Style and build test
 
 on:
     push:
-        branches: [master]
+        branches: [develop]
     pull_request:
-        branches: [master]
+        branches: [develop]
+    workflow_dispatch:
 
 permissions:
     contents: read
@@ -23,7 +24,10 @@ jobs:
                   node-version: 24
                   check-latest: true
             - run: pnpm i
-            - run: npx tsc
+            - name: Check TypeScript
+              run: pnpm exec tsc --noEmit
+            - name: Test Crunchyroll token input
+              run: node tests/crunchy-token-input.mjs
     eslint:
         needs: tsc
         runs-on: ubuntu-latest

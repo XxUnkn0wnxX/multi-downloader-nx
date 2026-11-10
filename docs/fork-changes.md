@@ -58,6 +58,10 @@ An upstream replacement must cover root, GUI, and generated `lib` dependencies. 
 
 On `develop`, `--token` accepts the Crunchyroll `etp_rt` UUID value directly or a path to a file containing that value or a Netscape cookies export. File names and extensions are unrestricted. Only the existing Crunchyroll web-token request is used; authentication reports failure unless both the profile and CMS token requests succeed. Keep the existing cookie-based authentication and refresh behavior.
 
+### Run development checks
+
+The **Style and build test** workflow in [.github/workflows/test.yml](../.github/workflows/test.yml) runs on pushes and pull requests targeting `develop`, with manual dispatch available. Its first job checks TypeScript without emitting files and runs `node tests/crunchy-token-input.mjs`; ESLint, Prettier, and the existing platform packaging checks remain required downstream. Keep this branch-specific workflow adaptation separate from changes intended for upstream `master`.
+
 ## Already incorporated upstream
 
 The Android TV client credentials and User-Agent update from fork commit `78ea053` match upstream commit [`8599faa`](https://github.com/anidl/multi-downloader-nx/commit/8599faab539a878bcfb57a6fc07eac27dab1f873). The auth module has no remaining fork difference after that upstream merge. Follow upstream for subsequent auth changes; do not preserve the old credential values as a permanent fork requirement.
