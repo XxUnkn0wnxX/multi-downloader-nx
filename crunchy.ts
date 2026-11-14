@@ -47,7 +47,7 @@ import {
 	requestDeviceToken,
 	validDeviceToken,
 	validateCrunchyAuthModes,
-	DEVICE_NAME,
+	getDeviceName,
 	DEVICE_TYPE,
 	DEVICE_USER_AGENT,
 	DEVICE_BETA_WARNING,
@@ -650,7 +650,7 @@ export default class Crunchy implements ServiceClass {
 			this.token = {
 				...token,
 				device_id: deviceId,
-				device_name: DEVICE_NAME,
+				device_name: getDeviceName(deviceId),
 				device_type: DEVICE_TYPE,
 				device_user_agent: DEVICE_USER_AGENT,
 				device_auth_origin: token.device_auth_origin === 'api' ? 'api' : 'www',

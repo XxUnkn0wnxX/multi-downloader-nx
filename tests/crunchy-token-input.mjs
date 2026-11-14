@@ -16,6 +16,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'anidl-token-input-'));
 try {
 	const fakeToken = '123e4567-e89b-12d3-a456-426614174000';
+	const generatedDeviceId = '123e4567-e89b-12d3-a456-42661412cdef';
 	let passed = 0;
 	async function test(name, run) {
 		await run();
@@ -116,7 +117,7 @@ try {
 		'./modules/module.crunchy-token': realHelper,
 		'./modules/module.crunchy-device-auth': deviceHelper,
 		'./@types/enums': { CrunchyVideoPlayStreams: { androidtv: 'androidtv', chrome: 'chrome' } },
-		'node:crypto': { randomUUID: () => 'device-id' }
+		'node:crypto': { randomUUID: () => generatedDeviceId }
 	};
 	const ignoredImports = new Set([
 		'./modules/hls-download',
@@ -246,7 +247,7 @@ try {
 		});
 		assert.equal(result, token);
 		same(sleeps, [500, 500]);
-		same(JSON.parse(calls[1].options.body), { device_code: 'code', device_id: 'uuid', device_name: 'ANDROIDTV 3.76.0', device_type: 'ANDROIDTV' });
+		same(JSON.parse(calls[1].options.body), { device_code: 'code', device_id: 'uuid', device_name: 'ANDROIDTV (uuid)', device_type: 'ANDROIDTV' });
 		const presentationStart = messages.indexOf('Visit: crunchyroll.com/activate');
 		assert.deepEqual(messages.slice(presentationStart, presentationStart + 3), [
 			'Visit: crunchyroll.com/activate',
@@ -523,7 +524,7 @@ try {
 			stubs['./modules/module.cfg-loader'].saveCRTokenAtomic = () => true;
 			assert.equal(await service.loginWithDevice(new AbortController().signal), true);
 			assert.equal(service.token.auth_type, 'device');
-			assert.equal(service.token.device_name, 'ANDROIDTV 3.76.0');
+			assert.equal(service.token.device_name, `ANDROIDTV (${generatedDeviceId.slice(-4)})`);
 		} finally {
 			deviceHelper.requestDeviceToken = original;
 		}
@@ -595,6 +596,7 @@ try {
 		const previous = { ...api };
 		let now = 0;
 		const requests = [];
+		let savedDeviceToken;
 		api.auth = 'https://beta-api.crunchyroll.com/auth/v1/token';
 		api.basic_auth_token = Buffer.from('tv-client:tv-secret').toString('base64');
 		api.crunchyDefUserAgent = 'Crunchyroll/ANDROIDTV/3.76.0_test';
@@ -617,7 +619,10 @@ try {
 			};
 			service.getProfile = async () => true;
 			service.getCMStoken = async () => true;
-			stubs['./modules/module.cfg-loader'].saveCRTokenAtomic = () => true;
+			stubs['./modules/module.cfg-loader'].saveCRTokenAtomic = (token) => {
+				savedDeviceToken = { ...token };
+				return true;
+			};
 			assert.equal(await service.loginWithDevice(new AbortController().signal), true);
 			assert.equal(requests.length, 2);
 			assert.equal(requests[0].url, 'https://www.crunchyroll.com/auth/v1/device/code');
@@ -633,6 +638,13 @@ try {
 				);
 			}
 			assert.equal(service.token.device_user_agent, deviceHelper.DEVICE_USER_AGENT);
+			const pollBody = JSON.parse(requests[1].options.body);
+			assert.equal(pollBody.device_id, generatedDeviceId);
+			assert.equal(pollBody.device_name, 'ANDROIDTV (cdef)');
+			assert.equal(service.token.device_id, generatedDeviceId);
+			assert.equal(service.token.device_name, pollBody.device_name);
+			assert.equal(savedDeviceToken.device_id, generatedDeviceId);
+			assert.equal(savedDeviceToken.device_name, pollBody.device_name);
 			assert.equal(requests[0].options.headers['Content-Type'], undefined);
 			assert.equal(requests[1].options.headers['Content-Type'], 'application/json');
 		} finally {
@@ -938,6 +950,7 @@ try {
 			assert.equal(await service.refreshToken(), expected);
 			if (expected) {
 				assert.equal(saved.refresh_token, 'old');
+				assert.equal(saved.device_id, 'uuid');
 				assert.equal(saved.device_name, 'ANDROIDTV 3.76.0');
 			} else assert.equal(service.token, old);
 		}
@@ -1246,8 +1259,8 @@ try {
 		const deviceUA = 'stored device agent';
 		service.token = {
 			auth_type: 'device',
-			device_id: 'uuid',
-			device_name: 'ANDROIDTV 3.76.0',
+			device_id: generatedDeviceId,
+			device_name: 'ANDROIDTV (cdef)',
 			device_type: 'ANDROIDTV',
 			device_user_agent: deviceUA,
 			refresh_token: 'old',
@@ -1280,8 +1293,14 @@ try {
 		const form = new URLSearchParams(calls[0].options.body);
 		assert.equal(form.get('client_id'), 'client');
 		assert.equal(form.get('client_secret'), 'secret');
+		assert.equal(form.get('device_id'), generatedDeviceId);
+		assert.equal(form.get('device_name'), 'ANDROIDTV (cdef)');
 		assert.equal(persisted.device_user_agent, deviceUA);
 		assert.equal(service.token.device_user_agent, deviceUA);
+		assert.equal(persisted.device_id, generatedDeviceId);
+		assert.equal(persisted.device_name, 'ANDROIDTV (cdef)');
+		assert.equal(service.token.device_id, generatedDeviceId);
+		assert.equal(service.token.device_name, 'ANDROIDTV (cdef)');
 		for (const call of calls.slice(1)) {
 			assert.equal(call.options.headers['User-Agent'], deviceUA);
 			assert.equal(call.options.allowH2, undefined);

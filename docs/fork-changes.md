@@ -68,7 +68,7 @@ On `develop`, `--token` accepts the Crunchyroll `etp_rt` UUID value directly or 
 
 ### Log in to Crunchyroll with a device code
 
-`--device` prints the activation URL and code, waits for approval, and saves an Android TV session after profile/CMS validation. Preserve the stable UUID, `ANDROIDTV 3.76.0` identity, `auth_type: device`, User-Agent and issuer across refreshes. Failed login must retain the previous session; transient refresh failures must keep saved credentials and stop affected work.
+`--device` prints the activation URL and code, waits for approval, and saves an Android TV session after profile/CMS validation. New logins use `ANDROIDTV (xxxx)`, where `xxxx` is the last four characters of the device UUID. Preserve that UUID, name, `auth_type: device`, User-Agent and issuer across refreshes. Failed login must retain the previous session; transient refresh failures must keep saved credentials and stop affected work.
 
 Keep HTTP/2 scoped to device auth, with the main endpoint first and one warned beta fallback for eligible failures. Pin polling to the issuer and preserve configured proxy routing and existing download transports. Full request diagnostics remain available with `--debug`.
 

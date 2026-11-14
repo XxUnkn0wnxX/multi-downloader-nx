@@ -1,6 +1,6 @@
 import { FetchParams } from './module.fetch';
 
-export const DEVICE_NAME = 'ANDROIDTV 3.76.0';
+export const getDeviceName = (deviceId: string): string => `ANDROIDTV (${deviceId.slice(-4)})`;
 export const DEVICE_TYPE = 'ANDROIDTV';
 export const DEVICE_USER_AGENT = 'Crunchyroll/3.76.0_22366 Android/12; ANDROIDTV; SHIELD Android TV; NVIDIA; NVIDIA';
 
@@ -244,7 +244,10 @@ export async function requestDeviceToken(options: DeviceOptions): Promise<Record
 				reportTimeout();
 				break;
 			}
-			const result = await makeRequest('token', JSON.stringify({ device_code: data.device_code, device_id: deviceId, device_name: DEVICE_NAME, device_type: DEVICE_TYPE }));
+			const result = await makeRequest(
+				'token',
+				JSON.stringify({ device_code: data.device_code, device_id: deviceId, device_name: getDeviceName(deviceId), device_type: DEVICE_TYPE })
+			);
 			if (signal.aborted) break;
 			if (result.res?.status === 204) {
 				errors = 0;
