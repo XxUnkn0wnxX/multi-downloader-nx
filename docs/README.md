@@ -10,8 +10,8 @@ This application is not endorsed by or affiliated with *Crunchyroll*, *Hidive* o
 
 ## Dependencies
 
-* ffmpeg >= 4.0.0 (https://www.videohelp.com/software/ffmpeg)
-* MKVToolNix >= 60.0.0 (https://www.videohelp.com/software/MKVToolNix)
+* [ffmpeg](https://www.videohelp.com/software/ffmpeg) >= 4.0.0
+* [MKVToolNix](https://www.videohelp.com/software/MKVToolNix) >= 60.0.0
 
 ### Paths Configuration
 
@@ -26,7 +26,7 @@ To change these paths you need to edit `bin-path.yml` in `./config/` directory.
 
 ## CLI Information
 
-See [the documentation](https://github.com/anidl/multi-downloader-nx/blob/master/docs/DOCUMENTATION.md) for a complete list of what options are available. You can define defaults for the commands by editing the `cli-defaults.yml` file in the `./config/` directory.
+See [the documentation](DOCUMENTATION.md) for a complete list of available options. You can define command defaults by editing `cli-defaults.yml` in the `./config/` directory.
 
 ### Example usage
 
@@ -37,6 +37,8 @@ Most services require you to be logged in, in order to download from, an example
 ```shell
 AniDL --service {ServiceName} --auth
 ```
+
+For Crunchyroll, use `AniDL --service crunchy --device` instead of `--auth`.
 
 #### Searching
 
@@ -60,15 +62,15 @@ AniDL --service {ServiceName} -s {SeasonID} -e {EpisodeNumber}
 
 Dependencies that are only required for running from code. These are not required if you are using the prebuilt binaries.
 
-* NodeJS >= 18.0.0 (https://nodejs.org/)
-* NPM >= 6.9.0 (https://www.npmjs.org/)
-* PNPM >= 7.0.0 (https://pnpm.io/)
+* [Node.js](https://nodejs.org/) >= 18.0.0
+* [npm](https://www.npmjs.org/) >= 6.9.0
+* [pnpm](https://pnpm.io/) >= 7.0.0
 
 ### Build Setup
 
-Please note that NodeJS, NPM, and PNPM must be installed on your system. For instructions on how to install pnpm, check (https://pnpm.io/installation)
+Please note that Node.js, npm, and pnpm must be installed on your system. See the [pnpm installation guide](https://pnpm.io/installation).
 
-First clone this repo `git clone https://github.com/anidl/multi-downloader-nx.git`.
+On the current repository page, select **Code** and copy its clone URL. Use that URL with `git clone` to clone this repository.
 
 `cd` into the cloned directory and run `pnpm i`. Next, decide if you want to package the application, build the code, or run from typescript.
 
@@ -94,14 +96,14 @@ Then you can cd into the `lib` folder and you will be able to run the CLI or GUI
 
 ### Build the application into an executable
 
-If you want to package the application, run pnpm run build-`{platform}`-`{type}` where `{platform}` is the operating system (currently the choices are windows, linux, macos, alpine, android, and arm) and `{type}` is cli or gui.
+To package the application, run `pnpm run build-{platform}-{arch}-{type}`, for example `pnpm run build-windows-x64-cli`. See [package.json](../package.json) for the available targets.
 
 ## DRM Decryption
 
 ### Decryption Requirements
 
-* mp4decrypt >= Any (http://www.bento4.com/) - Only required for decrypting (or shaka-packager)
-* shaka-packager >= Any (https://github.com/stratumadev/shaka-packager/releases) - Only required for decrypting (or mp4decrypt)
+* [Bento4 (mp4decrypt)](https://www.bento4.com/downloads/) - Only required for decrypting (or use shaka-packager)
+* [shaka-packager releases](https://github.com/stratumadev/shaka-packager/releases) - Only required for decrypting (or use mp4decrypt)
 
 ### Instructions (Widevine)
 

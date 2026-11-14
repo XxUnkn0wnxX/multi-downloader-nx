@@ -1,6 +1,6 @@
-# multi-downloader-nx (v5.6.5)
+# multi-downloader-nx
 
-If you find any bugs in this documentation or in the program itself please report it [over on GitHub](https://github.com/anidl/multi-downloader-nx/issues).
+If you find any bugs in this documentation or in the program itself, please report them on [GitHub issues](../../../issues).
 
 ## Legal Warning
 
@@ -148,7 +148,7 @@ In any case, multi-downloader-nx supports both formats. Place them in the `widev
 If you have a Playready CDM key dump, you just need to make sure:
 1. Security level is either SL2000 or SL3000
 2. Make sure you are using the latest version of shaka-packager from Stratuma, as he has patched it to work with multi-downloader-nx.\
-   You can find his releases [here](https://github.com/stratumadev/shaka-packager/releases/latest)
+   You can find the [shaka-packager releases](https://github.com/stratumadev/shaka-packager/releases/latest).
 
 File type does not matter, as multi-downloader-nx supports both `.prd` device files and the `bgroupcert.dat` and `zgpriv.dat` blobs. \
 `.prd` files can be placed into the `playready` folder with whatever name it has.
@@ -169,7 +169,7 @@ Keep in mind that the `bgroupcert.dat` may not always be exactly 1.26 KiB but it
 
 ## Installation
 
-1. Download the latest release of multi-downloader-nx from [here](https://github.com/anidl/multi-downloader-nx/releases/latest). Choose the `multi-downloader-nx-windows-gui.7z` file, download it and extract it to a folder of your choice. I chose `%USERPROFILE%\Desktop\multi-downloader-nx`.
+1. If this repository has a [published GUI release](../../../releases), choose the Windows GUI archive for your architecture, such as `multi-downloader-nx-windows-x64-gui.7z`, and extract it to a folder of your choice, such as `%USERPROFILE%\Desktop\multi-downloader-nx`. If no release is available, follow the [source build instructions](README.md#build-setup) before continuing.
 
 2. Start `aniDL.exe` by double-clicking it. If you see a "Windows protected your PC" message, click on "More info" and then "Run anyway". You can also allow it through the Windows firewall if you see a "Windows Security Alert" window pop up. \
 After that, you should see the first boot GUI of multi-downloader-nx:
@@ -312,9 +312,9 @@ If you wanted to download the show via the ID, you would enter `G4PH0WXVJ` in th
 
 #### Language Options
 
-1. **Dub Languages**: This is where you select the language(s) you want to download the dub for. [`DOCUMENTATION.md`](https://github.com/anidl/multi-downloader-nx/blob/master/docs/DOCUMENTATION.md#--dublang) for all available options.
-2. **Sub Languages**: This is where you select the language(s) you want to download the subs for. [`DOCUMENTATION.md`](https://github.com/anidl/multi-downloader-nx/blob/master/docs/DOCUMENTATION.md#--dlsubs) for all available options.
+1. **Dub Languages**: This is where you select the language(s) you want to download the dub for. See [the `--dublang` option](./DOCUMENTATION.md#--dublang) for all available options.
+2. **Sub Languages**: This is where you select the language(s) you want to download the subs for. See [the `--dlsubs` option](./DOCUMENTATION.md#--dlsubs) for all available options.
 
 #### Filename Overwrite
 
-1. **Filename Overwrite**: This is where you can change the filename format for the downloaded episodes. [`DOCUMENTATION.md`](https://github.com/anidl/multi-downloader-nx/blob/master/docs/DOCUMENTATION.md#--filename) for all available options.
+1. **Filename Overwrite**: This is where you can change the filename format for the downloaded episodes. See [the `--filename` option](./DOCUMENTATION.md#--filename) for all available options.

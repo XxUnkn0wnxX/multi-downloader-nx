@@ -72,11 +72,19 @@ On `develop`, `--token` accepts the Crunchyroll `etp_rt` UUID value directly or 
 
 Keep HTTP/2 scoped to device auth, with the main endpoint first and one warned beta fallback for eligible failures. Pin polling to the issuer and preserve configured proxy routing and existing download transports. Full request diagnostics remain available with `--debug`.
 
-Crunchyroll CLI `--auth` only directs users to `--device`. Keep underlying GUI auth, other services' auth and browser-cookie `--token` support. Device login does not guarantee CBR or an 8,000 kb/s video.
+Crunchyroll CLI `--auth`, `--username`, `--password` and `--silentAuth` direct users to `--device` before updates or login. Keep underlying GUI auth, other services' auth and legacy browser-cookie `--token` support. Device login does not guarantee CBR or an 8,000 kb/s video.
 
 ### Run development checks
 
-The **Style and build test** workflow in [.github/workflows/test.yml](../.github/workflows/test.yml) runs on pushes and pull requests targeting `develop`, with manual dispatch available. Its first job checks TypeScript without emitting files and runs `node tests/crunchy-token-input.mjs` for cookie input, device login, refresh, transport cancellation and GUI failure handling; ESLint, Prettier, and the existing platform packaging checks remain required downstream. Keep this branch-specific workflow adaptation separate from changes intended for the upstream mirror.
+The **Style and build test** workflow in [.github/workflows/test.yml](../.github/workflows/test.yml) runs on pushes and pull requests targeting `develop`, with manual dispatch available. Push/PR workflows skip changes limited to Markdown or `docs/`; mixed code/documentation changes still run. Keep the matching documentation exclusions in the Docker and auto-documentation push workflows; release events and manual dispatch remain available.
+
+The test workflow first checks TypeScript without emitting files and runs `node tests/crunchy-token-input.mjs` for cookie input, device login, refresh, transport cancellation and GUI failure handling; ESLint, Prettier, and the existing platform packaging checks remain required downstream. Keep this branch-specific workflow adaptation separate from changes intended for the upstream mirror.
+
+Keep lockfile-based pnpm download caches separate for root checks and builds that also install GUI dependencies. Cache only verified `pkg` runtime downloads, scoped to OS, architecture and build inputs; keep normal installs and tests on cache misses, and exclude generated applications and `node_modules`.
+
+### Keep documentation links relative
+
+Use relative links for repository files and supported GitHub project navigation, and named Markdown links for external resources. Keep upstream issue/commit provenance links pointed at upstream. The generator in [modules/build-docs.ts](../modules/build-docs.ts) must preserve this behavior and the reference text sourced from CLI option definitions; it writes only [DOCUMENTATION.md](DOCUMENTATION.md). The [README](README.md) and [getting-started guide](GET-STARTED.md) are maintained separately.
 
 ## Already incorporated upstream
 
