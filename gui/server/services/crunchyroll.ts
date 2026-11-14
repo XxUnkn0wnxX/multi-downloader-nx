@@ -13,7 +13,7 @@ class CrunchyHandler extends Base implements MessageHandler {
 	constructor(ws: WebSocketHandler) {
 		super(ws);
 		this.crunchy = new Crunchy();
-		this.crunchy.refreshToken();
+		void this.crunchy.refreshToken();
 		this.initState();
 		this.getDefaults();
 	}
@@ -25,7 +25,7 @@ class CrunchyHandler extends Base implements MessageHandler {
 
 	public async listEpisodes(id: string): Promise<EpisodeListResponse> {
 		this.getDefaults();
-		await this.crunchy.refreshToken(true);
+		if (!(await this.crunchy.refreshToken(true))) return { isOk: false, reason: new Error('Authentication failed') };
 		return { isOk: true, value: (await this.crunchy.listSeriesID(id)).list };
 	}
 
@@ -47,7 +47,7 @@ class CrunchyHandler extends Base implements MessageHandler {
 
 	public async resolveItems(data: ResolveItemsData): Promise<boolean> {
 		this.getDefaults();
-		await this.crunchy.refreshToken(true);
+		if (!(await this.crunchy.refreshToken(true))) return false;
 		console.debug(`Got resolve options: ${JSON.stringify(data)}`);
 		const res = await this.crunchy.downloadFromSeriesID(data.id, data);
 		if (!res.isOk) return res.isOk;
@@ -73,19 +73,18 @@ class CrunchyHandler extends Base implements MessageHandler {
 
 	public async search(data: SearchData): Promise<SearchResponse> {
 		this.getDefaults();
-		await this.crunchy.refreshToken(true);
+		if (!(await this.crunchy.refreshToken(true))) return { isOk: false, reason: new Error('Authentication failed') };
 		if (!data['search-type']) data['search-type'] = 'series';
 		console.debug(`Got search options: ${JSON.stringify(data)}`);
 		const crunchySearch = await this.crunchy.doSearch(data);
 		if (!crunchySearch.isOk) {
-			this.crunchy.refreshToken();
 			return crunchySearch;
 		}
 		return { isOk: true, value: crunchySearch.value };
 	}
 
 	public async checkToken(): Promise<CheckTokenResponse> {
-		if (await this.crunchy.getProfile()) {
+		if ((await this.crunchy.refreshToken(true)) && (await this.crunchy.getProfile())) {
 			return { isOk: true, value: undefined };
 		} else {
 			return { isOk: false, reason: new Error('') };
@@ -98,42 +97,49 @@ class CrunchyHandler extends Base implements MessageHandler {
 
 	public async downloadItem(data: DownloadData) {
 		this.getDefaults();
-		await this.crunchy.refreshToken(true);
-		console.debug(`Got download options: ${JSON.stringify(data)}`);
 		this.setDownloading(true);
-		const _default = yargs.appArgv(this.crunchy.cfg.cli, true);
-		const res = await this.crunchy.downloadFromSeriesID(data.id, {
-			dubLang: data.dubLang,
-			e: data.e
-		});
-		if (res.isOk) {
-			for (const select of res.value) {
-				if (
-					!(await this.crunchy.downloadEpisode(select, {
-						..._default,
-						skipsubs: false,
-						callbackMaker: this.makeProgressHandler.bind(this),
-						q: data.q,
-						fileName: data.fileName,
-						dlsubs: data.dlsubs,
-						dlVideoOnce: data.dlVideoOnce,
-						force: 'y',
-						novids: data.novids,
-						noaudio: data.noaudio,
-						hslang: data.hslang || 'none'
-					}))
-				) {
-					const er = new Error(`Unable to download episode ${data.e} from ${data.id}`);
-					er.name = 'Download error';
-					this.alertError(er);
-				}
+		try {
+			if (!(await this.crunchy.refreshToken(true))) {
+				this.setDownloadQueue(false);
+				this.alertError(new Error('Authentication failed'));
+				return;
 			}
-		} else {
-			this.alertError(res.reason);
+			console.debug(`Got download options: ${JSON.stringify(data)}`);
+			const _default = yargs.appArgv(this.crunchy.cfg.cli, true);
+			const res = await this.crunchy.downloadFromSeriesID(data.id, {
+				dubLang: data.dubLang,
+				e: data.e
+			});
+			if (res.isOk) {
+				for (const select of res.value) {
+					if (
+						!(await this.crunchy.downloadEpisode(select, {
+							..._default,
+							skipsubs: false,
+							callbackMaker: this.makeProgressHandler.bind(this),
+							q: data.q,
+							fileName: data.fileName,
+							dlsubs: data.dlsubs,
+							dlVideoOnce: data.dlVideoOnce,
+							force: 'y',
+							novids: data.novids,
+							noaudio: data.noaudio,
+							hslang: data.hslang || 'none'
+						}))
+					) {
+						const er = new Error(`Unable to download episode ${data.e} from ${data.id}`);
+						er.name = 'Download error';
+						this.alertError(er);
+					}
+				}
+			} else {
+				this.alertError(res.reason);
+			}
+		} finally {
+			this.sendMessage({ name: 'finish', data: undefined });
+			this.setDownloading(false);
+			this.onFinish();
 		}
-		this.sendMessage({ name: 'finish', data: undefined });
-		this.setDownloading(false);
-		this.onFinish();
 	}
 }
 

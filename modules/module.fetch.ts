@@ -10,6 +10,8 @@ const http1Agent = new Agent({
 	allowH2: false
 });
 
+const http2Agent = new Agent({ connections: 16, connect: { preferH2: true }, allowH2: true });
+
 export type FetchParams = Partial<RequestInit & CustomParams>;
 
 export type Params = {
@@ -22,6 +24,7 @@ export type Params = {
 
 type CustomParams = {
 	useProxy: boolean;
+	allowH2: boolean;
 };
 
 type GetDataResponse = {
@@ -58,6 +61,7 @@ export class Req {
 		const options: RequestInit = {
 			method: params.method ? params.method : 'GET'
 		};
+		if (params.signal) options.signal = params.signal;
 		if (params.headers) {
 			options.headers = params.headers;
 		}
@@ -69,30 +73,32 @@ export class Req {
 		}
 
 		// Proxy Handler
-		let dispatcher: Agent | ProxyAgent = http1Agent;
+		let dispatcher: Agent | ProxyAgent = params.allowH2 ? http2Agent : http1Agent;
 		const validProxy = this.argv.proxy ? this.isValidProxyUrl(this.argv.proxy) : false;
 		if ((params.useProxy || this.argv.proxyAll) && this.argv.proxy && validProxy) {
-			dispatcher = new ProxyAgent({
-				uri: this.argv.proxy,
-				connections: 16,
-				connect: { ALPNProtocols: ['http/1.1'] },
-				allowH2: false
-			});
+			dispatcher = new ProxyAgent(
+				params.allowH2
+					? { uri: this.argv.proxy, connections: 16, allowH2: true, requestTls: { allowH2: true, preferH2: true } }
+					: { uri: this.argv.proxy, connections: 16, connect: { ALPNProtocols: ['http/1.1'] }, allowH2: false }
+			);
 		} else if ((params.useProxy || this.argv.proxyAll) && this.argv.proxy && !validProxy) {
 			console.warn('[Fetch] Provided invalid Proxy URL, not proxying traffic.');
 		}
 
 		// Debug
 		if (this.debug) {
+			if (params.allowH2) console.debug(`[DEBUG] HTTP/2 preferred for ${durl}`);
 			console.debug('[DEBUG] FETCH OPTIONS:');
 			console.debug(options);
 		}
 
+		let receivedResponse: Awaited<ReturnType<typeof fetch>> | undefined;
 		try {
 			const res = await fetch(durl, { ...options, dispatcher });
+			receivedResponse = res;
 			if (!res.ok) {
 				console.error(`${res.status}: ${res.statusText}`);
-				const body = await res.text();
+				const body = await res.clone().text();
 				const docTitle = body.match(/<title>(.*)<\/title>/);
 				if (body && docTitle) {
 					// if (docTitle[1] === 'Just a moment...' && durl.includes('crunchyroll') && hasDisplay()) {
@@ -147,15 +153,19 @@ export class Req {
 			} else {
 				console.error(`${error.name}: ${error.res?.statusText || error.message}`);
 			}
-			if (error.res) {
-				const body = await error.res.text();
-				const docTitle = body.match(/<title>(.*)<\/title>/);
-				if (body && docTitle) {
-					console.error(docTitle[1]);
+			if (error.res && !receivedResponse) {
+				try {
+					const body = await error.res.clone().text();
+					const docTitle = body.match(/<title>(.*)<\/title>/);
+					if (body && docTitle) console.error(docTitle[1]);
+				} catch {
+					// Preserve the response even if its error body cannot be read.
 				}
 			}
 			return {
 				ok: false,
+				res: (receivedResponse ?? error.res) as any,
+				headers: params.headers as Record<string, string>,
 				error
 			};
 		}

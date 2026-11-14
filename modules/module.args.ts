@@ -53,14 +53,24 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'auth',
-		describe: 'Enter authentication mode',
+		describe: 'Enter authentication mode (Crunchyroll CLI: use --device)',
 		type: 'boolean',
 		group: 'auth',
 		service: ['all'],
 		docDescribe:
 			'Most of the shows on both services are only accessible if you payed for the service.' +
 			'\nIn order for them to know who you are you are required to log in.' +
-			'\nIf you trigger this command, you will be prompted for the username and password for the selected service',
+			'\nFor Crunchyroll CLI use --device instead. Other services prompt for a username and password.',
+		usage: ''
+	},
+	{
+		name: 'device',
+		describe: 'Log in to Crunchyroll using a device activation code',
+		type: 'boolean',
+		group: 'auth',
+		service: ['crunchy'],
+		docDescribe:
+			'Log in to Crunchyroll with an activation code. The CLI prints the URL and code, waits for browser approval, and saves the device session for automatic refresh.',
 		usage: ''
 	},
 	{
@@ -306,7 +316,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		alias: 'vs',
 		service: ['crunchy'],
 		type: 'string',
-		describe: 'Select a specific Crunchyroll video playback endpoint by device. androidtv provides the best video (CBR).',
+		describe: 'Select a specific Crunchyroll video playback endpoint by device. Availability and quality depend on the service.',
 		choices: [...Object.keys(CrunchyVideoPlayStreams), 'none'],
 		default: {
 			default: 'androidtv'

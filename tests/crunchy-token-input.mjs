@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import output from 'node:console';
 import process from 'node:process';
-import { fileURLToPath, URLSearchParams } from 'node:url';
+import { fileURLToPath, URLSearchParams, URL } from 'node:url';
 import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import ts from 'typescript';
 
+const { AbortController, Response, setTimeout, clearTimeout, atob } = globalThis;
 const require = createRequire(import.meta.url);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'anidl-token-input-'));
@@ -27,11 +29,16 @@ try {
 		}).outputText;
 		const exports = {};
 		const module = { exports };
-		vm.runInNewContext(code, { exports, module, require: requireFn, process, console: output, URLSearchParams, Error, ...extra }, { filename: file });
+		vm.runInNewContext(
+			code,
+			{ exports, module, require: requireFn, process, console: output, URL, URLSearchParams, Error, AbortController, setTimeout, clearTimeout, atob, ...extra },
+			{ filename: file }
+		);
 		return module.exports;
 	}
 	const realHelper = compile(path.join(root, 'modules/module.crunchy-token.ts'), (id) => require(id));
 	const { parseCrunchyTokenInput } = realHelper;
+	const deviceHelper = compile(path.join(root, 'modules/module.crunchy-device-auth.ts'), (id) => require(id));
 	const same = (actual, expected) => assert.deepEqual(JSON.parse(JSON.stringify(actual)), expected);
 	const sourceError = (input, source, fragment) => {
 		try {
@@ -80,17 +87,19 @@ try {
 	await test('rejects conflicting matching etp_rt rows', () => sourceError(conflictPath, 'cookies file', /conflicting/));
 
 	const logs = [];
-	const fakeConsole = Object.fromEntries(['info', 'warn', 'error'].map((method) => [method, (...args) => logs.push([method, args.map(String).join(' ')])]));
+	const fakeConsole = Object.fromEntries(['info', 'warn', 'error', 'debug'].map((method) => [method, (...args) => logs.push([method, args.map(String).join(' ')])]));
 	const api = { auth: 'auth', profile: 'profile', cms_auth: 'cms', crunchyWebAuthHeader: {}, crunchyDefHeader: {} };
 	const saved = [];
 	let parsedArgv = {};
 	const stubs = {
 		'./package.json': { version: 'test' },
 		'./modules/log': { console: fakeConsole },
-		'./modules/module.api-urls': { domain: {}, api },
-		'./modules/module.cfg-loader': { saveCRToken: (token) => saved.push(token), loadCfg: () => ({ cli: {} }), loadBinCfg: async () => ({}) },
+		'./modules/module.api-urls': { domain: { cr_www: 'https://www.crunchyroll.com', cr_api: 'https://beta-api.crunchyroll.com' }, api },
+		'./modules/module.cfg-loader': { saveCRToken: (token) => saved.push(token), saveCRTokenAtomic: () => true, loadCfg: () => ({ cli: {} }), loadBinCfg: async () => ({}) },
 		'./modules/module.app-args': { appArgv: () => parsedArgv },
 		'./modules/module.crunchy-token': realHelper,
+		'./modules/module.crunchy-device-auth': deviceHelper,
+		'./@types/enums': { CrunchyVideoPlayStreams: { androidtv: 'androidtv', chrome: 'chrome' } },
 		'node:crypto': { randomUUID: () => 'device-id' }
 	};
 	const ignoredImports = new Set([
@@ -192,6 +201,1079 @@ try {
 		assert.equal(process.exitCode, 1);
 		assert(logs.some(([kind, line]) => kind === 'error' && line.includes('Expected a UUID-shaped')));
 		process.exitCode = undefined;
+	});
+
+	await test('device helper polls milliseconds and sends Android TV identity', async () => {
+		let now = 0;
+		const messages = [],
+			calls = [],
+			sleeps = [];
+		const token = { access_token: 'a', refresh_token: 'r', expires_in: 3600 };
+		const result = await deviceHelper.requestDeviceToken({
+			authUrl: 'https://example.invalid/auth/v1/token',
+			headers: { Authorization: 'Basic test' },
+			deviceId: 'uuid',
+			signal: new AbortController().signal,
+			debug: true,
+			log: (line) => messages.push(line),
+			now: () => now,
+			sleep: async (ms) => {
+				sleeps.push(ms);
+				now += ms;
+			},
+			request: async (url, options) => {
+				calls.push({ url, options });
+				if (calls.length === 1) return { ok: true, res: { status: 200, json: async () => ({ user_code: 'AbCd', device_code: 'code', interval: 500, expires_in: 300 }) } };
+				if (calls.length === 2) return { ok: true, res: { status: 204 } };
+				return { ok: true, res: { status: 200, json: async () => token } };
+			}
+		});
+		assert.equal(result, token);
+		same(sleeps, [500, 500]);
+		same(JSON.parse(calls[1].options.body), { device_code: 'code', device_id: 'uuid', device_name: 'ANDROIDTV 3.76.0', device_type: 'ANDROIDTV' });
+		assert(messages.indexOf('https://crunchyroll.com/activate') < messages.indexOf('Code: AbCd'));
+		assert(messages.some((s) => s.includes('response: 204')));
+	});
+	await test('device polling bounds transient errors and supports cancellation', async () => {
+		let now = 0,
+			calls = 0;
+		const messages = [],
+			controller = new AbortController();
+		const common = {
+			authUrl: 'https://example.invalid/auth/v1/token',
+			headers: {},
+			deviceId: 'uuid',
+			signal: controller.signal,
+			debug: false,
+			log: (line) => messages.push(line),
+			now: () => now,
+			sleep: async (ms) => {
+				now += ms;
+			},
+			request: async () => (++calls === 1 ? { ok: true, res: { json: async () => ({ user_code: 'X', device_code: 'Y', interval: 500, expires_in: 300 }) } } : { ok: false })
+		};
+		assert.equal(await deviceHelper.requestDeviceToken(common), undefined);
+		assert.equal(calls, 5);
+		assert(messages.some((s) => s.includes('repeated temporary')));
+		now = 0;
+		calls = 0;
+		assert.equal(await deviceHelper.requestDeviceToken({ ...common, sleep: async () => controller.abort() }), undefined);
+		assert.equal(calls, 1);
+	});
+	await test('device login stages profile, CMS and disk writes before replacing the previous session', async () => {
+		const original = deviceHelper.requestDeviceToken;
+		deviceHelper.requestDeviceToken = async () => ({ access_token: 'new', refresh_token: 'new-refresh', expires_in: 3600 });
+		try {
+			for (const failure of ['profile', 'cms', 'disk']) {
+				const { service } = makeService({});
+				const old = { access_token: 'old' },
+					oldCMS = { cms: { bucket: '/old' } };
+				service.token = old;
+				service.cmsToken = oldCMS;
+				service.getProfile = async () => failure !== 'profile';
+				service.getCMStoken = async () => {
+					service.cmsToken = { cms: { bucket: '/new' } };
+					return failure !== 'cms';
+				};
+				stubs['./modules/module.cfg-loader'].saveCRTokenAtomic = () => failure !== 'disk';
+				assert.equal(await service.loginWithDevice(new AbortController().signal), false);
+				assert.equal(service.token, old);
+				assert.equal(service.cmsToken, oldCMS);
+			}
+			const { service } = makeService({});
+			service.getProfile = async () => true;
+			service.getCMStoken = async () => true;
+			stubs['./modules/module.cfg-loader'].saveCRTokenAtomic = () => true;
+			assert.equal(await service.loginWithDevice(new AbortController().signal), true);
+			assert.equal(service.token.auth_type, 'device');
+			assert.equal(service.token.device_name, 'ANDROIDTV 3.76.0');
+		} finally {
+			deviceHelper.requestDeviceToken = original;
+		}
+	});
+	await test('device login sends the native Basic credentials and TV agent without legacy Host on both requests', async () => {
+		const original = deviceHelper.requestDeviceToken;
+		const previous = { ...api };
+		let now = 0;
+		const requests = [];
+		api.auth = 'https://beta-api.crunchyroll.com/auth/v1/token';
+		api.basic_auth_token = Buffer.from('tv-client:tv-secret').toString('base64');
+		api.crunchyDefUserAgent = 'Crunchyroll/ANDROIDTV/3.76.0_test';
+		api.crunchyAuthHeader = { Host: 'www.crunchyroll.com' };
+		deviceHelper.requestDeviceToken = (options) =>
+			original({
+				...options,
+				now: () => now,
+				sleep: async (ms) => {
+					now += ms;
+				}
+			});
+		try {
+			const { service } = makeService({});
+			service.req.getData = async (url, options) => {
+				requests.push({ url, options });
+				return requests.length === 1
+					? jsonResponse({ user_code: 'AbC', device_code: 'transaction', interval: 500, expires_in: 300 })
+					: jsonResponse({ access_token: 'access', refresh_token: 'refresh', expires_in: 300 });
+			};
+			service.getProfile = async () => true;
+			service.getCMStoken = async () => true;
+			stubs['./modules/module.cfg-loader'].saveCRTokenAtomic = () => true;
+			assert.equal(await service.loginWithDevice(new AbortController().signal), true);
+			assert.equal(requests.length, 2);
+			assert.equal(requests[0].url, 'https://www.crunchyroll.com/auth/v1/device/code');
+			assert.equal(requests[1].url, 'https://www.crunchyroll.com/auth/v1/device/token');
+			for (const { options } of requests) {
+				assert.equal(options.headers.Authorization, `Basic ${api.basic_auth_token}`);
+				assert.equal(options.headers['User-Agent'], deviceHelper.DEVICE_USER_AGENT);
+				assert.equal(options.allowH2, true);
+				assert.equal(options.headers.Accept, 'application/json');
+				assert.equal(
+					Object.keys(options.headers).some((key) => key.toLowerCase() === 'host'),
+					false
+				);
+			}
+			assert.equal(service.token.device_user_agent, deviceHelper.DEVICE_USER_AGENT);
+			assert.equal(requests[0].options.headers['Content-Type'], undefined);
+			assert.equal(requests[1].options.headers['Content-Type'], 'application/json');
+		} finally {
+			deviceHelper.requestDeviceToken = original;
+			for (const key of Object.keys(api)) delete api[key];
+			Object.assign(api, previous);
+		}
+	});
+	await test('single-flight rotation is persisted before later CMS failure', async () => {
+		const { service } = makeService({});
+		service.token = { auth_type: 'device', device_id: 'uuid', device_name: 'ANDROIDTV 3.76.0', refresh_token: 'old', expires: 0 };
+		api.basic_auth_token = Buffer.from('client:secret').toString('base64');
+		api.crunchyAuthHeader = {};
+		let calls = 0,
+			savedToken;
+		service.req.getData = async () => {
+			calls++;
+			await Promise.resolve();
+			return { ok: true, res: { headers: { get: () => null }, json: async () => ({ access_token: 'new', refresh_token: 'rotated', expires_in: 3600 }) } };
+		};
+		stubs['./modules/module.cfg-loader'].saveCRTokenAtomic = (token) => {
+			savedToken = { ...token };
+			return true;
+		};
+		service.getProfile = async () => true;
+		service.getCMStoken = async () => false;
+		const results = await Promise.all([service.refreshToken(), service.refreshToken(true)]);
+		same(results, [false, false]);
+		assert.equal(calls, 1);
+		assert.equal(savedToken.refresh_token, 'rotated');
+		assert.equal(service.token.refresh_token, 'rotated');
+		assert.equal(service.token.auth_type, 'device');
+	});
+	await test('CLI blocks credential conflicts and legacy auth without a prompt', async () => {
+		for (const argv of [{ auth: true }, { device: true, token: 'token' }, { silentAuth: true, device: true }]) {
+			parsedArgv = argv;
+			const { service, calls } = makeService({});
+			assert.equal(await service.cli(), false);
+			assert.equal(calls.length, 0);
+		}
+		process.exitCode = undefined;
+	});
+
+	await test('real transport forwards abort signals and preserves rejected response bodies', async () => {
+		let seen;
+		const { Req } = compile(path.join(root, 'modules/module.fetch.ts'), (id) => {
+			if (id === './module.cfg-loader') return { loadCfg: () => ({ cli: {} }) };
+			if (id === './module.app-args') return { appArgv: () => ({ debug: true }) };
+			if (id === './log') return { console: fakeConsole };
+			if (id === 'undici')
+				return {
+					Agent: class {},
+					ProxyAgent: class {},
+					fetch: async (url, options) => {
+						seen = { url, options };
+						return new Response('{"error":"invalid_grant"}', { status: 400 });
+					}
+				};
+			throw new Error(`Unexpected transport import ${id}`);
+		});
+		const controller = new AbortController();
+		const result = await new Req().getData('https://example.invalid/auth', { method: 'POST', signal: controller.signal });
+		assert.equal(seen.options.signal, controller.signal);
+		assert.equal((await result.res.json()).error, 'invalid_grant');
+		assert(logs.some(([kind, line]) => kind === 'debug' && line.includes('FETCH OPTIONS')));
+	});
+	await test('device flow rejects malformed initiation, expires, and cancels an in-flight request', async () => {
+		let calls = 0,
+			now = 0,
+			messages = [];
+		const controller = new AbortController();
+		const common = {
+			authUrl: 'https://example.invalid/auth/v1/token',
+			headers: {},
+			deviceId: 'uuid',
+			signal: controller.signal,
+			debug: false,
+			log: (line) => messages.push(line),
+			now: () => now,
+			sleep: async (ms) => {
+				now += ms;
+			}
+		};
+		assert.equal(
+			await deviceHelper.requestDeviceToken({
+				...common,
+				request: async () => {
+					calls++;
+					return jsonResponse({ user_code: 'bad' });
+				}
+			}),
+			undefined
+		);
+		assert.equal(calls, 1);
+		calls = 0;
+		const start = () => jsonResponse({ user_code: 'X', device_code: 'Y', interval: 500, expires_in: 1 });
+		assert.equal(await deviceHelper.requestDeviceToken({ ...common, request: async () => (++calls === 1 ? start() : { ok: true, res: { status: 204 } }) }), undefined);
+		assert.equal(calls, 2);
+		assert(messages.some((s) => s.includes('expired')));
+		calls = 0;
+		now = 0;
+		messages = [];
+		assert.equal(
+			await deviceHelper.requestDeviceToken({
+				...common,
+				log: (s) => messages.push(s),
+				request: async (url, options) => {
+					if (++calls === 1) return start();
+					return new Promise((resolve) => {
+						options.signal.addEventListener('abort', () => resolve({ ok: false }), { once: true });
+						controller.abort();
+					});
+				}
+			}),
+			undefined
+		);
+		assert(messages.some((s) => s.includes('cancelled')));
+	});
+	await test('failed refresh stops actual CLI and list consumers', async () => {
+		const { service, calls } = makeService({});
+		service.refreshToken = async () => false;
+		service.parseSeriesById = async () => {
+			throw new Error('protected request reached');
+		};
+		parsedArgv = { search: 'query', locale: 'en-US' };
+		assert.equal(await service.cli(), false);
+		assert.deepEqual(JSON.parse(JSON.stringify(await service.listSeriesID('series'))), { data: {}, list: [] });
+		assert.equal(calls.length, 0);
+	});
+
+	await test('device refresh distinguishes explicit rejection from transient and malformed responses', async () => {
+		for (const [response, expected] of [
+			[{ ok: false, res: { status: 400, json: async () => ({ error: 'invalid_grant' }) } }, 'use --device'],
+			[{ ok: false, res: { status: 503, json: async () => ({ error: 'invalid_grant' }) } }, 'retry later'],
+			[
+				{
+					ok: false,
+					res: {
+						status: 400,
+						json: async () => {
+							throw new Error('HTML');
+						}
+					}
+				},
+				'retry later'
+			]
+		]) {
+			logs.length = 0;
+			const { service } = makeService({});
+			const old = { auth_type: 'device', device_id: 'uuid', refresh_token: 'old', expires: 0 };
+			service.token = old;
+			service.req.getData = async () => response;
+			assert.equal(await service.refreshToken(), false);
+			assert.equal(service.token, old);
+			assert(logs.some(([, line]) => line.includes(expected)));
+		}
+	});
+	await test('GUI failures stop requests and always finish download state', async () => {
+		let calls = 0,
+			finished = 0;
+		class FakeCrunchy {
+			constructor() {
+				this.cfg = { cli: {} };
+			}
+			async refreshToken() {
+				return false;
+			}
+			async downloadFromSeriesID() {
+				calls++;
+			}
+			async doSearch() {
+				calls++;
+			}
+		}
+		class FakeBase {
+			initState() {}
+			setDownloadQueue() {}
+			setDownloading(value) {
+				this.states.push(value);
+			}
+			alertError() {}
+			sendMessage(message) {
+				if (message.name === 'finish') finished++;
+			}
+			onFinish() {}
+		}
+		const { default: Handler } = compile(path.join(root, 'gui/server/services/crunchyroll.ts'), (id) => {
+			if (id === '../../../crunchy') return { default: FakeCrunchy, __esModule: true };
+			if (id === './base') return { default: FakeBase, __esModule: true };
+			if (id === '../../../modules/module.app-args') return { appArgv: () => ({ locale: 'en-US' }) };
+			if (id === '../../../modules/module.args') return {};
+			if (id === '../../../modules/module.langsData') return {};
+			if (id === '../../../modules/log') return { console: fakeConsole };
+			throw new Error(`Unexpected GUI import ${id}`);
+		});
+		const handler = new Handler({});
+		handler.states = [];
+		assert.equal((await handler.search({})).isOk, false);
+		assert.equal(await handler.resolveItems({ id: 'series' }), false);
+		await handler.downloadItem({ id: 'series' });
+		same(handler.states, [true, false]);
+		assert.equal(finished, 1);
+		assert.equal(calls, 0);
+	});
+
+	await test('device initiation times out without automatically requesting another code', async () => {
+		let timer,
+			requests = 0;
+		const helper = compile(path.join(root, 'modules/module.crunchy-device-auth.ts'), (id) => require(id), {
+			setTimeout: (fn, ms) => {
+				assert.equal(ms, 30000);
+				timer = fn;
+				return 1;
+			},
+			clearTimeout: () => {}
+		});
+		const messages = [];
+		const result = await helper.requestDeviceToken({
+			authUrl: 'https://example.invalid/auth/v1/token',
+			headers: {},
+			deviceId: 'uuid',
+			signal: new AbortController().signal,
+			debug: false,
+			log: (s) => messages.push(s),
+			request: async (url, options) => {
+				requests++;
+				return new Promise((resolve) => {
+					options.signal.addEventListener('abort', () => resolve({ ok: false }), { once: true });
+					timer();
+				});
+			}
+		});
+		assert.equal(result, undefined);
+		assert.equal(requests, 1);
+		assert(messages.some((line) => line.includes('timed out')));
+	});
+
+	await test('native refresh retains an omitted refresh token and rejects malformed explicit values', async () => {
+		for (const [refresh, expected] of [
+			[undefined, true],
+			['', false],
+			[null, false],
+			[42, false]
+		]) {
+			const { service } = makeService({});
+			const old = { auth_type: 'device', device_id: 'uuid', device_name: 'ANDROIDTV 3.76.0', device_type: 'ANDROIDTV', refresh_token: 'old', expires: 0 };
+			service.token = old;
+			const body = { access_token: 'new', expires_in: 3600 };
+			if (refresh !== undefined) body.refresh_token = refresh;
+			service.req.getData = async () => ({ ok: true, res: { headers: { get: () => null }, json: async () => body } });
+			service.getProfile = async () => true;
+			service.getCMStoken = async () => true;
+			let saved;
+			stubs['./modules/module.cfg-loader'].saveCRTokenAtomic = (token) => {
+				saved = { ...token };
+				return true;
+			};
+			assert.equal(await service.refreshToken(), expected);
+			if (expected) {
+				assert.equal(saved.refresh_token, 'old');
+				assert.equal(saved.device_name, 'ANDROIDTV 3.76.0');
+			} else assert.equal(service.token, old);
+		}
+	});
+	await test('candidate profile and CMS requests receive cancellation and restore prior state', async () => {
+		const original = deviceHelper.requestDeviceToken;
+		deviceHelper.requestDeviceToken = async () => ({ access_token: 'new', refresh_token: 'r', expires_in: 3600 });
+		try {
+			for (const cancelledAt of ['profile', 'cms']) {
+				const { service } = makeService({});
+				const controller = new AbortController();
+				const old = { access_token: 'old' },
+					oldCMS = { cms: { bucket: '/old' } };
+				service.token = old;
+				service.cmsToken = oldCMS;
+				service.req.getData = async (url, options) => {
+					assert(options.signal);
+					if (url === cancelledAt)
+						return new Promise((resolve) => {
+							options.signal.addEventListener('abort', () => resolve({ ok: false }), { once: true });
+							controller.abort();
+						});
+					return jsonResponse({ username: 'name', email: 'test@example.invalid' });
+				};
+				assert.equal(await service.loginWithDevice(controller.signal), false);
+				assert.equal(service.token, old);
+				assert.equal(service.cmsToken, oldCMS);
+			}
+		} finally {
+			deviceHelper.requestDeviceToken = original;
+		}
+	});
+	await test('atomic token replacement preserves existing file after rename failure and owns cleanup', () => {
+		const isolated = path.join(work, 'isolated-config');
+		fs.mkdirSync(path.join(isolated, 'config'), { recursive: true });
+		const target = path.join(isolated, 'config', 'cr_token.yml');
+		fs.writeFileSync(target, 'original bytes');
+		let failRename = true,
+			collide = false,
+			collisionPath;
+		const fileApi = {
+			...fs,
+			openSync: (name, ...args) => {
+				if (collide) {
+					collisionPath = name;
+					fs.writeFileSync(name, 'other owner');
+				}
+				return fs.openSync(name, ...args);
+			},
+			renameSync: (...args) => {
+				if (failRename) throw new Error('injected rename failure');
+				return fs.renameSync(...args);
+			}
+		};
+		const cfg = compile(
+			path.join(root, 'modules/module.cfg-loader.ts'),
+			(id) => {
+				if (id === 'dotenv/config') return {};
+				if (id === 'fs') return fileApi;
+				if (id === './log') return { console: fakeConsole };
+				return require(id);
+			},
+			{ __dirname: root, process: { ...process, pid: process.pid, env: { contentDirectory: isolated } } }
+		);
+		assert.equal(cfg.saveCRTokenAtomic({ access_token: 'new' }), false);
+		assert.equal(fs.readFileSync(target, 'utf8'), 'original bytes');
+		same(fs.readdirSync(path.dirname(target)), ['cr_token.yml']);
+		collide = true;
+		assert.equal(cfg.saveCRTokenAtomic({ access_token: 'new' }), false);
+		assert.equal(fs.readFileSync(collisionPath, 'utf8'), 'other owner');
+		fs.unlinkSync(collisionPath);
+		collide = false;
+		failRename = false;
+		assert.equal(cfg.saveCRTokenAtomic({ access_token: 'new' }), true);
+		assert.equal(require('yaml').parse(fs.readFileSync(target, 'utf8')).access_token, 'new');
+		same(fs.readdirSync(path.dirname(target)), ['cr_token.yml']);
+	});
+	await test('device initiation rejects unrepresentable timers and pre-aborted calls', async () => {
+		let requests = 0;
+		const controller = new AbortController();
+		const common = { authUrl: 'https://example.invalid/auth/v1/token', headers: {}, deviceId: 'uuid', signal: controller.signal, debug: false, log: () => {} };
+		controller.abort();
+		assert.equal(
+			await deviceHelper.requestDeviceToken({
+				...common,
+				request: async () => {
+					requests++;
+					return { ok: false };
+				}
+			}),
+			undefined
+		);
+		assert.equal(requests, 0);
+		for (const values of [
+			{ expires_in: 2147483.648, interval: 500 },
+			{ expires_in: 300, interval: 2147483648 },
+			{ expires_in: 300, interval: 0.5 }
+		]) {
+			const messages = [];
+			assert.equal(
+				await deviceHelper.requestDeviceToken({
+					...common,
+					signal: new AbortController().signal,
+					log: (s) => messages.push(s),
+					request: async () => jsonResponse({ user_code: 'A', device_code: 'B', ...values })
+				}),
+				undefined
+			);
+			assert(!messages.includes('https://crunchyroll.com/activate'));
+		}
+	});
+
+	await test('candidate validation deadline aborts the in-flight request', async () => {
+		let timeout;
+		const { default: TimedCrunchy } = compile(path.join(root, 'crunchy.ts'), requireCrunchy, {
+			setTimeout: (fn, ms) => {
+				assert.equal(ms, 30000);
+				timeout = fn;
+				return 1;
+			},
+			clearTimeout: () => {}
+		});
+		const original = deviceHelper.requestDeviceToken;
+		deviceHelper.requestDeviceToken = async () => ({ access_token: 'new', refresh_token: 'r', expires_in: 3600 });
+		try {
+			const service = Object.create(TimedCrunchy.prototype),
+				old = { access_token: 'old' },
+				oldCMS = {};
+			service.token = old;
+			service.cmsToken = oldCMS;
+			service.req = {
+				getData: async (url, options) =>
+					new Promise((resolve) => {
+						options.signal.addEventListener('abort', () => resolve({ ok: false }), { once: true });
+						timeout();
+					})
+			};
+			assert.equal(await service.loginWithDevice(new AbortController().signal), false);
+			assert.equal(service.token, old);
+			assert.equal(service.cmsToken, oldCMS);
+		} finally {
+			deviceHelper.requestDeviceToken = original;
+		}
+	});
+
+	await test('real GUI queue pauses after authentication failure and retains remaining items', async () => {
+		const state = { services: { crunchy: { queue: [{ id: 'first' }, { id: 'second' }, { id: 'third' }] } } };
+		let attempts = 0;
+		class FakeCrunchy {
+			constructor() {
+				this.cfg = { cli: {} };
+			}
+			async refreshToken(ifNeeded) {
+				if (ifNeeded) attempts++;
+				return false;
+			}
+		}
+		const { default: Base } = compile(path.join(root, 'gui/server/services/base.ts'), (id) => {
+			if (id === 'open') return { default: () => {}, __esModule: true };
+			if (id === '..') return { cfg: { dir: {} } };
+			if (id === 'path') return require(id);
+			if (id === '../../../modules/log') return { console: fakeConsole };
+			if (id === '../../../modules/module.cfg-loader') return { getState: () => state, setState: () => {} };
+			if (id === '../../../package.json') return { version: 'test' };
+			throw new Error(`Unexpected Base import ${id}`);
+		});
+		const { default: Handler } = compile(path.join(root, 'gui/server/services/crunchyroll.ts'), (id) => {
+			if (id === '../../../crunchy') return { default: FakeCrunchy, __esModule: true };
+			if (id === './base') return { default: Base, __esModule: true };
+			if (id === '../../../modules/module.app-args') return { appArgv: () => ({ locale: 'en-US' }) };
+			if (id === '../../../modules/module.args' || id === '../../../modules/module.langsData') return {};
+			if (id === '../../../modules/log') return { console: fakeConsole };
+			throw new Error(`Unexpected GUI import ${id}`);
+		});
+		const handler = new Handler({ sendMessage: () => {} });
+		handler.setDownloadQueue(true);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		assert.equal(attempts, 1);
+		assert.equal(await handler.getDownloadQueue(), false);
+		same(
+			(await handler.getQueue()).map((item) => item.id),
+			['second', 'third']
+		);
+		assert.equal(await handler.isDownloading(), false);
+	});
+	await test('actual entry point propagates Crunchy failures, stops archive, and rejects other-provider device before update', async () => {
+		for (const scenario of [
+			{ argv: { service: 'crunchy' }, result: false, expectedCalls: 1, exit: 1, updates: 1 },
+			{ argv: { service: 'crunchy', downloadArchive: true }, result: false, expectedCalls: 1, exit: 1, updates: 1 },
+			{ argv: { service: 'hidive', downloadArchive: true }, result: false, expectedCalls: 2, exit: undefined, updates: 1 },
+			{ argv: { service: 'hidive', device: true }, result: true, expectedCalls: 0, exit: 1, updates: 0 }
+		]) {
+			let calls = 0,
+				updates = 0;
+			const fakeProcess = {
+				exitCode: undefined,
+				exit: () => {
+					throw new Error('unexpected exit');
+				}
+			};
+			class Provider {
+				async cli() {
+					calls++;
+					return scenario.result;
+				}
+			}
+			compile(
+				path.join(root, 'index.ts'),
+				(id) => {
+					if (id === './modules/log') return { console: fakeConsole };
+					if (id === './modules/module.app-args') return { appArgv: () => scenario.argv, overrideArguments: () => {} };
+					if (id === './modules/module.cfg-loader') return { loadCfg: () => ({ cli: {} }) };
+					if (id === './modules/module.downloadArchive') return { makeCommand: () => ['first', 'second'], addToArchive: () => {} };
+					if (['./crunchy', './hidive', './adn'].includes(id)) return { default: Provider, __esModule: true };
+					if (id === './modules/module.updater')
+						return {
+							default: async () => {
+								updates++;
+							},
+							__esModule: true
+						};
+					if (id === './modules/module.crunchy-device-auth') return deviceHelper;
+					throw new Error(`Unexpected index import ${id}`);
+				},
+				{ process: fakeProcess }
+			);
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			assert.equal(calls, scenario.expectedCalls);
+			assert.equal(fakeProcess.exitCode, scenario.exit);
+			assert.equal(updates, scenario.updates);
+		}
+	});
+	await test('device polling stops immediately on rate limit', async () => {
+		let calls = 0,
+			now = 0;
+		const messages = [];
+		const result = await deviceHelper.requestDeviceToken({
+			authUrl: 'https://example.invalid/auth/v1/token',
+			headers: {},
+			deviceId: 'uuid',
+			signal: new AbortController().signal,
+			debug: false,
+			log: (s) => messages.push(s),
+			now: () => now,
+			sleep: async (ms) => {
+				now += ms;
+			},
+			request: async () => (++calls === 1 ? jsonResponse({ user_code: 'A', device_code: 'B', expires_in: 300, interval: 500 }) : { ok: false, res: { status: 429 } })
+		});
+		assert.equal(result, undefined);
+		assert.equal(calls, 2);
+		assert(messages.some((message) => message.includes('Retry later')));
+	});
+
+	await test('actual transport selects cached direct agents and proxy target TLS according to per-request preference', async () => {
+		const agents = [],
+			proxies = [],
+			dispatched = [];
+		let argv = { debug: true };
+		const { Req } = compile(path.join(root, 'modules/module.fetch.ts'), (id) => {
+			if (id === './module.cfg-loader') return { loadCfg: () => ({ cli: {} }) };
+			if (id === './module.app-args') return { appArgv: () => argv };
+			if (id === './log') return { console: fakeConsole };
+			if (id === 'undici')
+				return {
+					Agent: class {
+						constructor(options) {
+							this.options = options;
+							agents.push(this);
+						}
+					},
+					ProxyAgent: class {
+						constructor(options) {
+							this.options = options;
+							proxies.push(this);
+						}
+					},
+					fetch: async (url, options) => {
+						dispatched.push(options.dispatcher);
+						return new Response('ok');
+					}
+				};
+			throw new Error(`Unexpected transport import ${id}`);
+		});
+		const direct = new Req();
+		await direct.getData('https://example.invalid/default');
+		await direct.getData('https://example.invalid/h2', { allowH2: true });
+		await direct.getData('https://example.invalid/h2again', { allowH2: true });
+		assert.equal(dispatched[0], agents[0]);
+		assert.equal(dispatched[1], agents[1]);
+		assert.equal(dispatched[2], agents[1]);
+		same(agents[0].options, { connections: 16, connect: { ALPNProtocols: ['http/1.1'] }, allowH2: false });
+		same(agents[1].options, { connections: 16, connect: { preferH2: true }, allowH2: true });
+		argv = { proxy: 'http://proxy.invalid:8080', debug: true };
+		const proxy = new Req();
+		await proxy.getData('https://example.invalid/default', { useProxy: true });
+		await proxy.getData('https://example.invalid/h2', { useProxy: true, allowH2: true });
+		assert.equal(dispatched[3], proxies[0]);
+		assert.equal(dispatched[4], proxies[1]);
+		same(proxies[0].options, { uri: argv.proxy, connections: 16, connect: { ALPNProtocols: ['http/1.1'] }, allowH2: false });
+		same(proxies[1].options, { uri: argv.proxy, connections: 16, allowH2: true, requestTls: { allowH2: true, preferH2: true } });
+		assert(logs.some(([, line]) => line.includes('HTTP/2 preferred for https://example.invalid/h2')));
+	});
+	await test('device refresh uses official H2 auth and retained UA for profile CMS and playback', async () => {
+		const { service, calls } = makeService({});
+		const deviceUA = 'stored device agent';
+		service.token = {
+			auth_type: 'device',
+			device_id: 'uuid',
+			device_name: 'ANDROIDTV 3.76.0',
+			device_type: 'ANDROIDTV',
+			device_user_agent: deviceUA,
+			refresh_token: 'old',
+			expires: 0
+		};
+		service.cmsToken = {};
+		service.cfg.bin = { ffmpeg: 'ffmpeg' };
+		api.basic_auth_token = Buffer.from('client:secret').toString('base64');
+		api.crunchyDefHeader = { 'User-Agent': 'legacy agent' };
+		let persisted;
+		stubs['./modules/module.cfg-loader'].saveCRTokenAtomic = (token) => {
+			persisted = { ...token };
+			return true;
+		};
+		service.req.getData = async (url, options) => {
+			calls.push({ url, options });
+			if (url.endsWith('/auth/v1/token')) return { ok: true, res: { json: async () => ({ access_token: 'new', refresh_token: 'rotated', expires_in: 3600 }) } };
+			if (url === 'profile') return jsonResponse({ username: 'test', email: 'test@example.invalid' });
+			if (url === 'cms') return jsonResponse({ cms: { bucket: '/US', expires: new Date(Date.now() + 3600000).toISOString() } });
+			throw new Error('captured playback');
+		};
+		assert.equal(await service.refreshToken(), true);
+		assert.equal(calls[0].url, 'https://www.crunchyroll.com/auth/v1/token');
+		assert.equal(calls[0].options.allowH2, true);
+		assert.equal(calls[0].options.useProxy, true);
+		assert.equal(calls[0].options.headers['User-Agent'], deviceUA);
+		assert.equal(calls[0].options.headers.Accept, 'application/json');
+		assert.equal(calls[0].options.headers['Content-Type'], 'application/x-www-form-urlencoded; charset=UTF-8');
+		assert.equal(calls[0].options.headers.Authorization, undefined);
+		const form = new URLSearchParams(calls[0].options.body);
+		assert.equal(form.get('client_id'), 'client');
+		assert.equal(form.get('client_secret'), 'secret');
+		assert.equal(persisted.device_user_agent, deviceUA);
+		assert.equal(service.token.device_user_agent, deviceUA);
+		for (const call of calls.slice(1)) {
+			assert.equal(call.options.headers['User-Agent'], deviceUA);
+			assert.equal(call.options.allowH2, undefined);
+		}
+		await assert.rejects(
+			service.downloadMediaList({ data: [{ mediaId: 'episode', playback: 'available' }] }, { vstream: 'androidtv', astream: 'androidtv' }),
+			/captured playback/
+		);
+		const playback = calls.at(-1);
+		assert(playback.url.includes('/play?queue=0'));
+		assert.equal(playback.options.headers['User-Agent'], deviceUA);
+		assert.equal(playback.options.allowH2, undefined);
+	});
+	await test('legacy native and web refresh keep existing endpoints and transport', async () => {
+		const previous = { ...api };
+		try {
+			api.auth = 'https://beta-api.crunchyroll.com/auth/v1/token';
+			api.basic_auth_token = Buffer.from('client:secret').toString('base64');
+			api.crunchyAuthHeader = { Host: 'legacy', 'User-Agent': 'native' };
+			api.crunchyWebAuthHeader = { 'User-Agent': 'web' };
+			for (const mode of ['native', 'web']) {
+				const { service, calls } = makeService({});
+				service.token = { auth_type: mode, device_id: 'uuid', refresh_token: 'old', expires: 0 };
+				service.req.getData = async (url, options) => {
+					calls.push({ url, options });
+					return { ok: true, res: { headers: { get: () => null }, json: async () => ({ access_token: 'a', refresh_token: 'b', expires_in: 3600 }) } };
+				};
+				service.getProfile = async () => true;
+				service.getCMStoken = async () => true;
+				assert.equal(await service.refreshToken(), true);
+				assert.equal(calls[0].url, api.auth);
+				assert.equal(calls[0].options.allowH2, undefined);
+				assert.equal(calls[0].options.headers['User-Agent'], mode === 'web' ? 'web' : 'native');
+			}
+		} finally {
+			for (const key of Object.keys(api)) delete api[key];
+			Object.assign(api, previous);
+		}
+	});
+
+	await test('eligible initiation failures use one warned beta attempt and pin polling to the issuer', async () => {
+		for (const failure of [
+			{ ok: false },
+			{ ok: false, res: new Response('failure', { status: 503 }) },
+			{ ok: false, res: new Response('<html>Cloudflare challenge cf-chl-test</html>', { status: 403 }) }
+		]) {
+			let now = 0;
+			const calls = [],
+				warnings = [],
+				messages = [];
+			const result = await deviceHelper.requestDeviceToken({
+				authUrl: 'https://www.crunchyroll.com/auth/v1/token',
+				fallbackAuthUrl: 'https://beta-api.crunchyroll.com/auth/v1/token',
+				headers: {},
+				deviceId: 'uuid',
+				signal: new AbortController().signal,
+				debug: false,
+				log: (s) => messages.push(s),
+				warn: (s) => warnings.push(s),
+				now: () => now,
+				sleep: async (ms) => {
+					now += ms;
+				},
+				request: async (url, options) => {
+					calls.push({ url, options });
+					if (calls.length === 1) return failure;
+					if (calls.length === 2) return jsonResponse({ user_code: 'AbC', device_code: 'from-beta', expires_in: 300, interval: 500 });
+					return jsonResponse({ access_token: 'a', refresh_token: 'r', expires_in: 300 });
+				}
+			});
+			same(warnings, ['Using beta API fallback: beta-api.crunchyroll.com']);
+			assert.equal(calls.length, 3);
+			assert(calls[0].url.includes('www.crunchyroll.com'));
+			assert(calls[1].url.includes('beta-api.crunchyroll.com'));
+			assert(calls[2].url.includes('beta-api.crunchyroll.com'));
+			assert.equal(JSON.parse(calls[2].options.body).device_code, 'from-beta');
+			assert.equal(result.device_auth_origin, 'api');
+			assert(messages.includes('Code: AbC'));
+		}
+	});
+	await test('initiation denial, rate limit, malformed success and cancellation never fall back', async () => {
+		for (const response of [
+			new Response('Forbidden', { status: 403 }),
+			new Response('{"error":"invalid_client"}', { status: 401 }),
+			new Response('rate limit', { status: 429 }),
+			new Response('{"bad":true}', { status: 200 })
+		]) {
+			let calls = 0,
+				warnings = 0;
+			await deviceHelper.requestDeviceToken({
+				authUrl: 'https://www.crunchyroll.com/auth/v1/token',
+				fallbackAuthUrl: 'https://beta-api.crunchyroll.com/auth/v1/token',
+				headers: {},
+				deviceId: 'uuid',
+				signal: new AbortController().signal,
+				debug: false,
+				log: () => {},
+				warn: () => warnings++,
+				request: async () => {
+					calls++;
+					return { ok: response.ok, res: response };
+				}
+			});
+			assert.equal(calls, 1);
+			assert.equal(warnings, 0);
+		}
+		const controller = new AbortController();
+		let calls = 0,
+			warnings = 0;
+		await deviceHelper.requestDeviceToken({
+			authUrl: 'https://www.crunchyroll.com/auth/v1/token',
+			fallbackAuthUrl: 'https://beta-api.crunchyroll.com/auth/v1/token',
+			headers: {},
+			deviceId: 'uuid',
+			signal: controller.signal,
+			debug: false,
+			log: () => {},
+			warn: () => warnings++,
+			request: async () => {
+				calls++;
+				controller.abort();
+				return { ok: false };
+			}
+		});
+		assert.equal(calls, 1);
+		assert.equal(warnings, 0);
+	});
+	await test('timed-out initial request uses a fresh fallback abort signal', async () => {
+		let timer,
+			calls = 0;
+		const signals = [],
+			warnings = [];
+		const helper = compile(path.join(root, 'modules/module.crunchy-device-auth.ts'), (id) => require(id), {
+			setTimeout: (fn) => {
+				timer = fn;
+				return 1;
+			},
+			clearTimeout: () => {}
+		});
+		await helper.requestDeviceToken({
+			authUrl: 'https://www.crunchyroll.com/auth/v1/token',
+			fallbackAuthUrl: 'https://beta-api.crunchyroll.com/auth/v1/token',
+			headers: {},
+			deviceId: 'uuid',
+			signal: new AbortController().signal,
+			debug: false,
+			log: () => {},
+			warn: (s) => warnings.push(s),
+			request: async (url, options) => {
+				calls++;
+				signals.push(options.signal);
+				if (calls === 1)
+					return new Promise((resolve) => {
+						options.signal.addEventListener('abort', () => resolve({ ok: false }), { once: true });
+						timer();
+					});
+				assert.equal(options.signal.aborted, false);
+				return { ok: false, res: new Response('denied', { status: 403 }) };
+			}
+		});
+		assert.equal(calls, 2);
+		assert.notEqual(signals[0], signals[1]);
+		assert.equal(warnings.length, 1);
+	});
+	await test('refresh fallback persists rotated token and beta origin before CMS failure, and beta origin stays restricted', async () => {
+		const { service, calls } = makeService({});
+		logs.length = 0;
+		service.token = { auth_type: 'device', device_id: 'uuid', device_user_agent: 'saved UA', refresh_token: 'old', expires: 0 };
+		api.basic_auth_token = Buffer.from('client:secret').toString('base64');
+		let saved;
+		stubs['./modules/module.cfg-loader'].saveCRTokenAtomic = (token) => {
+			saved = { ...token };
+			return true;
+		};
+		service.req.getData = async (url, options) => {
+			calls.push({ url, options });
+			return calls.length === 1
+				? { ok: false, res: new Response('unavailable', { status: 503 }) }
+				: jsonResponse({ access_token: 'new', refresh_token: 'rotated', expires_in: 3600 });
+		};
+		service.getProfile = async () => true;
+		service.getCMStoken = async () => false;
+		assert.equal(await service.refreshToken(), false);
+		assert.equal(calls.length, 2);
+		assert.equal(calls[0].url, 'https://www.crunchyroll.com/auth/v1/token');
+		assert.equal(calls[1].url, 'https://beta-api.crunchyroll.com/auth/v1/token');
+		assert.equal(calls[0].options.body, calls[1].options.body);
+		assert.equal(saved.refresh_token, 'rotated');
+		assert.equal(saved.device_auth_origin, 'api');
+		assert.equal(logs.filter(([kind, line]) => kind === 'warn' && line === 'Using beta API fallback: beta-api.crunchyroll.com').length, 1);
+		calls.length = 0;
+		logs.length = 0;
+		service.token.expires = 0;
+		service.req.getData = async (url, options) => {
+			calls.push({ url, options });
+			return { ok: false, res: new Response('denied', { status: 403 }) };
+		};
+		assert.equal(await service.refreshToken(), false);
+		assert.equal(calls.length, 1);
+		assert.equal(calls[0].url, 'https://beta-api.crunchyroll.com/auth/v1/token');
+		assert.equal(logs.filter(([kind, line]) => kind === 'warn' && line === 'Using beta API fallback: beta-api.crunchyroll.com').length, 1);
+		service.token.device_auth_origin = 'https://evil.invalid';
+		calls.length = 0;
+		logs.length = 0;
+		assert.equal(await service.refreshToken(), false);
+		assert.equal(calls[0].url, 'https://www.crunchyroll.com/auth/v1/token');
+	});
+
+	await test('timed-out refresh then rejected beta grant advises new login without asserting revocation', async () => {
+		const original = deviceHelper.deviceAuthAttempt;
+		const calls = [];
+		deviceHelper.deviceAuthAttempt = async (request, url) => {
+			calls.push(url);
+			return calls.length === 1
+				? { timedOut: true, cancelled: false, result: { ok: false } }
+				: { timedOut: false, cancelled: false, result: { ok: false, res: new Response('{"error":"invalid_grant"}', { status: 400 }) } };
+		};
+		try {
+			const { service } = makeService({});
+			const old = { auth_type: 'device', device_id: 'uuid', refresh_token: 'old', expires: 0 };
+			service.token = old;
+			logs.length = 0;
+			assert.equal(await service.refreshToken(), false);
+			assert.equal(calls.length, 2);
+			assert.equal(service.token, old);
+			assert(logs.some(([, line]) => line.includes('credentials are unusable') && line.includes('--device')));
+			assert(!logs.some(([, line]) => /revoked/i.test(line)));
+		} finally {
+			deviceHelper.deviceAuthAttempt = original;
+		}
+	});
+
+	await test('actual transport body-read errors preserve terminal status and never trigger fallback', async () => {
+		for (const status of [429, 401, 200]) {
+			let calls = 0;
+			const warnings = [];
+			const { Req } = compile(path.join(root, 'modules/module.fetch.ts'), (id) => {
+				if (id === './module.cfg-loader') return { loadCfg: () => ({ cli: {} }) };
+				if (id === './module.app-args') return { appArgv: () => ({}) };
+				if (id === './log') return { console: fakeConsole };
+				if (id === 'undici')
+					return {
+						Agent: class {},
+						ProxyAgent: class {},
+						fetch: async () => {
+							calls++;
+							return {
+								ok: status === 200,
+								status,
+								statusText: 'test',
+								clone: () => ({
+									text: async () => {
+										throw new Error('body failed');
+									},
+									arrayBuffer: async () => {
+										throw new Error('body failed');
+									}
+								})
+							};
+						}
+					};
+				throw new Error(`Unexpected transport import ${id}`);
+			});
+			const req = new Req();
+			const result = await deviceHelper.requestDeviceToken({
+				authUrl: 'https://www.crunchyroll.com/auth/v1/token',
+				fallbackAuthUrl: 'https://beta-api.crunchyroll.com/auth/v1/token',
+				headers: {},
+				deviceId: 'uuid',
+				signal: new AbortController().signal,
+				debug: false,
+				log: () => {},
+				warn: (s) => warnings.push(s),
+				request: req.getData.bind(req)
+			});
+			assert.equal(result, undefined);
+			assert.equal(calls, 1);
+			assert.equal(warnings.length, 0);
+		}
+	});
+	await test('timeout after terminal response preserves status for initiation and refresh', async () => {
+		for (const status of [429, 401, 200]) {
+			let timer,
+				calls = 0;
+			const warnings = [];
+			const helper = compile(path.join(root, 'modules/module.crunchy-device-auth.ts'), (id) => require(id), {
+				setTimeout: (fn) => {
+					timer = fn;
+					return 1;
+				},
+				clearTimeout: () => {}
+			});
+			await helper.requestDeviceToken({
+				authUrl: 'https://www.crunchyroll.com/auth/v1/token',
+				fallbackAuthUrl: 'https://beta-api.crunchyroll.com/auth/v1/token',
+				headers: {},
+				deviceId: 'uuid',
+				signal: new AbortController().signal,
+				debug: false,
+				log: () => {},
+				warn: (s) => warnings.push(s),
+				request: async () => {
+					calls++;
+					return {
+						ok: status === 200,
+						res: {
+							status,
+							clone: () => ({
+								arrayBuffer: async () => {
+									timer();
+									throw new Error('timeout');
+								}
+							})
+						}
+					};
+				}
+			});
+			assert.equal(calls, 1);
+			assert.equal(warnings.length, 0);
+			const original = deviceHelper.deviceAuthAttempt;
+			deviceHelper.deviceAuthAttempt = async () => {
+				calls++;
+				return { timedOut: true, cancelled: false, result: { ok: false, res: { status, json: async () => ({}) } } };
+			};
+			try {
+				const { service } = makeService({});
+				service.token = { auth_type: 'device', refresh_token: 'old', device_id: 'uuid', expires: 0 };
+				calls = 0;
+				logs.length = 0;
+				assert.equal(await service.refreshToken(), false);
+				assert.equal(calls, 1);
+				assert(!logs.some(([kind, line]) => kind === 'warn' && line.includes('beta API fallback')));
+			} finally {
+				deviceHelper.deviceAuthAttempt = original;
+			}
+		}
 	});
 
 	output.log(`1..${passed}`);

@@ -22,7 +22,13 @@ This tool is not responsible for your actions; please make an informed decision 
 
 Most of the shows on both services are only accessible if you payed for the service.
 In order for them to know who you are you are required to log in.
-If you trigger this command, you will be prompted for the username and password for the selected service
+For Crunchyroll CLI use --device instead. Other services prompt for a username and password.
+#### `--device`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
+| --- | --- | --- | --- | --- | ---| 
+| Crunchyroll | `--device ` | `boolean` | `No`| `NaN` | `NaN` |
+
+Log in to Crunchyroll with an activation code. The CLI prints the URL and code, waits for browser approval, and saves the device session for automatic refresh.
 #### `--username`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---| 
@@ -201,7 +207,7 @@ Select the server to use
 | --- | --- | --- | --- | --- | --- | --- | ---| 
 | Crunchyroll | `--vstream ${device}` | `string` | `No`| `--vs` | [`androidtv`, `android`, `androidtab`, `chrome`, `firefox`, `none`] | `androidtv`| `vstream: ` |
 
-Select a specific Crunchyroll video playback endpoint by device. androidtv provides the best video (CBR).
+Select a specific Crunchyroll video playback endpoint by device. Availability and quality depend on the service.
 #### `--astream`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | --- | ---| 

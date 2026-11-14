@@ -220,6 +220,36 @@ const saveCRToken = (data: Record<string, unknown>) => {
 	}
 };
 
+// Device sessions use an atomic replacement so an unsuccessful write preserves the prior login.
+const saveCRTokenAtomic = (data: Record<string, unknown>): boolean => {
+	const target = `${tokenFile.cr}.yml`;
+	let temporary: string | undefined;
+	let owned = false;
+	try {
+		fs.mkdirSync(path.dirname(target), { recursive: true });
+		temporary = `${target}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+		const fd = fs.openSync(temporary, 'wx', 0o600);
+		owned = true;
+		try {
+			fs.writeFileSync(fd, yaml.stringify(data));
+		} finally {
+			fs.closeSync(fd);
+		}
+		fs.renameSync(temporary, target);
+		return true;
+	} catch {
+		if (temporary && owned) {
+			try {
+				fs.unlinkSync(temporary);
+			} catch {
+				// The temporary file may not have been created.
+			}
+		}
+		console.error("Can't save token file to disk!");
+		return false;
+	}
+};
+
 const loadADNToken = () => {
 	let token = loadYamlCfgFile(tokenFile.adn, true);
 	if (typeof token !== 'object' || token === null || Array.isArray(token)) {
@@ -364,6 +394,7 @@ export {
 	saveCRSession,
 	loadCRSession,
 	saveCRToken,
+	saveCRTokenAtomic,
 	loadCRToken,
 	saveADNToken,
 	loadADNToken,

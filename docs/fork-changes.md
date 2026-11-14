@@ -4,12 +4,20 @@ This fork follows [anidl/multi-downloader-nx](https://github.com/anidl/multi-dow
 
 ## Branch boundaries
 
-| Branch    | Pull source       | Push destination | Purpose                                                     |
-| --------- | ----------------- | ---------------- | ----------------------------------------------------------- |
-| `master`  | `upstream/master` | `origin/master`  | Exact upstream mirror; no fork commits.                     |
-| `develop` | `origin/develop`  | `origin/develop` | Fork changes and merges from `master`; fork default branch. |
+| Branch | Pull source | Push destination | Purpose |
+| --- | --- | --- | --- |
+| `master-upstream` | `upstream/master` | `origin/master-upstream` | Exact upstream mirror; no fork commits. |
+| `develop` | `origin/develop` | `origin/develop` | Fork changes and merges from `master-upstream`; fork default branch. |
 
-These are the expected local tracking settings. Keep only these two branches on the fork's `origin`; fetching upstream branches does not require publishing them to the fork. Fast-forward `master` from upstream, then merge it into `develop`. Never merge `develop` into `master`.
+These are the expected local tracking settings. Keep only these two maintenance branches on the fork's `origin`; fetching upstream branches does not require publishing them to the fork. Fast-forward `master-upstream` from upstream, then merge it into `develop`. Never merge `develop` into `master-upstream`.
+
+The local `config.zsh` build wrapper selects `master-upstream` and runs its full build when called without arguments. To build local fork changes, explicitly select `develop`:
+
+```sh
+config.zsh --branch develop --local
+```
+
+`--local` skips remote synchronization and keeps local changes. By itself it keeps the current branch; `--branch` explicitly chooses one. Pulls on `master-upstream` use `upstream/master`, while pushes use `origin/master-upstream`.
 
 [AGENTS.md](../AGENTS.md) and this guide are tracked maintenance files on `develop`; they must also stay out of the upstream mirror.
 
@@ -58,9 +66,17 @@ An upstream replacement must cover root, GUI, and generated `lib` dependencies. 
 
 On `develop`, `--token` accepts the Crunchyroll `etp_rt` UUID value directly or a path to a file containing that value or a Netscape cookies export. File names and extensions are unrestricted. Only the existing Crunchyroll web-token request is used; authentication reports failure unless both the profile and CMS token requests succeed. Keep the existing cookie-based authentication and refresh behavior.
 
+### Log in to Crunchyroll with a device code
+
+`--device` prints the activation URL and code, waits for approval, and saves an Android TV session after profile/CMS validation. Preserve the stable UUID, `ANDROIDTV 3.76.0` identity, `auth_type: device`, User-Agent and issuer across refreshes. Failed login must retain the previous session; transient refresh failures must keep saved credentials and stop affected work.
+
+Keep HTTP/2 scoped to device auth, with the main endpoint first and one warned beta fallback for eligible failures. Pin polling to the issuer and preserve configured proxy routing and existing download transports. Full request diagnostics remain available with `--debug`.
+
+Crunchyroll CLI `--auth` only directs users to `--device`. Keep underlying GUI auth, other services' auth and browser-cookie `--token` support. Device login does not guarantee CBR or an 8,000 kb/s video.
+
 ### Run development checks
 
-The **Style and build test** workflow in [.github/workflows/test.yml](../.github/workflows/test.yml) runs on pushes and pull requests targeting `develop`, with manual dispatch available. Its first job checks TypeScript without emitting files and runs `node tests/crunchy-token-input.mjs`; ESLint, Prettier, and the existing platform packaging checks remain required downstream. Keep this branch-specific workflow adaptation separate from changes intended for upstream `master`.
+The **Style and build test** workflow in [.github/workflows/test.yml](../.github/workflows/test.yml) runs on pushes and pull requests targeting `develop`, with manual dispatch available. Its first job checks TypeScript without emitting files and runs `node tests/crunchy-token-input.mjs` for cookie input, device login, refresh, transport cancellation and GUI failure handling; ESLint, Prettier, and the existing platform packaging checks remain required downstream. Keep this branch-specific workflow adaptation separate from changes intended for the upstream mirror.
 
 ## Already incorporated upstream
 

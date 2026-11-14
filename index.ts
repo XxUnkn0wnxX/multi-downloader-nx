@@ -7,6 +7,7 @@ import Hidive from './hidive';
 import ADN from './adn';
 
 import update from './modules/module.updater';
+import { validateCrunchyAuthModes } from './modules/module.crunchy-device-auth';
 
 const SERVICES: Record<string, any> = {
 	crunchy: Crunchy,
@@ -17,6 +18,12 @@ const SERVICES: Record<string, any> = {
 (async () => {
 	const cfg = yamlCfg.loadCfg();
 	const argv = appArgv(cfg.cli);
+	const authError = validateCrunchyAuthModes(argv);
+	if (authError) {
+		console.error(authError);
+		process.exitCode = 1;
+		return;
+	}
 	if (!argv.skipUpdate) await update(argv.update);
 
 	if (argv.all && argv.but) {
@@ -59,7 +66,11 @@ const SERVICES: Record<string, any> = {
 			}
 
 			const service = new Service();
-			await service.cli();
+			const result = await service.cli();
+			if (argv.service === 'crunchy' && result === false) {
+				process.exitCode = 1;
+				break;
+			}
 		}
 	} else if (argv.service) {
 		const Service = SERVICES[argv.service];
@@ -69,6 +80,7 @@ const SERVICES: Record<string, any> = {
 		}
 
 		const service = new Service();
-		await service.cli();
+		const result = await service.cli();
+		if (argv.service === 'crunchy' && result === false) process.exitCode = 1;
 	}
 })();

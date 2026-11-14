@@ -189,7 +189,7 @@ Before we go into the usage, i would like to explain the configuration options. 
     1. In the same folder you opened `aniDL.exe` from, you should see a folder called `config`. Enter that.
     2. Double-click the `cli-defaults.yml` file to open it in your default text editor.
 
-All available settings are available in the [`DOCUMENTATION.md`](https://github.com/anidl/multi-downloader-nx/blob/master/docs/DOCUMENTATION.md) file. In every table, there will, most of the time, be a "cli-default Entry" column with a value. If the value in the column is "NaN", that option is not available for the `cli-default.yml` file. For example, if you wanted to set `--astream` to `android`:
+All available settings are available in the [`DOCUMENTATION.md`](./DOCUMENTATION.md) file. In every table, there will, most of the time, be a "cli-default Entry" column with a value. If the value in the column is "NaN", that option is not available for the `cli-default.yml` file. For example, if you wanted to set `--astream` to `android`:
 1. Notice how the docs say the "cli-default Entry" is `astream:`. And the "Type" column is "string". In your `cli-defaults.yml` file, you would add this line to the end of the file:
 ```yaml
 astream: "android"
@@ -224,32 +224,43 @@ tsd: true
 ## Endpoint Notes
 
 This section explains what each endpoint is capable of, and what subscription level is required to use it. \
-If you are new to the project, please use the defaults found in the [`cli-defaults.yml`](https://github.com/HyperNylium/multi-downloader-nx/blob/master/config/cli-defaults.yml) file, as those are the recommended settings.
+If you are new to the project, please use the defaults found in the [`cli-defaults.yml`](../config/cli-defaults.yml) file, as those are the recommended settings.
 
 | Endpoint     | Video quality               | Audio quality | Subscription level required |
 |--------------|-----------------------------|---------------|-----------------------------|
-| `android`    | 4-6k variable bitrate (VBR) | 192kbps       | "Fan" or higher             |
-| `androidtab` | 4-6k variable bitrate (VBR) | 128kbps       | "Fan" or higher             |
-| `androidtv`  | 8k constent bitrate (CBR)   | 128kbps       | "Fan" or higher             |
+| `android`    | Provider-dependent | 192kbps       | "Fan" or higher             |
+| `androidtab` | Provider-dependent | 128kbps       | "Fan" or higher             |
+| `androidtv`  | Provider-dependent   | 128kbps       | "Fan" or higher             |
+
+The endpoint does not guarantee a fixed bitrate or CBR. `-q 0` selects the highest available quality from the returned manifest.
 
 > [!NOTE]
-> If you pick 192kbps audio (`--astream android`) with 8k CBR video (`--vstream androidtv`) but don’t have "Mega Fan" sub or higher,
-> the audio will fall back to 128 kbps, which will download the CBR video with 128 kbps audio.
+> If you pick 192kbps audio (`--astream android`) with Android TV video (`--vstream androidtv`) but don’t have "Mega Fan" sub or higher,
+> the audio will fall back to 128 kbps, which will download the video with 128 kbps audio.
 
 > [!NOTE]
-> 192 kbps audio comes from the `android` endpoint. CBR video comes from `androidtv` endpoint. \
+> 192 kbps audio comes from the `android` endpoint. Video quality from `androidtv` depends on the episode and service response. \
 > Using both means you are using **two streams**, which needs the "Mega Fan" tier or higher.
 
 ## Usage
 
 ### Authentication
 
-To use multi-downloader-nx, you will need to authenticate with the streaming service you want to download from. This is done by logging in with your account credentials.
+#### Crunchyroll CLI
 
-1. After choosing the streaming service you want to download from, at the top of the browser window, you will see a "AUTHENTICATE" button. Click on it.
-2. A new window will open, asking you to log in. Enter your username and password and click on "Authenticate" once ready. 
+Device login is available on this fork's `develop` branch. See [the build notes](./fork-changes.md#branch-boundaries) if you use a local build wrapper.
 
-You will see an error message if things dont work out. You can look at the terminal window for more details as to why it failed.
+```sh
+aniDL --service crunchy --device
+```
+
+Open the printed activation URL in your browser and enter the code. The CLI waits for approval, displays the account, and saves the login. Access tokens refresh automatically on later commands. If the main auth endpoint is unavailable, a warning identifies the beta API fallback.
+
+Crunchyroll CLI `--auth` directs you to `--device`; browser-cookie login through `--token` remains available. Other services retain `--auth`.
+
+#### GUI authentication
+
+Choose the service and click **AUTHENTICATE**. For Crunchyroll cookie login, paste the `etp_rt` value into the username field. For other services, enter the credentials requested by the dialog. Check the terminal output if authentication fails.
 
 ### Output Directory
 

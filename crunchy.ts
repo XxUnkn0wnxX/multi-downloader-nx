@@ -43,6 +43,17 @@ import { CrunchyVideoPlayStreams, CrunchyAudioPlayStreams } from './@types/enums
 import { randomUUID } from 'node:crypto';
 import { FetchParams } from './modules/module.fetch';
 import { CrunchyTokenInputError, parseCrunchyTokenInput } from './modules/module.crunchy-token';
+import {
+	requestDeviceToken,
+	validDeviceToken,
+	validateCrunchyAuthModes,
+	DEVICE_NAME,
+	DEVICE_TYPE,
+	DEVICE_USER_AGENT,
+	DEVICE_BETA_WARNING,
+	deviceAuthAttempt,
+	deviceFallbackEligible
+} from './modules/module.crunchy-device-auth';
 
 export type sxItem = {
 	language: langsData.LanguageItem;
@@ -57,6 +68,7 @@ export default class Crunchy implements ServiceClass {
 	public locale: string;
 	private token: Record<string, any>;
 	private req: reqModule.Req;
+	private refreshInFlight?: Promise<boolean>;
 	private cmsToken: {
 		cms?: Record<string, string>;
 		cms_beta?: Record<string, string>;
@@ -77,6 +89,17 @@ export default class Crunchy implements ServiceClass {
 	public async cli() {
 		console.info(`\n=== Multi Downloader NX ${packageJson.version} ===\n`);
 		const argv = yargs.appArgv(this.cfg.cli);
+		const authError = validateCrunchyAuthModes({ ...argv, service: 'crunchy' });
+		if (authError) {
+			console.error(authError);
+			process.exitCode = 1;
+			return false;
+		}
+		if (argv.auth) {
+			console.warn('Crunchyroll CLI login uses --device; run again with --device.');
+			process.exitCode = 1;
+			return false;
+		}
 		this.locale = argv.locale;
 		if (argv.debug) this.debug = true;
 
@@ -92,28 +115,25 @@ export default class Crunchy implements ServiceClass {
 				password: argv.password ?? (await Helper.question('[Q] PASSWORD: '))
 			});
 		}
-		if (argv.dlFonts) {
+		if (argv.device) {
+			if (!(await this.loginWithDevice())) process.exitCode = 1;
+		} else if (argv.dlFonts) {
 			await this.getFonts();
-		} else if (argv.auth) {
-			await this.doAuth({
-				username: argv.username ?? (await Helper.question('[Q] LOGIN/EMAIL: ')),
-				password: argv.password ?? (await Helper.question('[Q] PASSWORD: '))
-			});
 		} else if (argv.token !== undefined) {
 			if (!(await this.loginWithToken(argv.token))) {
 				process.exitCode = 1;
 			}
 		} else if (argv.cmsindex) {
-			await this.refreshToken();
+			if (!(await this.refreshToken())) return false;
 			await this.getCmsData();
 		} else if (argv.new) {
-			await this.refreshToken();
+			if (!(await this.refreshToken())) return false;
 			await this.getNewlyAdded(argv.page, argv.searchType, argv.raw, argv.rawoutput);
 		} else if (argv.search && argv.search.length > 2) {
-			await this.refreshToken();
+			if (!(await this.refreshToken())) return false;
 			await this.doSearch({ ...argv, search: argv.search as string });
 		} else if (argv.series && argv.series.match(/^[0-9A-Z]{9,}$/)) {
-			await this.refreshToken();
+			if (!(await this.refreshToken())) return false;
 			await this.logSeriesById(argv.series as string);
 			const selected = await this.downloadFromSeriesID(argv.series, { ...argv });
 			if (selected.isOk) {
@@ -126,19 +146,19 @@ export default class Crunchy implements ServiceClass {
 			}
 			return true;
 		} else if (argv.movieListing && argv.movieListing.match(/^[0-9A-Z]{9,}$/)) {
-			await this.refreshToken();
+			if (!(await this.refreshToken())) return false;
 			await this.logMovieListingById(argv.movieListing as string);
 		} else if (argv.showRaw && argv.showRaw.match(/^[0-9A-Z]{9,}$/)) {
-			await this.refreshToken();
+			if (!(await this.refreshToken())) return false;
 			await this.logShowRawById(argv.showRaw as string);
 		} else if (argv.seasonRaw && argv.seasonRaw.match(/^[0-9A-Z]{9,}$/)) {
-			await this.refreshToken();
+			if (!(await this.refreshToken())) return false;
 			await this.logSeasonRawById(argv.seasonRaw as string);
 		} else if (argv.showListRaw) {
-			await this.refreshToken();
+			if (!(await this.refreshToken())) return false;
 			await this.logShowListRaw();
 		} else if (argv.s && argv.s.match(/^[0-9A-Z]{9,}$/)) {
-			await this.refreshToken();
+			if (!(await this.refreshToken())) return false;
 			if (argv.dubLang.length > 1) {
 				console.info('One show can only be downloaded with one dub. Use --srz instead.');
 			}
@@ -154,7 +174,7 @@ export default class Crunchy implements ServiceClass {
 			}
 			return true;
 		} else if (argv.e) {
-			await this.refreshToken();
+			if (!(await this.refreshToken())) return false;
 			if (argv.dubLang.length > 1) {
 				console.info('One show can only be downloaded with one dub. Use --srz instead.');
 			}
@@ -168,7 +188,7 @@ export default class Crunchy implements ServiceClass {
 			}
 			return true;
 		} else if (argv.extid) {
-			await this.refreshToken();
+			if (!(await this.refreshToken())) return false;
 			if (argv.dubLang.length > 1) {
 				console.info('One show can only be downloaded with one dub. Use --srz instead.');
 			}
@@ -428,7 +448,7 @@ export default class Crunchy implements ServiceClass {
 		return { isOk: true, value: undefined };
 	}
 
-	public async doAnonymousAuth() {
+	public async doAnonymousAuth(): Promise<boolean> {
 		const basic = atob(api.basic_auth_token);
 		const client = basic.split(':');
 
@@ -451,7 +471,7 @@ export default class Crunchy implements ServiceClass {
 		const authReq = await this.req.getData(api.auth, authReqOpts);
 		if (!authReq.ok || !authReq.res) {
 			console.error('Anonymous Authentication failed!');
-			return;
+			return false;
 		}
 		// To prevent any Cloudflare errors in the future
 		if (authReq.res.headers.get('Set-Cookie')) {
@@ -469,17 +489,27 @@ export default class Crunchy implements ServiceClass {
 		this.token.device_id = uuid;
 		this.token.expires = new Date(Date.now() + this.token.expires_in * 1000);
 		yamlCfg.saveCRToken(this.token);
+		return true;
 	}
 
-	public async getProfile(silent = false): Promise<boolean> {
+	private deviceUserAgent(): string {
+		return typeof this.token.device_user_agent === 'string' && this.token.device_user_agent ? this.token.device_user_agent : DEVICE_USER_AGENT;
+	}
+
+	private deviceHeaders(): Record<string, string> {
+		return this.token.auth_type === 'device' ? { ...api.crunchyDefHeader, 'User-Agent': this.deviceUserAgent() } : api.crunchyDefHeader;
+	}
+
+	public async getProfile(silent = false, signal?: AbortSignal): Promise<boolean> {
 		if (!this.token.access_token) {
 			console.error('No access token!');
 			return false;
 		}
 
 		const profileReqOptions = {
+			signal,
 			headers: {
-				...api.crunchyDefHeader,
+				...this.deviceHeaders(),
 				Authorization: `Bearer ${this.token.access_token}`
 			}
 		};
@@ -570,97 +600,221 @@ export default class Crunchy implements ServiceClass {
 		}
 	}
 
-	public async refreshToken(ifNeeded = false, silent = false) {
-		if ((!this.token.access_token && !this.token.refresh_token) || (this.token.access_token && !this.token.refresh_token)) {
-			await this.doAnonymousAuth();
-		} else {
-			/*if (ifNeeded)
-        return;*/
-			if (!(Date.now() > new Date(this.token.expires).getTime()) && ifNeeded) {
-				return;
-			} else {
-				//console.info('[WARN] The token has expired compleatly. I will try to refresh the token anyway, but you might have to reauth.');
-			}
-
-			if (this.token.auth_type === 'web') {
-				// Token came from --token (etp_rt cookie), refresh it through the web client
-				const token = await this.requestWebToken(this.token.refresh_token, this.token.device_id || randomUUID(), 'Token Refresh Failed!');
-				if (!token) {
-					return;
-				}
-				this.token = token;
-				yamlCfg.saveCRToken(this.token);
-			} else {
-				const basic = atob(api.basic_auth_token);
-				const client = basic.split(':');
-
-				const uuid = this.token.device_id || randomUUID();
-				const authData = new URLSearchParams({
-					grant_type: 'refresh_token',
-					refresh_token: this.token.refresh_token,
-					scope: 'offline_access',
-					client_id: client[0],
-					client_secret: client[1],
-					device_id: uuid,
-					device_name: 'emu64xa',
-					device_type: 'ANDROIDTV'
-				}).toString();
-				const authReqOpts: FetchParams = {
-					method: 'POST',
-					headers: { ...api.crunchyAuthHeader },
-					body: authData,
-					useProxy: true
-				};
-				const authReq = await this.req.getData(api.auth, authReqOpts);
-				if (!authReq.ok || !authReq.res) {
-					console.error('Token Refresh Failed!');
-					if (authReq.res?.status == 400) {
-						console.warn('Token is likely wrong, please login again!');
-					}
-					return;
-				}
-				// To prevent any Cloudflare errors in the future
-				if (authReq.res.headers.get('Set-Cookie')) {
-					api.crunchyDefHeader['Cookie'] = authReq.res.headers.get('Set-Cookie') as string;
-					api.crunchyAuthHeader['Cookie'] = authReq.res.headers.get('Set-Cookie') as string;
-				}
-				if (authReq.headers && authReq.headers['Set-Cookie']) {
-					api.crunchyDefHeader['Cookie'] = authReq.headers['Set-Cookie'];
-					api.crunchyAuthHeader['Cookie'] = authReq.headers['Set-Cookie'];
-					api.crunchyDefHeader['User-Agent'] = authReq.headers['User-Agent'];
-					api.crunchyAuthHeader['User-Agent'] = authReq.headers['User-Agent'];
-				}
-
-				this.token = await authReq.res.json();
-				this.token.device_id = uuid;
-				this.token.expires = new Date(Date.now() + this.token.expires_in * 1000);
-				yamlCfg.saveCRToken(this.token);
+	public async loginWithDevice(signal?: AbortSignal): Promise<boolean> {
+		const controller = new AbortController();
+		const cancel = () => controller.abort();
+		if (signal) {
+			if (signal.aborted) cancel();
+			else signal.addEventListener('abort', cancel, { once: true });
+		} else process.once('SIGINT', cancel);
+		const previousToken = this.token;
+		const previousCMS = this.cmsToken;
+		let committed = false;
+		let validationTimer: ReturnType<typeof setTimeout> | undefined;
+		try {
+			const deviceId = randomUUID();
+			const token = await requestDeviceToken({
+				request: this.req.getData.bind(this.req),
+				authUrl: `${domain.cr_www}/auth/v1/token`,
+				fallbackAuthUrl: `${domain.cr_api}/auth/v1/token`,
+				warn: (message) => console.warn(message),
+				headers: { Authorization: `Basic ${api.basic_auth_token}`, 'User-Agent': DEVICE_USER_AGENT, Accept: 'application/json' },
+				deviceId,
+				signal: controller.signal,
+				debug: this.debug,
+				log: (message) => console.info(message)
+			});
+			if (!token) return false;
+			this.token = {
+				...token,
+				device_id: deviceId,
+				device_name: DEVICE_NAME,
+				device_type: DEVICE_TYPE,
+				device_user_agent: DEVICE_USER_AGENT,
+				device_auth_origin: token.device_auth_origin === 'api' ? 'api' : 'www',
+				auth_type: 'device',
+				expires: new Date(Date.now() + token.expires_in * 1000)
+			};
+			this.cmsToken = {};
+			validationTimer = setTimeout(cancel, 30000);
+			if (
+				!(await this.getProfile(false, controller.signal)) ||
+				controller.signal.aborted ||
+				!(await this.getCMStoken(false, controller.signal)) ||
+				controller.signal.aborted ||
+				!yamlCfg.saveCRTokenAtomic(this.token)
+			)
+				return false;
+			committed = true;
+			console.info('Device authentication succeeded.');
+			return true;
+		} catch {
+			console.error('Device authentication failed.');
+			return false;
+		} finally {
+			if (validationTimer) clearTimeout(validationTimer);
+			if (signal) signal.removeEventListener('abort', cancel);
+			else process.removeListener('SIGINT', cancel);
+			// A candidate is committed only after the durable save succeeds.
+			if (!committed) {
+				this.token = previousToken;
+				this.cmsToken = previousCMS;
 			}
 		}
-		if (this.token.refresh_token) {
-			await this.getProfile(silent);
-		} else {
-			console.info('USER: Anonymous');
-		}
-		await this.getCMStoken(ifNeeded);
 	}
 
-	public async getCMStoken(ifNeeded = false): Promise<boolean> {
+	public async refreshToken(ifNeeded = false, silent = false): Promise<boolean> {
+		if (this.refreshInFlight) return this.refreshInFlight;
+		const work = this.refreshTokenOnce(ifNeeded, silent);
+		this.refreshInFlight = work;
+		try {
+			return await work;
+		} finally {
+			this.refreshInFlight = undefined;
+		}
+	}
+
+	private async refreshTokenOnce(ifNeeded: boolean, silent: boolean): Promise<boolean> {
+		try {
+			if (this.token.auth_type === 'device' && !this.token.refresh_token) {
+				console.error('Device login is missing its refresh token; use --device to log in again.');
+				return false;
+			}
+			if (!this.token.refresh_token) {
+				if (!(await this.doAnonymousAuth())) return false;
+			} else {
+				const expiry = new Date(this.token.expires).getTime();
+				if (ifNeeded && Number.isFinite(expiry) && Date.now() < expiry) {
+					return await this.getCMStoken(true);
+				}
+				if (this.debug && this.token.auth_type !== 'device') console.debug(`[DEBUG] Refresh request: ${api.auth}`);
+				if (this.token.auth_type === 'web') {
+					const token = await this.requestWebToken(this.token.refresh_token, this.token.device_id || randomUUID(), 'Token Refresh Failed!');
+					if (!token) return false;
+					this.token = token;
+					yamlCfg.saveCRToken(this.token);
+				} else {
+					const client = atob(api.basic_auth_token).split(':');
+					const previous = this.token;
+					const uuid = previous.device_id || randomUUID();
+					const body = new URLSearchParams({
+						grant_type: 'refresh_token',
+						refresh_token: previous.refresh_token,
+						scope: 'offline_access',
+						client_id: client[0],
+						client_secret: client[1],
+						device_id: uuid,
+						device_name: previous.device_name || 'emu64xa',
+						device_type: previous.device_type || 'ANDROIDTV'
+					}).toString();
+					const device = previous.auth_type === 'device';
+					let origin: 'www' | 'api' = previous.device_auth_origin === 'api' ? 'api' : 'www';
+					const requestOptions: FetchParams = {
+						method: 'POST',
+						headers: device
+							? { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'User-Agent': this.deviceUserAgent() }
+							: { ...api.crunchyAuthHeader },
+						body,
+						useProxy: true,
+						...(device ? { allowH2: true } : {})
+					};
+					let primaryTimedOut = false;
+					let result;
+					if (device) {
+						const doAttempt = async (selected: 'www' | 'api') => {
+							const url = `${selected === 'www' ? domain.cr_www : domain.cr_api}/auth/v1/token`;
+							if (this.debug) console.debug(`[DEBUG] Refresh request: ${url} (HTTP/2 preferred)`);
+							return deviceAuthAttempt(this.req.getData.bind(this.req), url, requestOptions);
+						};
+						if (origin === 'api') console.warn(DEVICE_BETA_WARNING);
+						let attempt = await doAttempt(origin);
+						primaryTimedOut = attempt.timedOut;
+						if (origin === 'www' && !attempt.result.ok && (await deviceFallbackEligible(attempt.result))) {
+							console.warn(DEVICE_BETA_WARNING);
+							origin = 'api';
+							attempt = await doAttempt(origin);
+						}
+						result = attempt.timedOut ? { ...attempt.result, ok: false } : attempt.result;
+					} else {
+						result = await this.req.getData(api.auth, requestOptions);
+					}
+
+					if (this.debug) console.debug(`[DEBUG] Refresh response: ${result.res?.status ?? 'network error'}`);
+					if (!result.ok || !result.res) {
+						let rejected = false;
+						try {
+							const body = await result.res?.json();
+							rejected = !!result.res && [400, 401].includes(result.res.status) && (body?.error === 'invalid_grant' || body?.error === 'invalid_refresh_token');
+						} catch {
+							// A non-JSON error is a transient failure, not a revocation.
+						}
+						console.error(
+							rejected && previous.auth_type === 'device'
+								? primaryTimedOut && origin === 'api'
+									? 'Device refresh credentials are unusable; use --device to log in again.'
+									: 'Device refresh rejected; use --device to log in again.'
+								: 'Token refresh failed; retry later. Saved login was retained.'
+						);
+						return false;
+					}
+					// Preserve the existing native client's Cloudflare cookie propagation.
+					if (!device && result.res.headers.get('Set-Cookie')) {
+						api.crunchyDefHeader['Cookie'] = result.res.headers.get('Set-Cookie') as string;
+						api.crunchyAuthHeader['Cookie'] = result.res.headers.get('Set-Cookie') as string;
+					}
+					if (!device && result.headers && result.headers['Set-Cookie']) {
+						api.crunchyDefHeader['Cookie'] = result.headers['Set-Cookie'];
+						api.crunchyAuthHeader['Cookie'] = result.headers['Set-Cookie'];
+						api.crunchyDefHeader['User-Agent'] = result.headers['User-Agent'];
+						api.crunchyAuthHeader['User-Agent'] = result.headers['User-Agent'];
+					}
+					const token = await result.res.json();
+					if (token && !Object.prototype.hasOwnProperty.call(token, 'refresh_token')) token.refresh_token = previous.refresh_token;
+					if (!validDeviceToken(token)) {
+						console.error('Invalid refresh response; retry later. Saved login was retained.');
+						return false;
+					}
+					this.token = {
+						...token,
+						device_id: uuid,
+						device_name: previous.device_name,
+						device_type: previous.device_type,
+						...(device ? { device_user_agent: this.deviceUserAgent(), device_auth_origin: origin } : {}),
+						auth_type: previous.auth_type,
+						expires: new Date(Date.now() + token.expires_in * 1000)
+					};
+					if (previous.auth_type === 'device') {
+						if (!yamlCfg.saveCRTokenAtomic(this.token)) return false;
+					} else yamlCfg.saveCRToken(this.token);
+				}
+			}
+			if (this.token.refresh_token) {
+				if (!(await this.getProfile(silent))) return false;
+			} else console.info('USER: Anonymous');
+			return await this.getCMStoken();
+		} catch {
+			console.error('Authentication failed; retry later. Saved login was retained.');
+			return false;
+		}
+	}
+
+	public async getCMStoken(ifNeeded = false, signal?: AbortSignal): Promise<boolean> {
 		if (!this.token.access_token) {
 			console.error('No access token!');
 			return false;
 		}
 
 		if (ifNeeded && this.cmsToken.cms) {
-			if (!(Date.now() >= new Date(this.cmsToken.cms.expires).getTime())) {
+			if (Number.isFinite(new Date(this.cmsToken.cms.expires).getTime()) && Date.now() < new Date(this.cmsToken.cms.expires).getTime()) {
 				return true;
 			}
 		}
 
 		const cmsTokenReqOpts = {
+			signal,
 			headers: {
 				Authorization: `Bearer ${this.token.access_token}`,
-				...api.crunchyDefHeader
+				...this.deviceHeaders()
 			}
 		};
 		const cmsTokenReq = await this.req.getData(api.cms_auth, cmsTokenReqOpts);
@@ -1618,9 +1772,9 @@ export default class Crunchy implements ServiceClass {
 			const currentMediaId = mMeta.mediaId.includes(':') ? mMeta.mediaId.split(':')[1] : mMeta.mediaId;
 
 			//Make sure token is up-to-date
-			await this.refreshToken(true, true);
+			if (!(await this.refreshToken(true, true))) return undefined;
 			// Web logins (--token) only work with a browser user agent
-			const clientHeaders = this.token.auth_type === 'web' ? { ...api.crunchyDefHeader, 'User-Agent': api.crunchyWebUserAgent } : api.crunchyDefHeader;
+			const clientHeaders = this.token.auth_type === 'web' ? { ...api.crunchyDefHeader, 'User-Agent': api.crunchyWebUserAgent } : this.deviceHeaders();
 			let currentVersion;
 			let isPrimary = mMeta.isSubbed;
 			const AuthHeaders: FetchParams = {
@@ -2097,7 +2251,8 @@ export default class Crunchy implements ServiceClass {
 			// Delete the stream if it's not needed
 			if (options.novids && options.noaudio) {
 				if (videoStream) {
-					await this.refreshToken(true, true);
+					if (!(await this.refreshToken(true, true))) return undefined;
+					(AuthHeaders.headers as Record<string, string>).Authorization = `Bearer ${this.token.access_token}`;
 					await this.req.getData(
 						`https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${currentVersion ? currentVersion.guid : currentMediaId}/${videoStream.token}`,
 						{
@@ -2237,7 +2392,8 @@ export default class Crunchy implements ServiceClass {
 
 						//Handle Getting Decryption Keys if needed
 						if (chosenVideoSegments.pssh_wvd || chosenVideoSegments.pssh_prd || chosenAudioSegments.pssh_wvd || chosenAudioSegments.pssh_prd) {
-							await this.refreshToken(true, true);
+							if (!(await this.refreshToken(true, true))) return undefined;
+							(AuthHeaders.headers as Record<string, string>).Authorization = `Bearer ${this.token.access_token}`;
 							if (videoStream) {
 								await this.req.getData(
 									`https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${currentVersion ? currentVersion.guid : currentMediaId}/${videoStream.token}/keepAlive?playhead=1`,
@@ -2317,7 +2473,8 @@ export default class Crunchy implements ServiceClass {
 						}
 
 						if (videoStream) {
-							await this.refreshToken(true, true);
+							if (!(await this.refreshToken(true, true))) return undefined;
+							(AuthHeaders.headers as Record<string, string>).Authorization = `Bearer ${this.token.access_token}`;
 							await this.req.getData(
 								`https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${currentVersion ? currentVersion.guid : currentMediaId}/${videoStream.token}`,
 								{
@@ -2661,7 +2818,8 @@ export default class Crunchy implements ServiceClass {
 							} else {
 								// We have the stream, so go ahead and delete the active stream
 								if (videoStream) {
-									await this.refreshToken(true, true);
+									if (!(await this.refreshToken(true, true))) return undefined;
+									(AuthHeaders.headers as Record<string, string>).Authorization = `Bearer ${this.token.access_token}`;
 									await this.req.getData(
 										`https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${currentVersion ? currentVersion.guid : currentMediaId}/${videoStream.token}`,
 										{ ...{ method: 'DELETE' }, ...AuthHeaders }
@@ -3183,7 +3341,7 @@ export default class Crunchy implements ServiceClass {
 			}
 		>;
 	}> {
-		await this.refreshToken(true, true);
+		if (!(await this.refreshToken(true, true))) return { data: {}, list: [] };
 		let serieshasversions = true;
 		const parsed = await this.parseSeriesById(id);
 		if (!parsed) return { data: {}, list: [] };

@@ -24,6 +24,7 @@ export let argvC: {
 	username: string | undefined;
 	password: string | undefined;
 	token: string | undefined;
+	device: boolean | undefined;
 	silentAuth: boolean;
 	skipSubMux: boolean;
 	downloadArchive: boolean;
