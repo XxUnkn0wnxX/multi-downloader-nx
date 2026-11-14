@@ -14,6 +14,8 @@ This tool is not responsible for your actions; please make an informed decision 
  - `${someText}` shows that you should replace this text with your own
     - e.g. `--username ${someText}` -> `--username Izuco`
 
+Quality-list rates use decimal `kb/s` (1 kb/s = 1,000 bits/s). `KiB/s` measures 1,024 bytes/s. Manifest bandwidth is an advertised rate and may differ from a file's measured average.
+
 ### Authentication
 #### `--auth`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
@@ -161,7 +163,7 @@ Allows you to download or view legacy Crunchyroll Ids
 | --- | --- | --- | --- | --- | --- | ---|
 | All | `-q ${qualityLevel}` | `number` | `No`| `—` | `0`| `q: ` |
 
-Use the listed quality number; 0 selects the maximum quality. Crunchyroll ranks by dimensions, then advertised bitrate, and compares compatible current and legacy video across languages while keeping the highest current audio for the requested dubs. Crunchyroll reports a short reason when checks force video fallback.
+Use the listed quality number; 0 selects the maximum quality. Crunchyroll ranks by dimensions, then advertised bitrate, and compares compatible current and legacy video across languages while keeping the highest current audio for the requested dubs. Crunchyroll reports a short reason when checks force video fallback. Its quality list uses resolution groups with continuous numbers and short manifest/language tags.
 #### `--dlVideoOnce`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|

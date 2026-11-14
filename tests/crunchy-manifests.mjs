@@ -189,8 +189,8 @@ assert.equal(qualities[2].pssh_wvd, Buffer.from('fake-zero').toString('base64'))
 assert.equal(qualities[2].segments.length, 2);
 assert.match(qualities[2].segments[0].map.uri, /zero\/init\.mp4$/);
 assert.match(qualities[2].resolutionText, /9000 kb\/s/);
-assert.match(helper.videoQualities(current, extra, 1, false, 'jpn')[2].resolutionText, /\[Legacy Manifest\] \(jpn\)$/);
-assert.match(helper.videoQualities(current, [], 1, false, 'eng')[0].resolutionText, /\[Current Manifest\] \(eng\)$/);
+assert.match(helper.videoQualities(current, extra, 1, false, 'jpn')[2].resolutionText, /\[Legacy M\] \[jpn\]$/);
+assert.match(helper.videoQualities(current, [], 1, false, 'eng')[0].resolutionText, /\[Current M\] \[eng\]$/);
 const same = await mpd.parse(manifest('zero', 9000000), undefined, undefined, { videoOnly: true });
 assert.equal(
 	helper.videoQualities(
@@ -290,7 +290,7 @@ const keyInputs = [];
 const downloaderInputs = [];
 let parseError = false;
 let currentAudioId = '';
-const fullLang = { code: 'en', name: 'English', locale: 'en', language: 'English' };
+const fullLang = { code: 'eng', name: 'English', locale: 'en', language: 'English' };
 const currentMap = makeFamily('current', 4, 1000000, 'current.example.test');
 const originalAudio = {
 	bandwidth: 128000,
@@ -571,6 +571,9 @@ assert.equal(malformed.requests.filter(([, method]) => method === 'DELETE').leng
 const hls = await preview(0, false, false, 1, { testHls: true });
 if (hls.error) throw hls.error;
 assert.equal(hls.result, true);
+assert(hls.logs.some((entry) => entry.join(' ').includes('720p\n\t\t[1] 1280x720 (1000 kb/s) [Current M] [eng]')));
+assert(hls.logs.some((entry) => entry.join(' ').includes('Selected quality: 1280x720 [Current M] [eng]')));
+assert(!hls.logs.some((entry) => entry.join(' ').includes('KiB/s')));
 assert(hls.logs.some((entry) => entry.join(' ').includes('https://cdn.example.test/chunk.m3u8?sig=123')));
 assert(!hls.requests.some(([target]) => target.includes('chunk.m3u8')));
 assert.equal(hls.requests.filter(([, method]) => method === 'DELETE').length, 2);

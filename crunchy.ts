@@ -46,7 +46,15 @@ import { ServiceClass } from './@types/serviceClassInterface';
 import { CrunchyAndroidEpisodes } from './@types/crunchyAndroidEpisodes';
 import { parse } from './modules/module.transform-mpd';
 import { legacyUrls, optionalManifests, videoQualities } from './modules/module.crunchy-manifests';
-import { CatalogVideo, formatVideoCandidate, inspectVideoManifest, rankVideoCandidates, timingCompatible, VideoSource } from './modules/module.crunchy-video-catalog';
+import {
+	CatalogVideo,
+	formatGroupedVideoQualities,
+	formatVideoCandidate,
+	inspectVideoManifest,
+	rankVideoCandidates,
+	timingCompatible,
+	VideoSource
+} from './modules/module.crunchy-video-catalog';
 import { boundedRequest, discoverVideoCandidates, readLimitedManifest } from './modules/module.crunchy-video-selection';
 import { AndroidObject, CrunchyAndroidObject, CrunchyMVObject } from './@types/crunchyAndroidObject';
 import { CrunchyChapters, CrunchyChapter, CrunchyOldChapter } from './@types/crunchyChapters';
@@ -1585,7 +1593,9 @@ export default class Crunchy implements ServiceClass {
 				if (discovery.status === 'ok' && !discovery.entries.length)
 					fallbackCause = discovery.timingFallbackReason ? (options.q === 0 ? discovery.timingFallbackReason : undefined) : 'metadata unavailable';
 				if (discovery.status === 'ok' && discovery.entries.length) {
-					console.info(`Available Video Qualities:\n\t${discovery.entries.map((entry, index) => `[${index + 1}] ${formatVideoCandidate(entry)}`).join('\n\t')}`);
+					console.info(
+						`Available Video Qualities:\n${formatGroupedVideoQualities(discovery.entries.map((entry) => ({ height: entry.height, text: formatVideoCandidate(entry) })))}`
+					);
 					if (options.q > discovery.entries.length) {
 						console.error(`Requested quality ${options.q} is not available`);
 						return false;
@@ -2664,7 +2674,7 @@ export default class Crunchy implements ServiceClass {
 						const chosenAudioSegments = audios[chosenAudioQuality] || (globalPass?.kind === 'video' ? { bandwidth: 0, segments: [], pssh_wvd: undefined, pssh_prd: undefined, resolutionText: '' } : undefined);
 						if (!chosenVideoSegments || !chosenAudioSegments) { if (globalPass?.kind === 'video') globalPass.selectionLost = true; console.error('No usable selected tracks'); return undefined; }
 
-						if (!globalPass) console.info(`Available Video Qualities:\n\t${videos.map((a, ind) => `[${ind + 1}] ${a.resolutionText}`).join('\n\t')}`);
+						if (!globalPass) console.info(`Available Video Qualities:\n${formatGroupedVideoQualities(videos.map((a) => ({ height: a.quality.height, text: a.resolutionText })))}`);
 						if (globalPass?.kind !== 'video') console.info(`Available Audio Qualities:\n\t${audios.map((a, ind) => `[${ind + 1}] ${a.resolutionText}`).join('\n\t')}`);
 
 						variables.push(
@@ -3013,8 +3023,8 @@ export default class Crunchy implements ServiceClass {
 								plStreams[plServer][plResolutionText] = pl.uri;
 							}
 							// set plQualityStr
-							const plBandwidth = Math.round((pl.attributes?.BANDWIDTH ?? 0) / 1024);
-							const qualityStrAdd = `${plResolutionText} (${plBandwidth}KiB/s)`;
+							const plBandwidth = Math.round((pl.attributes?.BANDWIDTH ?? 0) / 1000);
+							const qualityStrAdd = `${plResolutionText} (${plBandwidth} kb/s)`;
 							const qualityStrRegx = new RegExp(qualityStrAdd.replace(/([:()/])/g, '\\$1'), 'm');
 							const qualityStrMatch = !plQuality
 								.map((a) => a.str)
@@ -3053,7 +3063,7 @@ export default class Crunchy implements ServiceClass {
 						}
 						const selPlUrl = plSelectedList[plQuality.map((a) => a.dim)[quality - 1]] ? plSelectedList[plQuality.map((a) => a.dim)[quality - 1]] : '';
 						console.info(`Servers available:\n\t${plServerList.join('\n\t')}`);
-						console.info(`Available qualities:\n\t${plQuality.map((a, ind) => `[${ind + 1}] ${a.str}`).join('\n\t')}`);
+						console.info(`Available qualities:\n${formatGroupedVideoQualities(plQuality.map((a) => ({ height: a.RESOLUTION?.height, text: `${a.str} [Current M] [${vcurStream.audio_lang || 'und'}]` })))}`);
 
 						if (selPlUrl != '') {
 							variables.push(
@@ -3075,7 +3085,7 @@ export default class Crunchy implements ServiceClass {
 								console.error(`Unable to find language for code ${vcurStream.audio_lang}`);
 								return;
 							}
-							console.info(`Selected quality: ${Object.keys(plSelectedList).find((a) => plSelectedList[a] === selPlUrl)} @ ${plSelectedServer}`);
+							console.info(`Selected quality: ${Object.keys(plSelectedList).find((a) => plSelectedList[a] === selPlUrl)} [Current M] [${vcurStream.audio_lang || 'und'}] @ ${plSelectedServer}`);
 							console.info('Stream URL:', selPlUrl);
 							if (options.dryRun) {
 								if (!options.novids) dlVideoOnce = true;

@@ -39,6 +39,8 @@ This tool is not responsible for your actions; please make an informed decision 
 ### Legend
  - \`\${someText}\` shows that you should replace this text with your own
     - e.g. \`--username \${someText}\` -> \`--username Izuco\`
+
+Quality-list rates use decimal \`kb/s\` (1 kb/s = 1,000 bits/s). \`KiB/s\` measures 1,024 bytes/s. Manifest bandwidth is an advertised rate and may differ from a file's measured average.
 `;
 
 Object.entries(groups).forEach(([key, value]) => {

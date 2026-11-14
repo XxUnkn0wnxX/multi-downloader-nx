@@ -720,8 +720,9 @@ const mediaOptions = {
 };
 assert.equal(await service.downloadEpisode(mediaData, mediaOptions), true);
 assert.equal(mediaLogs.filter((entry) => String(entry[0]).startsWith('Available Video Qualities:')).length, 1);
-assert(mediaLogs.some((entry) => String(entry[0]).includes('[Legacy Manifest] (jpn)')));
-assert(mediaLogs.some((entry) => String(entry[0]).includes('[Current Manifest] (eng)')));
+assert(mediaLogs.some((entry) => String(entry[0]).includes('\t1080p\n\t\t[1]')));
+assert(mediaLogs.some((entry) => String(entry[0]).includes('[Legacy M] [jpn]')));
+assert(mediaLogs.some((entry) => String(entry[0]).includes('[Current M] [eng]')));
 
 assert.deepEqual(
 	licenseCalls.map((call) => [call.pssh, call.headers['x-cr-content-id'], call.headers['x-cr-video-token']]),

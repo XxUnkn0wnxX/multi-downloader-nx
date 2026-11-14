@@ -489,6 +489,21 @@ export function rankVideoCandidates(entries: CatalogVideo[], preferredGuids: str
 }
 
 export function formatVideoCandidate(entry: CatalogVideo): string {
-	const manifest = entry.family === 'Current' ? 'Current Manifest' : 'Legacy Manifest';
-	return `${entry.width}x${entry.height} (${Math.round(entry.bandwidth / 1000)} kb/s) [${manifest}] (${entry.source.languageCode})`;
+	const manifest = entry.family === 'Current' ? 'Current M' : 'Legacy M';
+	return `${entry.width}x${entry.height} (${Math.round(entry.bandwidth / 1000)} kb/s) [${manifest}] [${entry.source.languageCode}]`;
+}
+
+export function formatGroupedVideoQualities(entries: Array<{ height?: number; text: string }>): string {
+	const lines: string[] = [];
+	let currentGroup: string | undefined;
+	for (const [index, entry] of entries.entries()) {
+		const height = entry.height;
+		const group = typeof height === 'number' && Number.isFinite(height) && height > 0 ? `${height}p` : 'Other';
+		if (group !== currentGroup) {
+			lines.push(group);
+			currentGroup = group;
+		}
+		lines.push(`\t[${index + 1}] ${entry.text}`);
+	}
+	return `\t${lines.join('\n\t')}`;
 }

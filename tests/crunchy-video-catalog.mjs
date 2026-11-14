@@ -315,9 +315,29 @@ assert.deepEqual(
 	['low', 'other', 'preferred', 'higher-bw', 'highest'],
 	'q=0 can select the last entry after ascending resolution, bandwidth, and requested-source tie preference'
 );
-assert.equal(catalog.formatVideoCandidate(candidates[1]), '1280x720 (2000 kb/s) [Current Manifest] (jpn)');
-assert.equal(catalog.formatVideoCandidate(descriptor({ source: source('english', 'eng'), bandwidth: 9606297 })), '1920x1080 (9606 kb/s) [Current Manifest] (eng)');
-assert.equal(catalog.formatVideoCandidate(descriptor({ family: 'Legacy 1', source: source('old', 'eng'), bandwidth: 9606297 })), '1920x1080 (9606 kb/s) [Legacy Manifest] (eng)');
+assert.equal(catalog.formatVideoCandidate(candidates[1]), '1280x720 (2000 kb/s) [Current M] [jpn]');
+assert.equal(catalog.formatVideoCandidate(descriptor({ source: source('english', 'eng'), bandwidth: 9606297 })), '1920x1080 (9606 kb/s) [Current M] [eng]');
+assert.equal(catalog.formatVideoCandidate(descriptor({ family: 'Legacy 1', source: source('old', 'eng'), bandwidth: 9606297 })), '1920x1080 (9606 kb/s) [Legacy M] [eng]');
+const groupedQualities = catalog.formatGroupedVideoQualities([
+	...ranked.map((entry) => ({ height: entry.height, text: catalog.formatVideoCandidate(entry) })),
+	{ text: 'unknown height' }
+]);
+assert.equal(
+	groupedQualities,
+	[
+		'\t360p',
+		'\t\t[1] 640x360 (1000 kb/s) [Current M] [jpn]',
+		'\t720p',
+		'\t\t[2] 1280x720 (2000 kb/s) [Legacy M] [jpn]',
+		'\t\t[3] 1280x720 (2000 kb/s) [Current M] [jpn]',
+		'\t\t[4] 1280x720 (3000 kb/s) [Current M] [jpn]',
+		'\t1080p',
+		'\t\t[5] 1920x1080 (4000 kb/s) [Current M] [jpn]',
+		'\tOther',
+		'\t\t[6] unknown height'
+	].join('\n')
+);
+assert.equal(ranked.at(-1)?.representationKey, 'highest', 'quality 0 remains the highest-ranked entry after formatting');
 
 const manyRepresentations = Array.from(
 	{ length: 105 },
@@ -368,7 +388,7 @@ const inventoryShape = [...currentEn, ...currentJa, ...oldZero, ...oldOne];
 assert.equal(inventoryShape.length, 18);
 const inventoryCompatible = inventoryShape.filter((entry) => catalog.timingCompatible(entry, [currentEn[0], currentJa[0]]).compatible);
 assert.equal(inventoryCompatible.length, 18, 'synthetic descriptors preserve the 4+4+5+5 parent-observed timing-compatible shape');
-assert.equal(catalog.formatVideoCandidate(catalog.rankVideoCandidates(inventoryShape)[inventoryShape.length - 1]), '1920x1080 (14241 kb/s) [Legacy Manifest] (jpn)');
+assert.equal(catalog.formatVideoCandidate(catalog.rankVideoCandidates(inventoryShape)[inventoryShape.length - 1]), '1920x1080 (14241 kb/s) [Legacy M] [jpn]');
 
 assert.equal(catalog.inspectVideoManifest('<MPD><broken></MPD>', source(), 'Legacy 0', manifestUrl).length, 0);
 assert.equal(catalog.inspectVideoManifest('<MPD/>', source(), 'Current', manifestUrl).length, 0);
