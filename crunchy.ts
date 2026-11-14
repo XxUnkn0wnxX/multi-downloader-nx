@@ -46,6 +46,7 @@ import { CrunchyTokenInputError, parseCrunchyTokenInput } from './modules/module
 import {
 	requestDeviceToken,
 	validDeviceToken,
+	CRUNCHY_CLI_AUTH_WARNING,
 	validateCrunchyAuthModes,
 	getDeviceName,
 	DEVICE_TYPE,
@@ -92,12 +93,8 @@ export default class Crunchy implements ServiceClass {
 		const argv = yargs.appArgv(this.cfg.cli);
 		const authError = validateCrunchyAuthModes({ ...argv, service: 'crunchy' });
 		if (authError) {
-			console.error(authError);
-			process.exitCode = 1;
-			return false;
-		}
-		if (argv.auth) {
-			console.warn('Crunchyroll CLI login uses --device; run again with --device.');
+			if (authError === CRUNCHY_CLI_AUTH_WARNING) console.warn(authError);
+			else console.error(authError);
 			process.exitCode = 1;
 			return false;
 		}

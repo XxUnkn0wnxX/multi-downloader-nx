@@ -7,7 +7,7 @@ import Hidive from './hidive';
 import ADN from './adn';
 
 import update from './modules/module.updater';
-import { validateCrunchyAuthModes } from './modules/module.crunchy-device-auth';
+import { CRUNCHY_CLI_AUTH_WARNING, validateCrunchyAuthModes } from './modules/module.crunchy-device-auth';
 
 const SERVICES: Record<string, any> = {
 	crunchy: Crunchy,
@@ -20,7 +20,8 @@ const SERVICES: Record<string, any> = {
 	const argv = appArgv(cfg.cli);
 	const authError = validateCrunchyAuthModes(argv);
 	if (authError) {
-		console.error(authError);
+		if (authError === CRUNCHY_CLI_AUTH_WARNING) console.warn(authError);
+		else console.error(authError);
 		process.exitCode = 1;
 		return;
 	}

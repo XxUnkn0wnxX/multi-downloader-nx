@@ -26,7 +26,7 @@ const transformService = (str: Array<'crunchy' | 'hidive' | 'adn' | 'all'>) => {
 
 let docs = `# ${packageJSON.name} (v${packageJSON.version})
 
-If you find any bugs in this documentation or in the program itself please report it [over on GitHub](${packageJSON.bugs.url}).
+If you find any bugs in this documentation or in the program itself, please report them on [GitHub issues](../../../issues).
 
 ## Legal Warning
 

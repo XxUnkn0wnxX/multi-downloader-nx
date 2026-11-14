@@ -1,6 +1,6 @@
 # multi-downloader-nx (v5.8.8)
 
-If you find any bugs in this documentation or in the program itself please report it [over on GitHub](https://github.com/anidl/multi-downloader-nx/issues).
+If you find any bugs in this documentation or in the program itself, please report them on [GitHub issues](../../../issues).
 
 ## Legal Warning
 
@@ -34,19 +34,19 @@ Log in to Crunchyroll with an activation code. The CLI prints the URL and code, 
 | --- | --- | --- | --- | --- | --- | ---| 
 | All | `--username ${username}` | `string` | `No`| `NaN` | `undefined`| `username: ` |
 
-Set the username to use for the authentication. If not provided, you will be prompted for the input
+Set the username to use for authentication. For Crunchyroll CLI login, use --device instead.
 #### `--password`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---| 
 | All | `--password ${password}` | `string` | `No`| `NaN` | `undefined`| `password: ` |
 
-Set the password to use for the authentication. If not provided, you will be prompted for the input
+Set the password to use for authentication. For Crunchyroll CLI login, use --device instead.
 #### `--silentAuth`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---| 
 | Crunchyroll | `--silentAuth ` | `boolean` | `No`| `NaN` | `false`| `silentAuth: ` |
 
-Authenticate every time the script runs. Use at your own risk.
+Crunchyroll CLI password login is unavailable. Use --device instead.
 #### `--token`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---| 
@@ -548,7 +548,7 @@ Provide a path to output the raw data from the API into a file (Where applicable
 | --- | --- | --- | --- | --- | --- | ---| 
 | All | `--proxy ${proxy_url}` | `string` | `No`| `NaN` | ``| `proxy: ` |
 
-Uses Proxy on geo-restricted or geo-defining endpoints (e.g. https://127.0.0.1:1080 or http://127.0.0.1:1080)
+Uses Proxy on geo-restricted or geo-defining endpoints (e.g. `https://127.0.0.1:1080` or `http://127.0.0.1:1080`)
 #### `--proxyAll`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---| 

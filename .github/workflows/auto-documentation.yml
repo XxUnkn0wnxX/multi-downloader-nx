@@ -3,6 +3,7 @@ name: auto-documentation
 on:
     push:
         branches: [master]
+        paths-ignore: ['**/*.md', 'docs/**']
 
 permissions:
     contents: write
@@ -22,6 +23,8 @@ jobs:
               uses: actions/setup-node@v6
               with:
                   node-version: 24
+                  cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
             - run: pnpm i
             - run: pnpm run docs
             - uses: stefanzweifel/git-auto-commit-action@v7

@@ -107,13 +107,24 @@ try {
 	const fakeConsole = Object.fromEntries(['info', 'warn', 'error', 'debug'].map((method) => [method, (...args) => logs.push([method, args.map(String).join(' ')])]));
 	const api = { auth: 'auth', profile: 'profile', cms_auth: 'cms', crunchyWebAuthHeader: {}, crunchyDefHeader: {} };
 	const saved = [];
+	let helperPrompts = 0;
+	let loadBinCalls = 0;
 	let parsedArgv = {};
 	const stubs = {
 		'./package.json': { version: 'test' },
 		'./modules/log': { console: fakeConsole },
 		'./modules/module.api-urls': { domain: { cr_www: 'https://www.crunchyroll.com', cr_api: 'https://beta-api.crunchyroll.com' }, api },
-		'./modules/module.cfg-loader': { saveCRToken: (token) => saved.push(token), saveCRTokenAtomic: () => true, loadCfg: () => ({ cli: {} }), loadBinCfg: async () => ({}) },
+		'./modules/module.cfg-loader': {
+			saveCRToken: (token) => saved.push(token),
+			saveCRTokenAtomic: () => true,
+			loadCfg: () => ({ cli: {} }),
+			loadBinCfg: async () => {
+				loadBinCalls++;
+				return {};
+			}
+		},
 		'./modules/module.app-args': { appArgv: () => parsedArgv },
+		'./modules/module.helper': { default: { question: async () => (helperPrompts++, 'prompt input') }, __esModule: true },
 		'./modules/module.crunchy-token': realHelper,
 		'./modules/module.crunchy-device-auth': deviceHelper,
 		'./@types/enums': { CrunchyVideoPlayStreams: { androidtv: 'androidtv', chrome: 'chrome' } },
@@ -218,6 +229,60 @@ try {
 		assert.equal(process.exitCode, 1);
 		assert(logs.some(([kind, line]) => kind === 'error' && line.includes('Expected a UUID-shaped')));
 		process.exitCode = undefined;
+	});
+	await test('actual Crunchyroll CLI rejects legacy credential flows before prompts or side effects', async () => {
+		const warning = deviceHelper.CRUNCHY_CLI_AUTH_WARNING;
+		for (const argv of [
+			{ username: 'legacy-user' },
+			{ password: 'legacy-secret' },
+			{ username: '' },
+			{ password: '' },
+			{ username: 'legacy-user', auth: true },
+			{ auth: true },
+			{ silentAuth: true }
+		]) {
+			logs.length = 0;
+			parsedArgv = argv;
+			process.exitCode = undefined;
+			const promptCount = helperPrompts;
+			const binLoadCount = loadBinCalls;
+			const saveCount = saved.length;
+			let authCalls = 0;
+			const { service, calls } = makeService({});
+			service.doAuth = async () => authCalls++;
+			service.loginWithToken = async () => authCalls++;
+			service.loginWithDevice = async () => authCalls++;
+			assert.equal(await service.cli(), false);
+			assert.equal(process.exitCode, 1);
+			assert.deepEqual(
+				logs.filter(([kind]) => kind === 'warn'),
+				[['warn', warning]]
+			);
+			assert.equal(helperPrompts, promptCount);
+			assert.equal(loadBinCalls, binLoadCount);
+			assert.equal(saved.length, saveCount);
+			assert.equal(authCalls, 0);
+			assert.equal(calls.length, 0);
+			assert(!logs.some(([, line]) => line.includes('legacy-secret')));
+		}
+		process.exitCode = undefined;
+	});
+	await test('actual Crunchyroll CLI keeps device and token modes available', async () => {
+		for (const argv of [{ device: true }, { token: fakeToken }]) {
+			logs.length = 0;
+			parsedArgv = argv;
+			process.exitCode = undefined;
+			let deviceCalls = 0;
+			let tokenCalls = 0;
+			const { service } = makeService({});
+			service.loginWithDevice = async () => (deviceCalls++, true);
+			service.loginWithToken = async (value) => (tokenCalls++, value === fakeToken);
+			await service.cli();
+			assert.equal(deviceCalls, Number(!!argv.device));
+			assert.equal(tokenCalls, Number(argv.token !== undefined));
+			assert.equal(process.exitCode, undefined);
+			assert(!logs.some(([kind]) => kind === 'warn' || kind === 'error'));
+		}
 	});
 
 	await test('device helper polls milliseconds and sends Android TV identity', async () => {
@@ -1140,9 +1205,24 @@ try {
 		for (const scenario of [
 			{ argv: { service: 'crunchy' }, result: false, expectedCalls: 1, exit: 1, updates: 1 },
 			{ argv: { service: 'crunchy', downloadArchive: true }, result: false, expectedCalls: 1, exit: 1, updates: 1 },
+			{ argv: { service: 'crunchy', auth: true }, result: true, expectedCalls: 0, exit: 1, updates: 0, warning: deviceHelper.CRUNCHY_CLI_AUTH_WARNING },
+			{ argv: { service: 'crunchy', username: 'legacy-user' }, result: true, expectedCalls: 0, exit: 1, updates: 0, warning: deviceHelper.CRUNCHY_CLI_AUTH_WARNING },
+			{ argv: { service: 'crunchy', password: '' }, result: true, expectedCalls: 0, exit: 1, updates: 0, warning: deviceHelper.CRUNCHY_CLI_AUTH_WARNING },
+			{ argv: { service: 'crunchy', password: 'entry-secret' }, result: true, expectedCalls: 0, exit: 1, updates: 0, warning: deviceHelper.CRUNCHY_CLI_AUTH_WARNING },
+			{ argv: { service: 'crunchy', silentAuth: true }, result: true, expectedCalls: 0, exit: 1, updates: 0, warning: deviceHelper.CRUNCHY_CLI_AUTH_WARNING },
+			{
+				argv: { service: 'crunchy', auth: true, device: true },
+				result: true,
+				expectedCalls: 0,
+				exit: 1,
+				updates: 0,
+				error: 'Choose only one of --device, --token, --auth, or --silentAuth.'
+			},
 			{ argv: { service: 'hidive', downloadArchive: true }, result: false, expectedCalls: 2, exit: undefined, updates: 1 },
+			{ argv: { service: 'hidive', username: 'user', password: 'pass' }, result: true, expectedCalls: 1, exit: undefined, updates: 1 },
 			{ argv: { service: 'hidive', device: true }, result: true, expectedCalls: 0, exit: 1, updates: 0 }
 		]) {
+			logs.length = 0;
 			let calls = 0,
 				updates = 0;
 			const fakeProcess = {
@@ -1181,6 +1261,17 @@ try {
 			assert.equal(calls, scenario.expectedCalls);
 			assert.equal(fakeProcess.exitCode, scenario.exit);
 			assert.equal(updates, scenario.updates);
+			if (scenario.warning)
+				assert.deepEqual(
+					logs.filter(([kind]) => kind === 'warn'),
+					[['warn', scenario.warning]]
+				);
+			if (scenario.argv.password) assert(!logs.some(([, line]) => line.includes(scenario.argv.password)));
+			if (scenario.error)
+				assert.deepEqual(
+					logs.filter(([kind]) => kind === 'error'),
+					[['error', scenario.error]]
+				);
 		}
 	});
 	await test('device polling stops immediately on rate limit', async () => {

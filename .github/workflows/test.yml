@@ -3,8 +3,10 @@ name: Style and build test
 on:
     push:
         branches: [develop]
+        paths-ignore: ['**/*.md', 'docs/**']
     pull_request:
         branches: [develop]
+        paths-ignore: ['**/*.md', 'docs/**']
     workflow_dispatch:
 
 permissions:
@@ -22,6 +24,8 @@ jobs:
               uses: actions/setup-node@v6
               with:
                   node-version: 24
+                  cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
                   check-latest: true
             - run: pnpm i
             - name: Check TypeScript
@@ -40,6 +44,8 @@ jobs:
               uses: actions/setup-node@v6
               with:
                   node-version: 24
+                  cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
                   check-latest: true
             - run: pnpm i
             - run: pnpm run eslint
@@ -55,6 +61,8 @@ jobs:
               uses: actions/setup-node@v6
               with:
                   node-version: 24
+                  cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
                   check-latest: true
             - run: pnpm i
             - run: pnpm run prettier
@@ -70,8 +78,17 @@ jobs:
               uses: actions/setup-node@v6
               with:
                   node-version: 24
+                  cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      gui/react/pnpm-lock.yaml
                   check-latest: true
             - run: pnpm i
+            - name: Cache pkg runtime downloads
+              uses: actions/cache@v6
+              with:
+                  path: ~/.pkg-cache/**/fetched-*
+                  key: pkg-fetch-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'modules/build.ts') }}
             - run: pnpm run test-windows-arm64
     build-test-linux-arm64:
         needs: [eslint, prettier, tsc]
@@ -85,8 +102,17 @@ jobs:
               uses: actions/setup-node@v6
               with:
                   node-version: 24
+                  cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      gui/react/pnpm-lock.yaml
                   check-latest: true
             - run: pnpm i
+            - name: Cache pkg runtime downloads
+              uses: actions/cache@v6
+              with:
+                  path: ~/.pkg-cache/**/fetched-*
+                  key: pkg-fetch-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'modules/build.ts') }}
             - run: pnpm run test-linux-arm64
     build-test-macos-arm64:
         needs: [eslint, prettier, tsc]
@@ -100,8 +126,17 @@ jobs:
               uses: actions/setup-node@v6
               with:
                   node-version: 24
+                  cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      gui/react/pnpm-lock.yaml
                   check-latest: true
             - run: pnpm i
+            - name: Cache pkg runtime downloads
+              uses: actions/cache@v6
+              with:
+                  path: ~/.pkg-cache/**/fetched-*
+                  key: pkg-fetch-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'modules/build.ts') }}
             - run: pnpm run test-macos-arm64
     build-test-windows-x64:
         needs: [eslint, prettier, tsc]
@@ -115,8 +150,17 @@ jobs:
               uses: actions/setup-node@v6
               with:
                   node-version: 24
+                  cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      gui/react/pnpm-lock.yaml
                   check-latest: true
             - run: pnpm i
+            - name: Cache pkg runtime downloads
+              uses: actions/cache@v6
+              with:
+                  path: ~/.pkg-cache/**/fetched-*
+                  key: pkg-fetch-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'modules/build.ts') }}
             - run: pnpm run test-windows-x64
     build-test-linux-x64:
         needs: [eslint, prettier, tsc]
@@ -130,8 +174,17 @@ jobs:
               uses: actions/setup-node@v6
               with:
                   node-version: 24
+                  cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      gui/react/pnpm-lock.yaml
                   check-latest: true
             - run: pnpm i
+            - name: Cache pkg runtime downloads
+              uses: actions/cache@v6
+              with:
+                  path: ~/.pkg-cache/**/fetched-*
+                  key: pkg-fetch-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'modules/build.ts') }}
             - run: pnpm run test-linux-x64
     build-test-macos-x64:
         needs: [eslint, prettier, tsc]
@@ -145,6 +198,15 @@ jobs:
               uses: actions/setup-node@v6
               with:
                   node-version: 24
+                  cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      gui/react/pnpm-lock.yaml
                   check-latest: true
             - run: pnpm i
+            - name: Cache pkg runtime downloads
+              uses: actions/cache@v6
+              with:
+                  path: ~/.pkg-cache/**/fetched-*
+                  key: pkg-fetch-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'modules/build.ts') }}
             - run: pnpm run test-macos-x64

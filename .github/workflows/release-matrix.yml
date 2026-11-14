@@ -91,6 +91,10 @@ jobs:
               uses: actions/setup-node@v6
               with:
                   node-version: 24
+                  cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      ${{ matrix.gui == 'gui' && 'gui/react/pnpm-lock.yaml' || '' }}
                   check-latest: true
             - name: Install Node modules
               run: |

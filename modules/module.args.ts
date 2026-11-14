@@ -825,8 +825,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'username',
-		describe: 'Set the username to use for the authentication. If not provided, you will be prompted for the input',
-		docDescribe: true,
+		describe: 'Set the username for authentication (Crunchyroll CLI: use --device)',
+		docDescribe: 'Set the username to use for authentication. For Crunchyroll CLI login, use --device instead.',
 		group: 'auth',
 		service: ['all'],
 		type: 'string',
@@ -837,8 +837,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'password',
-		describe: 'Set the password to use for the authentication. If not provided, you will be prompted for the input',
-		docDescribe: true,
+		describe: 'Set the password for authentication (Crunchyroll CLI: use --device)',
+		docDescribe: 'Set the password to use for authentication. For Crunchyroll CLI login, use --device instead.',
 		group: 'auth',
 		service: ['all'],
 		type: 'string',
@@ -849,8 +849,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'silentAuth',
-		describe: 'Authenticate every time the script runs. Use at your own risk.',
-		docDescribe: true,
+		describe: 'Authenticate every time the script runs. Crunchyroll CLI login uses --device instead.',
+		docDescribe: 'Crunchyroll CLI password login is unavailable. Use --device instead.',
 		group: 'auth',
 		service: ['crunchy'],
 		type: 'boolean',
@@ -1041,7 +1041,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	{
 		name: 'proxy',
 		describe: 'Uses Proxy on geo-restricted or geo-defining endpoints (e.g. https://127.0.0.1:1080 or http://127.0.0.1:1080)',
-		docDescribe: true,
+		docDescribe: 'Uses Proxy on geo-restricted or geo-defining endpoints (e.g. `https://127.0.0.1:1080` or `http://127.0.0.1:1080`)',
 		group: 'util',
 		service: ['all'],
 		type: 'string',
