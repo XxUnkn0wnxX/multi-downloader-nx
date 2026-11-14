@@ -41,6 +41,7 @@
 	"license": "MIT",
 	"dependencies": {
 		"@bufbuild/protobuf": "^2.12.1",
+		"@xmldom/xmldom": "0.8.13",
 		"commander": "^15.0.0",
 		"dotenv": "^17.4.2",
 		"express": "^5.2.1",

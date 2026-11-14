@@ -144,6 +144,9 @@ try {
 		'./modules/module.parseSelect',
 		'./modules/module.args',
 		'./modules/module.transform-mpd',
+		'./modules/module.crunchy-manifests',
+		'./modules/module.crunchy-video-catalog',
+		'./modules/module.crunchy-video-selection',
 		'./modules/module.vtt2ass',
 		'./@types/enums'
 	]);
@@ -1201,9 +1204,111 @@ try {
 		);
 		assert.equal(await handler.isDownloading(), false);
 	});
+	await test('real GUI queue stops on failed Crunchy episode and advances after successful preview', async () => {
+		let activeState, scenario;
+		const { default: Base } = compile(path.join(root, 'gui/server/services/base.ts'), (id) => {
+			if (id === 'open') return { default: () => {}, __esModule: true };
+			if (id === '..') return { cfg: { dir: {} } };
+			if (id === 'path') return require(id);
+			if (id === '../../../modules/log') return { console: fakeConsole };
+			if (id === '../../../modules/module.cfg-loader') return { getState: () => activeState, setState: () => {} };
+			if (id === '../../../package.json') return { version: 'test' };
+			throw new Error(`Unexpected Base import ${id}`);
+		});
+		class FakeCrunchy {
+			constructor() {
+				this.cfg = { cli: {} };
+			}
+			async refreshToken() {
+				return true;
+			}
+			async downloadFromSeriesID(id) {
+				scenario.seriesRequests.push(id);
+				return { isOk: true, value: scenario.episodes[id].map((episode) => ({ id: episode.id })) };
+			}
+			async downloadEpisode(episode, options) {
+				scenario.episodeRequests.push({ id: episode.id, dryRun: options.dryRun });
+				return scenario.results[episode.id] ?? true;
+			}
+		}
+		const { default: Handler } = compile(path.join(root, 'gui/server/services/crunchyroll.ts'), (id) => {
+			if (id === '../../../crunchy') return { default: FakeCrunchy, __esModule: true };
+			if (id === './base') return { default: Base, __esModule: true };
+			if (id === '../../../modules/module.app-args') return { appArgv: () => ({ locale: 'en-US', dryRun: true }) };
+			if (id === '../../../modules/module.args') return { getDefault: () => undefined };
+			if (id === '../../../modules/module.langsData') return {};
+			if (id === '../../../modules/log') return { console: fakeConsole };
+			throw new Error(`Unexpected GUI import ${id}`);
+		});
+		const queued = (id) => ({ id, e: '1', dubLang: ['jpn'], q: 0, dlsubs: ['none'], fileName: 'test', dlVideoOnce: false, novids: false, noaudio: false });
+		const runQueue = async (items, setup) => {
+			activeState = { services: { crunchy: { queue: items } } };
+			scenario = { episodes: {}, results: {}, seriesRequests: [], episodeRequests: [], ...setup };
+			const messages = [],
+				errors = [];
+			const handler = new Handler({ sendMessage: (message) => messages.push(message) });
+			handler.alertError = (error) => errors.push(error);
+			handler.setDownloadQueue(true);
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			return { handler, messages, errors };
+		};
+
+		const failed = await runQueue([queued('first-series'), queued('next-series')], {
+			episodes: { 'first-series': [{ id: 'first-episode' }, { id: 'later-episode' }] },
+			results: { 'first-episode': false }
+		});
+		same(scenario.seriesRequests, ['first-series']);
+		same(scenario.episodeRequests, [{ id: 'first-episode', dryRun: true }]);
+		assert.equal(failed.errors.length, 1);
+		assert.equal(failed.errors[0].name, 'Download error');
+		assert.equal(await failed.handler.getDownloadQueue(), false);
+		same(
+			(await failed.handler.getQueue()).map((item) => item.id),
+			['next-series']
+		);
+		assert.equal(await failed.handler.isDownloading(), false);
+		assert.equal(failed.messages.filter((message) => message.name === 'finish').length, 1);
+
+		const successful = await runQueue([queued('first-series'), queued('next-series')], {
+			episodes: {
+				'first-series': [{ id: 'first-preview' }],
+				'next-series': [{ id: 'next-preview' }]
+			}
+		});
+		same(scenario.seriesRequests, ['first-series', 'next-series']);
+		same(scenario.episodeRequests, [
+			{ id: 'first-preview', dryRun: true },
+			{ id: 'next-preview', dryRun: true }
+		]);
+		assert.equal(successful.errors.length, 0);
+		assert.equal(await successful.handler.getDownloadQueue(), true);
+		assert.deepEqual(await successful.handler.getQueue(), []);
+		assert.equal(await successful.handler.isDownloading(), false);
+		assert.equal(successful.messages.filter((message) => message.name === 'finish').length, 2);
+	});
 	await test('actual entry point propagates Crunchy failures, stops archive, and rejects other-provider device before update', async () => {
 		for (const scenario of [
 			{ argv: { service: 'crunchy' }, result: false, expectedCalls: 1, exit: 1, updates: 1 },
+			{ argv: { service: 'crunchy', dryRun: true, debug: true }, result: true, expectedCalls: 1, exit: undefined, updates: 0 },
+			{ argv: { service: 'hidive', dryRun: true, downloadArchive: true }, result: true, expectedCalls: 2, exit: undefined, updates: 0 },
+			{ argv: { service: 'adn', dryRun: true }, result: true, expectedCalls: 1, exit: undefined, updates: 0 },
+			{
+				argv: { service: 'crunchy', dryRun: true, update: true },
+				result: true,
+				expectedCalls: 0,
+				exit: 1,
+				updates: 0,
+				error: '--dry-run cannot be combined with --update or --addArchive.'
+			},
+			{
+				argv: { service: 'crunchy', dryRun: true, addArchive: true },
+				result: true,
+				expectedCalls: 0,
+				exit: 1,
+				updates: 0,
+				error: '--dry-run cannot be combined with --update or --addArchive.'
+			},
+			{ argv: { service: 'crunchy', addArchive: true, s: 'TEST_SEASON' }, result: true, expectedCalls: 0, exit: undefined, updates: 1, archives: 1 },
 			{ argv: { service: 'crunchy', downloadArchive: true }, result: false, expectedCalls: 1, exit: 1, updates: 1 },
 			{ argv: { service: 'crunchy', auth: true }, result: true, expectedCalls: 0, exit: 1, updates: 0, warning: deviceHelper.CRUNCHY_CLI_AUTH_WARNING },
 			{ argv: { service: 'crunchy', username: 'legacy-user' }, result: true, expectedCalls: 0, exit: 1, updates: 0, warning: deviceHelper.CRUNCHY_CLI_AUTH_WARNING },
@@ -1224,7 +1329,8 @@ try {
 		]) {
 			logs.length = 0;
 			let calls = 0,
-				updates = 0;
+				updates = 0,
+				archives = 0;
 			const fakeProcess = {
 				exitCode: undefined,
 				exit: () => {
@@ -1243,7 +1349,7 @@ try {
 					if (id === './modules/log') return { console: fakeConsole };
 					if (id === './modules/module.app-args') return { appArgv: () => scenario.argv, overrideArguments: () => {} };
 					if (id === './modules/module.cfg-loader') return { loadCfg: () => ({ cli: {} }) };
-					if (id === './modules/module.downloadArchive') return { makeCommand: () => ['first', 'second'], addToArchive: () => {} };
+					if (id === './modules/module.downloadArchive') return { makeCommand: () => ['first', 'second'], addToArchive: () => archives++ };
 					if (['./crunchy', './hidive', './adn'].includes(id)) return { default: Provider, __esModule: true };
 					if (id === './modules/module.updater')
 						return {
@@ -1261,6 +1367,7 @@ try {
 			assert.equal(calls, scenario.expectedCalls);
 			assert.equal(fakeProcess.exitCode, scenario.exit);
 			assert.equal(updates, scenario.updates);
+			assert.equal(archives, scenario.archives ?? 0);
 			if (scenario.warning)
 				assert.deepEqual(
 					logs.filter(([kind]) => kind === 'warn'),

@@ -2,6 +2,8 @@
 
 This fork follows [anidl/multi-downloader-nx](https://github.com/anidl/multi-downloader-nx). Keep the changes below on `develop` until upstream supplies equivalent behavior. An upstream version bump alone does not replace a workaround: compare the actual implementation and dependency resolutions before removing it.
 
+**Browse:** [README](README.md) · [Getting started](GET-STARTED.md) · [CLI reference](DOCUMENTATION.md) · [Issues](../../../issues)
+
 ## Branch boundaries
 
 | Branch | Pull source | Push destination | Purpose |
@@ -74,11 +76,29 @@ Keep HTTP/2 scoped to device auth, with the main endpoint first and one warned b
 
 Crunchyroll CLI `--auth`, `--username`, `--password` and `--silentAuth` direct users to `--device` before updates or login. Keep underlying GUI auth, other services' auth and legacy browser-cookie `--token` support. Device login does not guarantee CBR or an 8,000 kb/s video.
 
+### Discover available Crunchyroll legacy qualities
+
+Keep current and usable legacy video renditions in the same numbered quality list, including compatible provider-linked language versions. `-q 0` selects the highest resolution, then advertised bandwidth; explicit numbers select individual entries. Preserve each entry's segments, initialization and DRM metadata, its own playback context, and independent CDN selection. Keep requested audio/subtitle/sign metadata separate; select the highest current audio independently of video quality numbers. Legacy availability depends on the episode, dub, and stream; retain current qualities when optional manifests are absent or unusable.
+
+The [manifest helper](../modules/module.crunchy-manifests.ts) checks only the recognized clean-video paths, keeps the original origin and query, and limits optional requests. Missing legacy manifests stay silent normally; `--debug` retains full candidate/request diagnostics. Keep normal fallback notices short, naming the video language and timing drift, unknown timing, or other concise cause; do not print one for each rejected candidate. Keep hardsub selection intact and skip unnecessary probes when video is not needed. The GUI accepts listed Crunchyroll quality numbers without an artificial 99-entry limit.
+
+The [catalog and timing defaults](../modules/module.crunchy-video-catalog.ts) keep discovery limits and timing tolerances together with explicit units. Compare declared video timelines, not subtitle cues; matching declarations do not prove decoded synchronization or identical edits. Global selection is limited to supported raw DASH; preserve requested-version behavior for hardsubs, keep-all-video mode and unsupported metadata. Reacquire the chosen representation before execution, retain its own lease, and aggregate the independent video/audio passes before muxing or recording completion.
+
+`--forcevideo` / `--forcevid` bypasses timing eligibility with a desync warning; `--noaudio` makes those checks unnecessary. Keep authorization, stream availability and request limits intact. Normal `--force` file-exists behavior is separate. Preserve original timing without automatic trimming, stretching or guessed offsets.
+
+The manifest transformation was identified in [Yurasubs' pinned implementation](https://github.com/Yurasubs/multi-downloader-nx/blob/ea46829974f78a8bcb8b5b5e07a3185ab6fb4916/crunchy.ts#L1558) and corroborated by [erolus77's implementation](https://github.com/erolus77/multi-downloader-nx-dots/blob/f35bebe26af0494dc679c5f66821f33b507a7304/crunchy.ts#L1551). Additional playback research included [Croptix](https://github.com/stratumadev/croptix/issues/13) and [pcela's legacy-endpoint fallback](https://github.com/pcela/multi-downloader-nx/blob/ca99d707cd013d06eb426234c79deadb0d0be952/crunchy.ts#L1762); those approaches are not copied into this implementation. Preserve this provenance when adapting upstream changes.
+
+### Preview downloads without media output
+
+`--dry-run` lists available and selected stream information for Crunchyroll, HIDIVE and ADN, then stops before license requests, media/subtitle/font downloads, chapter output, decryption, muxing and completed-download archive writes. Keep outer provider completion guards and cleanup of only the preview's own playback sessions. The standalone font command lists planned URLs in preview mode.
+
+Preview mode skips automatic updates and rejects explicit update/archive-add actions. Existing authentication/refresh, metadata requests and HEAD checks, logging and GUI queue progression can still occur; this is a download preview. `--debug` remains available. Normal download behavior and prerequisites must be preserved.
+
 ### Run development checks
 
 The **Style and build test** workflow in [.github/workflows/test.yml](../.github/workflows/test.yml) runs on pushes and pull requests targeting `develop`, with manual dispatch available. Push/PR workflows skip changes limited to Markdown or `docs/`; mixed code/documentation changes still run. Keep the matching documentation exclusions in the Docker and auto-documentation push workflows; release events and manual dispatch remain available.
 
-The test workflow first checks TypeScript without emitting files and runs `node tests/crunchy-token-input.mjs` for cookie input, device login, refresh, transport cancellation and GUI failure handling; ESLint, Prettier, and the existing platform packaging checks remain required downstream. Keep this branch-specific workflow adaptation separate from changes intended for the upstream mirror.
+The test workflow first checks TypeScript without emitting files and runs `node tests/crunchy-token-input.mjs` for cookie input, device login, refresh, transport cancellation and GUI queue failure handling. Catalog, global-video, manifest and provider-preview fixtures plus generated-reference parity run once in that shared gate; ESLint, Prettier, and the existing platform packaging checks remain required downstream. Keep this branch-specific workflow adaptation separate from changes intended for the upstream mirror.
 
 Keep lockfile-based pnpm download caches separate for root checks and builds that also install GUI dependencies. Cache only verified `pkg` runtime downloads, scoped to OS, architecture and build inputs; keep normal installs and tests on cache misses, and exclude generated applications and `node_modules`.
 
@@ -88,7 +108,7 @@ Use relative links for repository files and supported GitHub project navigation,
 
 ## Already incorporated upstream
 
-The Android TV client credentials and User-Agent update from fork commit `78ea053` match upstream commit [`8599faa`](https://github.com/anidl/multi-downloader-nx/commit/8599faab539a878bcfb57a6fc07eac27dab1f873). The auth module has no remaining fork difference after that upstream merge. Follow upstream for subsequent auth changes; do not preserve the old credential values as a permanent fork requirement.
+The Android TV client credentials and User-Agent update from fork commit 78ea053 match upstream commit [8599faa](https://github.com/anidl/multi-downloader-nx/commit/8599faab539a878bcfb57a6fc07eac27dab1f873). The auth module has no remaining fork difference after that upstream merge. Follow upstream for subsequent auth changes; do not preserve the old credential values as a permanent fork requirement.
 
 ## Maintaining this guide
 

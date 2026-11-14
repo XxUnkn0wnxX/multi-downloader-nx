@@ -76,7 +76,7 @@ export default class AnimationDigitalNetwork implements ServiceClass {
 		if (argv.debug) this.debug = true;
 
 		// load binaries
-		this.cfg.bin = await yamlCfg.loadBinCfg();
+		if (!argv.dryRun) this.cfg.bin = await yamlCfg.loadBinCfg();
 		if (argv.allDubs) {
 			argv.dubLang = langsData.dubLanguageCodes;
 		}
@@ -467,6 +467,8 @@ export default class AnimationDigitalNetwork implements ServiceClass {
 		if (res === undefined || res.error) {
 			console.error('Failed to download media list');
 			return { isOk: false, reason: new Error('Failed to download media list') };
+		} else if (res.dryRun) {
+			return { isOk: true, dryRun: true };
 		} else {
 			if (!options.skipmux) {
 				await this.muxStreams(res.data, { ...options, output: res.fileName });
@@ -491,7 +493,7 @@ export default class AnimationDigitalNetwork implements ServiceClass {
 			return;
 		}
 
-		if (!this.cfg.bin.ffmpeg) this.cfg.bin = await yamlCfg.loadBinCfg();
+		if (!options.dryRun && !this.cfg.bin.ffmpeg) this.cfg.bin = await yamlCfg.loadBinCfg();
 
 		let mediaName = '...';
 		let fileName;
@@ -504,6 +506,7 @@ export default class AnimationDigitalNetwork implements ServiceClass {
 
 		let dlFailed = false;
 		let dlVideoOnce = false; // Variable to save if best selected video quality was downloaded
+		let previewSelected = false;
 
 		const refreshToken = await this.refreshToken();
 		if (!refreshToken.isOk) {
@@ -689,8 +692,8 @@ export default class AnimationDigitalNetwork implements ServiceClass {
 							plStreams[plServer][plResolutionText] = pl.uri;
 						}
 						// set plQualityStr
-						const plBandwidth = Math.round(pl.attributes?.BANDWIDTH ?? 0 / 1024);
-						const qualityStrAdd = `${plResolutionText} (${plBandwidth}KiB/s)`;
+						const plBandwidth = Math.round((pl.attributes?.BANDWIDTH ?? 0) / 1000);
+						const qualityStrAdd = `${plResolutionText} (${plBandwidth} kb/s)`;
 						const qualityStrRegx = new RegExp(qualityStrAdd.replace(/([:()/])/g, '\\$1'), 'm');
 						const qualityStrMatch = !plQuality
 							.map((a) => a.str)
@@ -710,6 +713,11 @@ export default class AnimationDigitalNetwork implements ServiceClass {
 
 					const plSelectedServer = plServerList[options.x - 1];
 					const plSelectedList = plStreams[plSelectedServer];
+					if (!plSelectedServer || !plSelectedList || plQuality.length === 0) {
+						console.error('No video qualities available.');
+						dlFailed = true;
+						continue;
+					}
 					plQuality.sort((a, b) => {
 						const aMatch: RegExpMatchArray | never[] = a.dim.match(/[0-9]+/) || [];
 						const bMatch: RegExpMatchArray | never[] = b.dim.match(/[0-9]+/) || [];
@@ -732,6 +740,9 @@ export default class AnimationDigitalNetwork implements ServiceClass {
 					const selPlUrl = plSelectedList[plQuality.map((a) => a.dim)[quality - 1]] ? plSelectedList[plQuality.map((a) => a.dim)[quality - 1]] : '';
 					console.info(`Servers available:\n\t${plServerList.join('\n\t')}`);
 					console.info(`Available qualities:\n\t${plQuality.map((a, ind) => `[${ind + 1}] ${a.str}`).join('\n\t')}`);
+					if (options.dryRun) {
+						console.info(`Quality URLs:\n\t${plQuality.map((a, ind) => `[${ind + 1}] ${plStreams[plSelectedServer]?.[a.dim] ?? ''}`).join('\n\t')}`);
+					}
 
 					if (selPlUrl != '') {
 						variables.push(
@@ -749,6 +760,11 @@ export default class AnimationDigitalNetwork implements ServiceClass {
 
 						console.info(`Selected quality: ${Object.keys(plSelectedList).find((a) => plSelectedList[a] === selPlUrl)} @ ${plSelectedServer}`);
 						console.info('Stream URL:', selPlUrl);
+						if (options.dryRun) {
+							previewSelected = true;
+							dlVideoOnce = true;
+							continue;
+						}
 						// TODO check filename
 						fileName = parseFileName(options.fileName, variables, options.numbers, options.override).join(path.sep);
 						const outFile = parseFileName(options.fileName + '.' + audDub.name, variables, options.numbers, options.override).join(path.sep);
@@ -817,9 +833,18 @@ export default class AnimationDigitalNetwork implements ServiceClass {
 				}
 			} else if (options.novids) {
 				console.info('Downloading skipped!');
-				fileName = parseFileName(options.fileName, variables, options.numbers, options.override).join(path.sep);
+				if (!options.dryRun) fileName = parseFileName(options.fileName, variables, options.numbers, options.override).join(path.sep);
 			}
 			await this.sleep(options.waittime);
+		}
+
+		if (options.dryRun) {
+			if (dlFailed) return undefined;
+			if (!options.novids && !previewSelected) {
+				console.error('No matching video streams available.');
+				return undefined;
+			}
+			return { dryRun: true, error: false, data: [], fileName: '' };
 		}
 
 		const compiledChapters: string[] = [];

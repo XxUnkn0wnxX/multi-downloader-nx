@@ -5,6 +5,8 @@ import { DownloadInfo } from './messageHandler';
 import { CrunchyVideoPlayStreams, CrunchyAudioPlayStreams } from './enums';
 
 export type CrunchyDownloadOptions = {
+	dryRun?: boolean;
+	forcevideo?: boolean;
 	hslang: string;
 	cstream: keyof typeof CrunchyVideoPlayStreams;
 	vstream: keyof typeof CrunchyVideoPlayStreams;

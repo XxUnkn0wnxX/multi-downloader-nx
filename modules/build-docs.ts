@@ -42,17 +42,18 @@ This tool is not responsible for your actions; please make an informed decision 
 `;
 
 Object.entries(groups).forEach(([key, value]) => {
+	const groupArgs = args.filter((argument) => argument.group === key);
+	if (!groupArgs.length) return;
 	docs += `\n### ${value.slice(0, -1)}\n`;
 
-	docs += args
-		.filter((a) => a.group === key)
+	docs += groupArgs
 		.map((argument) => {
 			return [
 				`#### \`${argument.name.length > 1 ? '--' : '-'}${argument.name}\``,
 				`| **Service** | **Usage** | **Type** | **Required** | **Alias** | ${argument.choices ? '**Choices** |' : ''} ${argument.default ? '**Default** |' : ''}**cli-default Entry**`,
-				`| --- | --- | --- | --- | --- | ${argument.choices ? '--- | ' : ''}${argument.default ? '--- | ' : ''}---| `,
+				`| --- | --- | --- | --- | --- | ${argument.choices ? '--- | ' : ''}${argument.default ? '--- | ' : ''}---|`,
 				`| ${transformService(argument.service)} | \`${argument.name.length > 1 ? '--' : '-'}${argument.name} ${argument.usage}\` | \`${argument.type}\` | \`${argument.demandOption ? 'Yes' : 'No'}\`|` +
-					` \`${(argument.alias ? `${argument.alias.length > 1 ? '--' : '-'}${argument.alias}` : undefined) ?? 'NaN'}\` |` +
+					` \`${(argument.alias ? `${argument.alias.length > 1 ? '--' : '-'}${argument.alias}` : undefined) ?? '—'}\` |` +
 					`${argument.choices ? ` [${argument.choices.map((a) => `\`${a || "''"}\``).join(', ')}] |` : ''}` +
 					`${
 						argument.default
@@ -65,7 +66,7 @@ Object.entries(groups).forEach(([key, value]) => {
 								}\`|`
 							: ''
 					}` +
-					` ${typeof argument.default === 'object' && !Array.isArray(argument.default) ? `\`${argument.default.name || argument.name}: \`` : '`NaN`'} |`,
+					` ${typeof argument.default === 'object' && !Array.isArray(argument.default) ? `\`${argument.default.name || argument.name}: \`` : '`—`'} |`,
 				'',
 				argument.docDescribe === true ? argument.describe : argument.docDescribe
 			].join('\n');

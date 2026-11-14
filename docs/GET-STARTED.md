@@ -1,320 +1,126 @@
-# multi-downloader-nx
+# Getting started: Windows GUI
 
-If you find any bugs in this documentation or in the program itself, please report them on [GitHub issues](../../../issues).
+This walkthrough covers the Windows setup shown in the screenshots. For source builds and CLI usage on other supported systems, see the [README](README.md). Browse the [CLI option reference](DOCUMENTATION.md), [fork notes](fork-changes.md), or [report an issue](../../../issues).
 
-## Legal Warning
+## Legal warning
 
 This application is not endorsed by or affiliated with *Crunchyroll*, *Hidive* or *AnimationDigitalNetwork*.
 This application enables you to download videos for offline viewing which may be forbidden by law in your country.
 The usage of this application may also cause a violation of the *Terms of Service* between you and the stream provider.
 This tool is not responsible for your actions; please make an informed decision before using this application.
 
-## Notes
+## Install the required tools
 
-1. Everything in this guide was done on a Windows 10 system. Windows 11 should be the same.
-2. I will not be explaining how to get any CDM keys. You can find guides on the internet for that.
-3. I will be showing how to setup the Bento4-SDK (mp4decrypt) option for decryption, not shaka-packager.
+Install [ffmpeg](https://www.videohelp.com/software/ffmpeg) and [MKVToolNix](https://www.videohelp.com/software/MKVToolNix). DRM decryption also needs either [Bento4 (`mp4decrypt`)](https://www.bento4.com/downloads/) or [Shaka Packager](https://github.com/stratumadev/shaka-packager/releases). The project does not include these programs.
 
-## Table of Contents
+These screenshots show example download choices; filenames and versions may differ:
 
-- [Dependencies](#dependencies)
-- [CDM Setup](#cdm-setup)
-    - [Widevine CDM](#widevine)
-    - [Playready CDM](#playready)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Endpoint Notes](#endpoint-notes)
-- [Usage](#usage)
-    - [Authentication](#authentication)
-    - [Output Directory](#output-directory)
-    - [Action buttons](#action-buttons)
-    - [Downloading episodes](#downloading-episodes)
-        - [General options](#general-options)
-        - [Episode Options](#episode-options)
-        - [Language Options](#language-options)
-        - [Filename Overwrite](#filename-overwrite)
+| Tool | Example |
+| --- | --- |
+| ffmpeg | ![Example ffmpeg download](./imgs/ffmpeg.png) |
+| MKVToolNix | ![Example MKVToolNix download](./imgs/mkvtoolnix.png) |
+| Bento4 | ![Example Bento4 download](./imgs/bento4.png) |
 
-## Dependencies
+Extract the tools, install MKVToolNix, then add the directories containing `ffmpeg`, `mkvmerge`, and `mp4decrypt` (or Shaka Packager) to your Windows `Path`. Alternatively, set the executable locations in [`config/bin-path.yml`](../config/bin-path.yml). Open a new terminal and check that each command runs:
 
-The dependencies for this application are:
-- [ffmpeg](https://www.videohelp.com/software/ffmpeg)
-- [MKVToolNix](https://www.videohelp.com/software/MKVToolNix)
-- Either [Bento4-SDK (mp4decrypt)](https://www.bento4.com/downloads/) or [shaka-packager](https://github.com/stratumadev/shaka-packager/releases/latest)
+![MKVToolNix installer](./imgs/mkvtoolnix-install.png)
 
-For ffmpeg, i chose this option from the website: \
-![ffmpeg download](./imgs/ffmpeg.png)
-
-For MKVToolNix, i chose this option from the website: \
-![MKVToolNix download](./imgs/mkvtoolnix.png)
-
-For Bento4-SDK, i chose this option from the website: \
-![Bento4-SDK download](./imgs/bento4.png)
-
-Now that we have all the dependencies downloaded, we need to extract/install them and make them available in our PATH.
-
-1. Extract all downloaded files to a folder of your choice. I chose `%USERPROFILE%\deps`.
-The content of my `deps` folder looks like this:
-```
-C:.
-│   mkvtoolnix-64-bit-94.0-setup.exe
-│
-├───Bento4-SDK-1-6-0-641.x86_64-microsoft-win32
-│   ├───bin
-│   ├───docs
-│   ├───include
-│   └───utils
-|
-├───ffmpeg-8.0-full_build
-│   ├───bin
-│   ├───doc
-│   └───presets
+```text
+ffmpeg -version
+mkvmerge --version
+mp4decrypt --help
 ```
 
-2. Lauch the MKVToolNix installer and install it to the `%USERPROFILE%\deps\mkvtoolnix` folder. \
-![Bento4-SDK download](./imgs/mkvtoolnix-install.png)
+![Example Windows Path configuration](./imgs/env_setup_1.png)
 
-3. After clicking "OK", you should see the "Destination Folder" text area change to something like `C:\Users\[your username]\deps\mkvtoolnix\`. Click "Next >" then "Install" and finally "Finish".
+## CDM files
 
-4. Confirm that the `deps` folder now looks like this:
-```
-C:.
-│   mkvtoolnix-64-bit-94.0-setup.exe
-|
-├───Bento4-SDK-1-6-0-641.x86_64-microsoft-win32
-│   ├───bin
-│   ├───docs
-│   ├───include
-│   └───utils
-|
-├───ffmpeg-8.0-full_build
-│   ├───bin
-│   ├───doc
-│   └───presets
-|
-└───mkvtoolnix
-    │   mkvextract.exe
-    │   mkvinfo.exe
-    │   mkvmerge.exe
-    │   mkvpropedit.exe
-    │   mkvtoolnix-gui.exe
-    │   MKVToolNix.url
-    │   uninst.exe
-    │
-    ├───data
-    ├───doc
-    ├───locale
-    └───tools
-```
+CDM files are not included, and this guide does not cover how to obtain them. Supported file formats are:
 
-5. If so, you may delete the `mkvtoolnix-64-bit-94.0-setup.exe` file, as it is no longer needed.
+- **Widevine:** a `.wvd` file, or `client_id.bin` with `private_key.pem`; the application also accepts `device_client_id_blob` with `device_private_key`.
+- **PlayReady:** a `.prd` file, or `bgroupcert.dat` with `zgpriv.dat`. The supported security levels are SL2000 and SL3000. When renaming a pair of blobs, the certificate file is `bgroupcert.dat` (usually around 1 KiB) and the 32-byte key file is `zgpriv.dat`; [MediaInfo](https://mediaarea.net/en/MediaInfo) can show file sizes.
 
-6. Now we have 3 folders to add to our PATH. The folder names after `deps` may be different for you, depending on the latest available versions. Make sure to adjust accordingly:
-    - `%USERPROFILE%\deps\mkvtoolnix`
-    - `%USERPROFILE%\deps\ffmpeg-8.0-full_build\bin`
-    - `%USERPROFILE%\deps\Bento4-SDK-1-6-0-641.x86_64-microsoft-win32\bin`
+Place Widevine files in `widevine/` and PlayReady files in `playready/` beside the application. If using Shaka Packager for PlayReady, use a build compatible with this application; see its [release page](https://github.com/stratumadev/shaka-packager/releases).
 
-7. Open the Start Menu and search for "Environment Variables".
-8. A window called "System Properties" should open. Click on the button "Environment Variables...".
-9. A window called "Environment Variables" should open. In the bottom half of the window, select the "Path" variable and click "Edit..." (or double-click the "Path" option).
-10. A window called "Edit Environment Variable" should open. Click "New" and add the following paths to the list one by one:
-    - `%USERPROFILE%\deps\mkvtoolnix`
-    - `%USERPROFILE%\deps\ffmpeg-8.0-full_build\bin`
-    - `%USERPROFILE%\deps\Bento4-SDK-1-6-0-641.x86_64-microsoft-win32\bin`
-11. Click "OK" on all open windows to close them. \
-![env_setup_1](./imgs/env_setup_1.png)
+## Start the GUI
 
-12. Great! Now we have all dependencies installed and available in our PATH. To confirm that everything is working, open a new Command Prompt window and run the following commands:
-```
-ffmpeg
-mkvmerge
-mp4decrypt (or shaka-packager's .exe name, if you chose that instead)
-```
-As long as you see some output and no "command not found" errors, everything is working.
+Check this repository's [Releases page](../../../releases) for a Windows GUI archive. If one is available, choose the archive matching your system and extract it. Release archives are not guaranteed; if none is listed, follow the [source build instructions](README.md#build-from-source).
 
-You have now completed the dependencies installation!
+Run `aniDL.exe`. On first launch, set an optional application password or leave it blank, then choose **CONFIRM**. Reopen the application to reach the main window.
 
-## CDM Setup
+![First launch](./imgs/anidl_start.png)
 
-> [!NOTE]
-> If you do not have either a Widevine or PlayReady CDM, you will get an error like "No valid Widevine or PlayReady CDM detected." when trying to download. The same error can also appear if a Widevine CDM is present but corrupted, since it will not be detected or function correctly.
+![Main window](./imgs/anidl_home.png)
 
-### Widevine
+## Set defaults and output paths
 
-If you have a Widevine CDM key dump, its either going to be a single `.wvd` file or a pair of `.bin` and `.pem` files. \
-In any case, multi-downloader-nx supports both formats. Place them in the `widevine` folder and you are good to go.
+Open **SETTINGS → Open advanced options** to edit `config/cli-defaults.yml`, or open that file directly in the application's `config/` directory. The [option reference](DOCUMENTATION.md) lists each supported setting. In its **CLI default** column, `—` means the option is not available in `cli-defaults.yml`.
 
-### Playready
+![Open advanced options](./imgs/open_adv_config.png)
 
-If you have a Playready CDM key dump, you just need to make sure:
-1. Security level is either SL2000 or SL3000
-2. Make sure you are using the latest version of shaka-packager from Stratuma, as he has patched it to work with multi-downloader-nx.\
-   You can find the [shaka-packager releases](https://github.com/stratumadev/shaka-packager/releases/latest).
+For example, set the default audio endpoint and dub language in YAML:
 
-File type does not matter, as multi-downloader-nx supports both `.prd` device files and the `bgroupcert.dat` and `zgpriv.dat` blobs. \
-`.prd` files can be placed into the `playready` folder with whatever name it has.
-
-But if you are using the 2 `.dat` blob files, you need to rename them like so:
-- `.dat` file that is 1.xx KiB -> `bgroupcert.dat`
-- `.dat` file that is 32 bytes -> `zgpriv.dat`
-
-Output form [mediainfo](https://mediaarea.net/en/MediaInfo) can help you identify which file is which.
-```
-bgroupcert.dat
-1.26 KiB
-
-zgpriv.dat
-32.0 Bytes
-```
-Keep in mind that the `bgroupcert.dat` may not always be exactly 1.26 KiB but it should be in the KiB range, while the `zgpriv.dat` will always be 32 bytes.
-
-## Installation
-
-1. If this repository has a [published GUI release](../../../releases), choose the Windows GUI archive for your architecture, such as `multi-downloader-nx-windows-x64-gui.7z`, and extract it to a folder of your choice, such as `%USERPROFILE%\Desktop\multi-downloader-nx`. If no release is available, follow the [source build instructions](README.md#build-setup) before continuing.
-
-2. Start `aniDL.exe` by double-clicking it. If you see a "Windows protected your PC" message, click on "More info" and then "Run anyway". You can also allow it through the Windows firewall if you see a "Windows Security Alert" window pop up. \
-After that, you should see the first boot GUI of multi-downloader-nx:
-![anidl_start](./imgs/anidl_start.png)
-If you want, you can set a password. Totally up to you. Leave blank if you dont want to. Click "CONFIRM" when you're done. \
-You will see the terminal close - that is normal. Go back and launch `aniDL.exe` again, and you should see the main GUI:
-![anidl_home](./imgs/anidl_home.png)
-
-## Configuration
-
-Before we go into the usage, i would like to explain the configuration options. Aside from the configration you can do per episode(s), there are some global configuration options you can set that will apply to everything you download, without you setting them every time you go to download something. You can access said config file in 2 different ways:
-- First way:
-   1. When you launch the GUI, you are met with different streaming services. Click on the service you want to download from.
-   2. At the top, you will see a "SETTINGS" button. Clicking on it will open a dropdown menu. From there, click on "Open advanced options". This will open the `cli-defaults.yml` file in your default text editor.
-   ![open_config](./imgs/open_adv_config.png)
-- Second way:
-    1. In the same folder you opened `aniDL.exe` from, you should see a folder called `config`. Enter that.
-    2. Double-click the `cli-defaults.yml` file to open it in your default text editor.
-
-All available settings are available in the [`DOCUMENTATION.md`](./DOCUMENTATION.md) file. In every table, there will, most of the time, be a "cli-default Entry" column with a value. If the value in the column is "NaN", that option is not available for the `cli-default.yml` file. For example, if you wanted to set `--astream` to `android`:
-1. Notice how the docs say the "cli-default Entry" is `astream:`. And the "Type" column is "string". In your `cli-defaults.yml` file, you would add this line to the end of the file:
 ```yaml
 astream: "android"
-```
-`astream` is the option, and `android` is the value you want to set it to. Since the "Type" column says "string", you need to put the value in quotes.
-
-> [!NOTE]  
-> The `android` endpoint (192 kb/s audio) requires a Crunchyroll "Mega Fan" or higher subscription. \
-> If you are on the "Fan" subscription, set `astream` to `androidtv`. \
-> With "Mega Fan" or higher, both `android` and `androidtv` work.
-
-Pretty simple, right? You can set any option you want in this file. Just make sure to follow the YAML syntax. Strings need to be in quotes, arrays need to be in square brackets and each entry needs to be separated by a comma, booleans are either "true" or "false" without any quotes - just the word as-is. If you want to set a list with only one entry, it still needs to be in square brackets.
-
-For example, if you wanted to set `--dubLang`to only `eng`, you would do it like this:
-
-```yaml
-dubLang: ["eng"]
-```
-
-If you wanted to set it to both `jpn` and `eng`, you would do it like this:
-
-```yaml
 dubLang: ["jpn", "eng"]
 ```
 
-If you wanted to set `--tsd` to `true`, you would do it like this:
+To change the output directory, edit `content` in `config/dir-path.yml`:
 
 ```yaml
-tsd: true
+content: D:/Plex/Anime/
+fonts: ./fonts/
 ```
 
-## Endpoint Notes
+By default, downloads go to the `videos/` folder beside the application. Use forward slashes in Windows paths. Save YAML changes before restarting the app.
 
-This section explains what each endpoint is capable of, and what subscription level is required to use it. \
-If you are new to the project, please use the defaults found in the [`cli-defaults.yml`](../config/cli-defaults.yml) file, as those are the recommended settings.
+## Crunchyroll streams and quality
 
-| Endpoint     | Video quality               | Audio quality | Subscription level required |
-|--------------|-----------------------------|---------------|-----------------------------|
-| `android`    | Provider-dependent | 192kbps       | "Fan" or higher             |
-| `androidtab` | Provider-dependent | 128kbps       | "Fan" or higher             |
-| `androidtv`  | Provider-dependent   | 128kbps       | "Fan" or higher             |
+The video and audio endpoints are independent choices. Available renditions and access depend on the episode, account, and service response. Endpoint names do not guarantee a fixed bitrate or CBR. Choosing separate video and audio endpoints can require more than one playback session, subject to provider and account limits.
 
-The endpoint does not guarantee a fixed bitrate or CBR. `-q 0` selects the highest available quality from the returned manifest.
+For raw DASH, the numbered quality list can include compatible video from `[Current Manifest]` and `[Legacy Manifest]` sources, with the source language shown as `(eng)` or `(jpn)`. `-q 0` selects the highest dimensions, then advertised bandwidth. The highest current audio rendition is selected independently for each requested dub.
 
-> [!NOTE]
-> If you pick 192kbps audio (`--astream android`) with Android TV video (`--vstream androidtv`) but don’t have "Mega Fan" sub or higher,
-> the audio will fall back to 128 kbps, which will download the video with 128 kbps audio.
+Cross-language selection compares declared video timing; that check does not prove decoded synchronization or identical edits. If a check fails or timing is unknown, selection falls back to the requested version. `--forcevideo` (alias `--forcevid`) bypasses timing eligibility and may cause audio/video desynchronization. `--noaudio` skips the check. Subtitle cue times are not used as a timing reference. No automatic trimming, stretching, or offset is applied.
 
-> [!NOTE]
-> 192 kbps audio comes from the `android` endpoint. Video quality from `androidtv` depends on the episode and service response. \
-> Using both means you are using **two streams**, which needs the "Mega Fan" tier or higher.
+## Log in
 
-## Usage
+### Crunchyroll CLI
 
-### Authentication
-
-#### Crunchyroll CLI
-
-Device login is available on this fork's `develop` branch. See [the build notes](./fork-changes.md#branch-boundaries) if you use a local build wrapper.
+For a new Crunchyroll CLI login, run:
 
 ```sh
 aniDL --service crunchy --device
 ```
 
-Open the printed activation URL in your browser and enter the code. The CLI waits for approval, displays the account, and saves the login. Access tokens refresh automatically on later commands. If the main auth endpoint is unavailable, a warning identifies the beta API fallback.
+Open the printed activation page, enter the displayed code, and approve the request. The CLI shows the account after approval and saves the device login for later token refresh. If the primary auth endpoint is unavailable, a warning identifies the beta API fallback. The Crunchyroll CLI `--auth`, `--username`, `--password`, and `--silentAuth` options direct users to `--device`. The older browser-cookie `--token` option remains available for existing workflows; see [its option entry](DOCUMENTATION.md#--token).
 
-Crunchyroll CLI `--auth` directs you to `--device`; browser-cookie login through `--token` remains available. Other services retain `--auth`.
+### GUI and other services
 
-#### GUI authentication
+In the GUI, choose a service and select **AUTHENTICATE**. Crunchyroll's existing GUI cookie flow accepts the `etp_rt` value in the username field. Other services use the credentials requested by their dialog. In the CLI, other services continue to use `--auth`.
 
-Choose the service and click **AUTHENTICATE**. For Crunchyroll cookie login, paste the `etp_rt` value into the username field. For other services, enter the credentials requested by the dialog. Check the terminal output if authentication fails.
+## Add episodes to the queue
 
-### Output Directory
+Choose a service, then open **ADD TO QUEUE**:
 
-Setting an output directory is not required, as it will download to the `videos` folder in the same directory you opened `aniDL.exe` by default. However, if you want to change it, follow these steps:
+![Add to queue](./imgs/add_to_queue_1.png)
 
-1. At the top of the browser windows you will see a "SETTINGS" button. Clicking on it will open a dropdown menu. From there, click on "Open settings folder" options. This will open the folder in explorer.
-2. Double-click the `dir-path.yml` file to open it in your default text editor.
-3. Change the path in the `content:` entry to your desired output directory. Make sure to single forward slashes (`/`) in the path. For example:
-```yaml
-content: D:/Plex/Anime/
-fonts: ./fonts/
+1. **Search:** enter a series title and select a result. Its ID fills the **Show ID** field. If results do not appear, press Enter to submit the search.
+2. **Show ID:** alternatively, enter an ID directly. For Crunchyroll, the ID is the value after `/series/` in the show URL, for example `https://www.crunchyroll.com/series/G4PH0WXVJ/spy-x-family`.
+3. **List Episodes:** load the episode list, select episodes, and add them to the **Episode Select** field. You can also enter a comma-separated list such as `,1,2,5,8`; specials use an `S` prefix such as `S1`.
+4. **Download All / Download All But:** choose whether to include every episode or exclude the numbers entered in **Episode Select**.
+5. **Language options:** choose dub and subtitle languages. See [`--dubLang`](DOCUMENTATION.md#--dublang) and [`--dlsubs`](DOCUMENTATION.md#--dlsubs).
+6. **Filename Overwrite:** set a per-queue filename format. See [`--fileName`](DOCUMENTATION.md#--filename).
+
+![Episode selection](./imgs/ep_select.png)
+
+Episode-window settings apply only to that queue. To pause or resume queued work, use **STOP QUEUE** / **START QUEUE**. **CLEAR QUEUE** removes queued items that are not already downloading.
+
+## Preview from the CLI
+
+`--dry-run` prints metadata, available qualities, and selected stream URLs, then stops before licenses, media, subtitle, font, or chapter downloads; decryption, muxing, and completed-download history writes are skipped. Normal authentication, refresh, metadata, and required HEAD requests may still run. `--debug` keeps full request diagnostics.
+
+```sh
+aniDL --service crunchy -s SEASON_ID -e 1 --dry-run
 ```
-4. Save the file and close it.
 
-### Action buttons
-
-When downloading episodes, if you find that you need to pause the downloads, click on the "STOP QUEUE" button at the top right. This will be "START QUEUE" if nothing is downloading. To undo, simply click on it again.
-
-If you want to clear the current queue, click on the "CLEAR QUEUE" button at the top. This will remove all episodes from the queue that are not currently downloading. There is no undo for this action, so be careful.
-
-### Downloading episodes
-
-At the top right, you will see a button called "ADD TO QUEUE", which will open something like this:
-![add_to_queue_1](./imgs/add_to_queue_1.png)
-
-One note before we start: Any settings made on this window will not be saved for other downloads - the changes will only apply to the current series/episodes you are downloading. \
-For example, if you modify "Filename overwrite" to be something else, the next time you open the window, it will be back to the default value. If you want to change the default values, please refer to the [Configuration](#configuration) section.
-
-Alright, lets start at the top left and go down from there. I will only be explaining the GUI specific stuff like Show ID, Search, etc. For the rest of the options, please refer to the `DOCUMENTATION.md` file, as these are already explained very well there.
-
-#### General options
-
-1. **Search**: This is where you enter the name of the show you want to download from. You can enter either the full name or just a part of it (although for best results, i would suggest entering the full name). For example, if you want to download from "Spy X Family", just type into the box "spy x fam". After entering the name, you should see results coming in and populate the menu with the results. If not, press your `enter` key and things should work. After the results have loaded, select the show you want to download by clicking on it. It will populate the "Show ID" field with the ID of the show you selected. If you use this method, leave the "Show ID" as is.
-
-2. **Show ID**: This is where you enter the ID of the show you want to download from. You can find the ID of the series in the URL. For example, if you want to download from "Spy X Family", the URL would look like this:
-```
-https://www.crunchyroll.com/series/G4PH0WXVJ/spy-x-family
-```
-The ID is the part after `/series/`, so in this case, it would be `G4PH0WXVJ`.
-If you wanted to download the show via the ID, you would enter `G4PH0WXVJ` in the "Show ID" field and leave the "Search" field blank.
-
-#### Episode Options
-
-1. **Episode Select**: After the "Show ID" field is populated, either by using the "Search" field or by entering the ID manually, you will be able to click on the "List Episodes" button. This will fetch the list of episodes for the show you selected and populate the "Episodes" menu with them. You can then select the episodes you want to download by clicking on them, or filtering episodes by their seasons from the top right. After selecting the episodes you want to download, you will see the "Episode Select" field populate with the selected episodes. You can also manually enter the episodes you want to download in the "Episode Select" field, using commas to separate them. For example, if you want to download episodes 1, 2, 5 and 8, you would enter `,1,2,5,8` in the "Episode Select" field. Special episodes has an `S` infront of them. So, if you were downloading a movie, that movie could be `S1`.
-![ep_select](./imgs/ep_select.png)
-
-2. **Download All**: This will override the "Episode Select" field and download all episodes of the show.
-3. **Download All But**: This will download every episode in the series except for the ones you enter in the "Episode Select" field.
-
-#### Language Options
-
-1. **Dub Languages**: This is where you select the language(s) you want to download the dub for. See [the `--dublang` option](./DOCUMENTATION.md#--dublang) for all available options.
-2. **Sub Languages**: This is where you select the language(s) you want to download the subs for. See [the `--dlsubs` option](./DOCUMENTATION.md#--dlsubs) for all available options.
-
-#### Filename Overwrite
-
-1. **Filename Overwrite**: This is where you can change the filename format for the downloaded episodes. See [the `--filename` option](./DOCUMENTATION.md#--filename) for all available options.
+See the [CLI reference](DOCUMENTATION.md) for all flags, and the [README](README.md#build-from-source) for source setup and target commands.

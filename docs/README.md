@@ -1,115 +1,76 @@
-# Anime Downloader NX by AniDL
+# 🎬 Anime Downloader NX
 
-[![Discord Shield](https://discord.com/api/guilds/884479461997805568/widget.png?style=banner2)](https://discord.gg/qEpbWen5vq)
+**AniDL** downloads episodes from Crunchyroll, HIDIVE, and AnimationDigitalNetwork. This fork of [anidl/multi-downloader-nx](https://github.com/anidl/multi-downloader-nx) includes CLI and GUI workflows; [Fork changes](fork-changes.md) tracks its additions.
 
-This downloader can download anime from different sites. Currently supported are *Crunchyroll*, *Hidive* and *AnimationDigitalNetwork*.
+[![Style and build test](../../../actions/workflows/test.yml/badge.svg)](../../../actions/workflows/test.yml) [![Discord](https://img.shields.io/discord/884479461997805568?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/qEpbWen5vq)
 
-## Legal Warning
+**Browse:** [Getting started](GET-STARTED.md) · [CLI options](DOCUMENTATION.md) · [Fork changes](fork-changes.md) · [Build from source](#build-from-source) · [Issues](../../../issues) · [Releases](../../../releases)
+
+## Legal warning
 
 This application is not endorsed by or affiliated with *Crunchyroll*, *Hidive* or *AnimationDigitalNetwork*. This application enables you to download videos for offline viewing which may be forbidden by law in your country. The usage of this application may also cause a violation of the *Terms of Service* between you and the stream provider. This tool is not responsible for your actions; please make an informed decision before using this application.
 
-## Dependencies
+## Quick start
 
-* [ffmpeg](https://www.videohelp.com/software/ffmpeg) >= 4.0.0
-* [MKVToolNix](https://www.videohelp.com/software/MKVToolNix) >= 60.0.0
+Obtain a CLI archive from [Releases](../../../releases) when available, or [build from source](#build-from-source), then install the tools listed under [Requirements](#requirements). The examples assume `aniDL` is available on your `PATH`; after a source build, use `node lib/index.js` in its place.
 
-### Paths Configuration
+```sh
+# Crunchyroll CLI login
+aniDL --service crunchy --device
 
-By default this application uses the following paths to programs (main executables):
+# Search for a series
+aniDL --service crunchy --search "show name"
 
-* `ffmpeg.exe` (Windows) or `ffmpeg` (other) (From PATH)
-* `mkvmerge.exe` (Windows) or `mkvmerge` (other) (From PATH)
-* `mp4decrypt.exe` (Windows) or `mp4decrypt` (other) (From PATH) (or shaka-packager)
-* `shaka-packager.exe` (Windows) or `shaka-packager` (other) (From PATH) (or mp4decrypt)
-
-To change these paths you need to edit `bin-path.yml` in `./config/` directory.
-
-## CLI Information
-
-See [the documentation](DOCUMENTATION.md) for a complete list of available options. You can define command defaults by editing `cli-defaults.yml` in the `./config/` directory.
-
-### Example usage
-
-#### Logging in
-
-Most services require you to be logged in, in order to download from, an example of how you would login is:
-
-```shell
-AniDL --service {ServiceName} --auth
+# Download episodes from a season
+aniDL --service crunchy -s SEASON_ID -e 1,2
 ```
 
-For Crunchyroll, use `AniDL --service crunchy --device` instead of `--auth`.
+For other services, use `--auth` when prompted. Crunchyroll CLI login uses `--device`; the old `--auth`, username/password, and `--silentAuth` paths direct CLI users to device login. The browser-cookie `--token` option remains for existing workflows. See [the option reference](DOCUMENTATION.md#--token) for its accepted inputs.
 
-#### Searching
+## Crunchyroll quality selection
 
-In order to find the IDs to download, you can search from each service by using the `--search` flag like this:
+For raw DASH streams, the numbered quality list can include compatible video from the current and legacy manifests. Each entry shows `[Current Manifest]` or `[Legacy Manifest]` and its source language, such as `(eng)` or `(jpn)`. The default `-q 0` selects the highest dimensions, then the highest advertised bandwidth; explicit numbers select individual entries. The highest current audio rendition is selected independently for each requested dub.
 
-```shell
-AniDL --service {ServiceName} --search {SearchTerm}
+Cross-language choices are checked against declared video timing. A failed or incomplete check falls back to the requested version. The check does not prove decoded synchronization or identical edits. A short notice names the fallback video language and reason; `--debug` keeps the full check details. Legacy discovery relies on older manifest families that Crunchyroll may stop serving. Availability varies by episode, dub, and stream, and advertised bandwidth is not a file's average bitrate.
+
+`--forcevideo` (alias `--forcevid`) bypasses timing eligibility and may cause audio/video desynchronization. `--noaudio` skips the timing check because no audio will be muxed. Subtitle cue times are not used for timing.
+
+## Preview a download
+
+Use `--dry-run` to inspect available qualities and stream URLs without requesting licenses or downloading media, subtitles, fonts, or chapter files. It also skips decryption, muxing, and completed-download archive writes.
+
+```sh
+aniDL --service crunchy -s SEASON_ID -e 1 --dry-run
 ```
 
-#### Downloading
+Authentication and token refresh, metadata requests, required HEAD checks, logging, and GUI queue progression may still occur. Add `--debug` to see full request and manifest diagnostics.
 
-Once you have the ID which you can obtain from using the search or other means, you are ready to download, which you can do like this:
+## Requirements
 
-```shell
-AniDL --service {ServiceName} -s {SeasonID} -e {EpisodeNumber}
+Install [Node.js](https://nodejs.org/) 22 or newer and [pnpm](https://pnpm.io/) 10 or newer to run or build from source. Download and install [ffmpeg](https://www.videohelp.com/software/ffmpeg) and [MKVToolNix](https://www.videohelp.com/software/MKVToolNix) for media processing. For DRM decryption, install either [Bento4's `mp4decrypt`](https://www.bento4.com/downloads/) or [Shaka Packager](https://github.com/stratumadev/shaka-packager/releases).
+
+The application does not include CDM files. Supported Widevine files belong in `widevine/`; supported PlayReady files belong in `playready/`. CDM acquisition is outside this guide. Executable paths can be set in [`config/bin-path.yml`](../config/bin-path.yml).
+
+CLI defaults can be stored in [`config/cli-defaults.yml`](../config/cli-defaults.yml); the [option reference](DOCUMENTATION.md) shows which settings are available there.
+
+## Build from source
+
+Use the **Code** menu on this repository page to copy its clone URL. Replace `<repository-clone-url>` below with that URL:
+
+```sh
+git clone <repository-clone-url>
+cd multi-downloader-nx
+pnpm install
 ```
 
-## Building and running from source
+Run the CLI from TypeScript:
 
-### Build Dependencies
+```sh
+pnpm exec tsx index.ts --help
+```
 
-Dependencies that are only required for running from code. These are not required if you are using the prebuilt binaries.
+Build JavaScript with `pnpm run prebuild-cli` or `pnpm run prebuild-gui`. After the CLI build, run `node lib/index.js --help`; after the GUI build, run `pnpm start`. Package a target with `pnpm run build-{platform}-{arch}-{type}`; the available targets are listed in [`package.json`](../package.json). Build from this checkout's `develop` branch for its fork-specific features; upstream builds may not include them. This repository's release archives are listed only when available on its [Releases page](../../../releases).
 
-* [Node.js](https://nodejs.org/) >= 18.0.0
-* [npm](https://www.npmjs.org/) >= 6.9.0
-* [pnpm](https://pnpm.io/) >= 7.0.0
+See [Getting started](GET-STARTED.md) for the Windows GUI walkthrough and [the CLI option reference](DOCUMENTATION.md) for all flags and defaults.
 
-### Build Setup
-
-Please note that Node.js, npm, and pnpm must be installed on your system. See the [pnpm installation guide](https://pnpm.io/installation).
-
-On the current repository page, select **Code** and copy its clone URL. Use that URL with `git clone` to clone this repository.
-
-`cd` into the cloned directory and run `pnpm i`. Next, decide if you want to package the application, build the code, or run from typescript.
-
-### Run from TypeScript
-
-You can run the code from native TypeScript, this requires tsx which you can install with pnpm with the following command: `pnpm -g i tsx`
-
-Afterwords, you can run the application like this:
-
-* CLI: `tsx ./index.ts --help`
-* GUI: `pnpm gui` OR `tsx ./gui.ts` (If already compiled)
-
-### Run as JavaScript
-
-If you want to build the application into JavaScript code to run, you can do that as well like this:
-
-* CLI: `pnpm run prebuild-cli`
-* GUI: `pnpm run prebuild-gui`
-
-Then you can cd into the `lib` folder and you will be able to run the CLI or GUI as follows:
-
-* CLI: `node ./index.js --help`
-
-### Build the application into an executable
-
-To package the application, run `pnpm run build-{platform}-{arch}-{type}`, for example `pnpm run build-windows-x64-cli`. See [package.json](../package.json) for the available targets.
-
-## DRM Decryption
-
-### Decryption Requirements
-
-* [Bento4 (mp4decrypt)](https://www.bento4.com/downloads/) - Only required for decrypting (or use shaka-packager)
-* [shaka-packager releases](https://github.com/stratumadev/shaka-packager/releases) - Only required for decrypting (or use mp4decrypt)
-
-### Instructions (Widevine)
-
-In order to decrypt DRM content, you will need to have a dumped CDM, after that you will need to place the CDM files (`device_client_id_blob` and `device_private_key` or `client_id.bin` and `private_key.pem`) into the `./widevine/` directory. For legal reasons we do not include the CDM with the software, and you will have to source one yourself.
-
-### Instructions (Playready)
-
-Playready CDMs are very easy to obtain, you can find them even on Github.
-Place the CDM files (bgroupcert.dat and zgpriv.dat) in the `./playready/` directory and you're all set!
+Released under the [MIT license](../LICENSE.md).

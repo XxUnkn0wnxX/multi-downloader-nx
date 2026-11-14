@@ -226,7 +226,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		default: {
 			default: 0
 		},
-		docDescribe: true,
+		docDescribe:
+			'Use the listed quality number; 0 selects the maximum quality. Crunchyroll ranks by dimensions, then advertised bitrate, and compares compatible current and legacy video across languages while keeping the highest current audio for the requested dubs. Crunchyroll reports a short reason when checks force video fallback.',
 		service: ['all'],
 		type: 'number',
 		usage: '${qualityLevel}'
@@ -238,10 +239,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		group: 'dl',
 		service: ['crunchy'],
 		docDescribe:
-			'If selected, the best selected quality will be downloaded only for the first language,' +
-			'\nthen the worst video quality with the same audio quality will be downloaded for every other language.' +
-			'\nBy the later merge of the videos, no quality difference will be present.' +
-			'\nThis will speed up the download speed, if multiple languages are selected.',
+			'For per-language DASH downloads, download video once. Combined HLS downloads may include lower-quality video with later audio tracks. Global Crunchyroll DASH selection already shares one video. --keepAllVideos retains downloaded video tracks.',
 		usage: '',
 		default: {
 			default: false
@@ -330,7 +328,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		alias: 'as',
 		service: ['crunchy'],
 		type: 'string',
-		describe: 'Select a specific Crunchyroll audio playback endpoint by device. android provides the best audio (192 kbps).',
+		describe: 'Select a specific Crunchyroll audio playback endpoint by device. Available renditions and bitrate depend on the service, account, and episode.',
 		choices: [...Object.keys(CrunchyAudioPlayStreams), 'none'],
 		default: {
 			default: 'android'
@@ -490,6 +488,28 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		default: {
 			default: false
 		}
+	},
+	{
+		name: 'forcevideo',
+		alias: 'forcevid',
+		group: 'dl',
+		service: ['crunchy'],
+		type: 'boolean',
+		describe: 'Bypass cross-language video timing checks. May cause audio/video desync.',
+		docDescribe: 'Bypass cross-language video timing checks. May cause audio/video desync. Not needed with --noaudio; subtitle timings are never used.',
+		default: { default: false },
+		usage: ''
+	},
+	{
+		name: 'dry-run',
+		alias: 'dryRun',
+		group: 'dl',
+		service: ['all'],
+		type: 'boolean',
+		describe: 'Print available qualities and stream URLs without downloading files.',
+		docDescribe: 'Preview available qualities and stream URLs without downloading files. Authentication and token refresh still run.',
+		default: { default: false },
+		usage: ''
 	},
 	{
 		name: 'novids',

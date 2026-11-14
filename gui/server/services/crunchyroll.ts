@@ -129,7 +129,9 @@ class CrunchyHandler extends Base implements MessageHandler {
 					) {
 						const er = new Error(`Unable to download episode ${data.e} from ${data.id}`);
 						er.name = 'Download error';
+						this.setDownloadQueue(false);
 						this.alertError(er);
+						return;
 					}
 				}
 			} else {

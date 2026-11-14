@@ -24,7 +24,17 @@ import { domain, api } from './modules/module.api-urls';
 import * as reqModule from './modules/module.fetch';
 import { CrunchySearch } from './@types/crunchySearch';
 import { CrunchyEpisodeList, CrunchyEpisode } from './@types/crunchyEpisodeList';
-import { CrunchyDownloadOptions, CrunchyEpMeta, CrunchyMuxOptions, CrunchyMultiDownload, DownloadedMedia, ParseItem, SeriesSearch, SeriesSearchItem } from './@types/crunchyTypes';
+import {
+	CrunchyDownloadOptions,
+	CrunchyEpMeta,
+	CrunchyMuxOptions,
+	CrunchyMultiDownload,
+	DownloadedMedia,
+	ParseItem,
+	SeriesSearch,
+	SeriesSearchItem,
+	EpisodeVersion
+} from './@types/crunchyTypes';
 import { ObjectInfo } from './@types/objectInfo';
 import parseFileName, { Variable } from './modules/module.filename';
 import { CrunchyStreams, PlaybackData } from './@types/playbackData';
@@ -35,6 +45,9 @@ import { AuthData, AuthResponse, Episode, ResponseBase, SearchData, SearchRespon
 import { ServiceClass } from './@types/serviceClassInterface';
 import { CrunchyAndroidEpisodes } from './@types/crunchyAndroidEpisodes';
 import { parse } from './modules/module.transform-mpd';
+import { legacyUrls, optionalManifests, videoQualities } from './modules/module.crunchy-manifests';
+import { CatalogVideo, formatVideoCandidate, inspectVideoManifest, rankVideoCandidates, timingCompatible, VideoSource } from './modules/module.crunchy-video-catalog';
+import { boundedRequest, discoverVideoCandidates, readLimitedManifest } from './modules/module.crunchy-video-selection';
 import { AndroidObject, CrunchyAndroidObject, CrunchyMVObject } from './@types/crunchyAndroidObject';
 import { CrunchyChapters, CrunchyChapter, CrunchyOldChapter } from './@types/crunchyChapters';
 import vtt2ass from './modules/module.vtt2ass';
@@ -56,6 +69,19 @@ import {
 	deviceFallbackEligible,
 	deviceErrorDetails
 } from './modules/module.crunchy-device-auth';
+
+type GlobalVideoPass = {
+	kind: 'video' | 'audio';
+	selected: CatalogVideo;
+	references: CatalogVideo[];
+	ignoreTiming: boolean;
+	requestedName?: string;
+	selectionLost?: boolean;
+	cleanupFailed?: boolean;
+	noRetry?: boolean;
+	forceVideo?: boolean;
+	forceWarning?: boolean;
+};
 
 export type sxItem = {
 	language: langsData.LanguageItem;
@@ -116,7 +142,7 @@ export default class Crunchy implements ServiceClass {
 		if (argv.device) {
 			if (!(await this.loginWithDevice())) process.exitCode = 1;
 		} else if (argv.dlFonts) {
-			await this.getFonts();
+			await this.getFonts(argv.dryRun);
 		} else if (argv.token !== undefined) {
 			if (!(await this.loginWithToken(argv.token))) {
 				process.exitCode = 1;
@@ -356,9 +382,13 @@ export default class Crunchy implements ServiceClass {
 		return allShows;
 	}
 
-	public async getFonts() {
-		console.info('Downloading fonts...');
+	public async getFonts(dryRun = false) {
 		const fonts = Object.values(fontsData.fontFamilies).reduce((pre, curr) => pre.concat(curr));
+		if (dryRun) {
+			for (const font of fonts) console.info('Font URL:', fontsData.root + font);
+			return;
+		}
+		console.info('Downloading fonts...');
 		for (const f of fonts) {
 			const fontLoc = path.join(this.cfg.dir.fonts, f);
 			if (fs.existsSync(fontLoc) && fs.statSync(fontLoc).size != 0) {
@@ -1463,12 +1493,176 @@ export default class Crunchy implements ServiceClass {
 	}
 
 	public async downloadEpisode(data: CrunchyEpMeta, options: CrunchyDownloadOptions, isSeries?: boolean): Promise<boolean> {
-		const res = await this.downloadMediaList(data, options);
+		let res: Awaited<ReturnType<Crunchy['downloadMediaList']>>;
+		let muxOptions = options;
+		let fallbackCause: string | undefined;
+		const versions = data.data?.[0]?.versions;
+		const requestedCode = data.data?.[0]?.lang?.code || (options.dubLang?.length === 1 ? options.dubLang[0] : undefined);
+		const fallbackLanguage =
+			langsData.languages.find((lang) => lang.code === requestedCode)?.code ||
+			(versions?.length === 1 ? langsData.languages.find((lang) => lang.cr_locale === versions[0].audio_locale)?.code : undefined) ||
+			'requested';
+		const eligible =
+			!options.novids && !(options as CrunchyMuxOptions).keepAllVideos && options.hslang === 'none' && !!versions?.length && data.data.every((item) => item.versions?.length);
+		if (eligible && versions) {
+			const requested = data.data.map(
+				(item) =>
+					item.versions?.find((version) => version.audio_locale === item.lang?.cr_locale) ||
+					(options.dubLang.length === 1
+						? item.versions?.find((version) => version.audio_locale === langsData.languages.find((lang) => lang.code === options.dubLang[0])?.cr_locale)
+						: undefined) ||
+					(item.versions?.length === 1 ? item.versions[0] : undefined)
+			);
+			const unique = [...new Map(versions.filter((version) => version.guid && version.media_guid).map((version) => [version.guid, version])).values()];
+			const conflicting = versions.some((version) =>
+				unique.some((item) => item.guid === version.guid && (item.audio_locale !== version.audio_locale || item.media_guid !== version.media_guid))
+			);
+			const sameEpisode =
+				!conflicting && requested.every((version) => version && unique.some((item) => item.guid === version.guid && item.media_guid === version.media_guid));
+			const sources: VideoSource[] = unique.map((version) => ({
+				guid: version.guid,
+				locale: version.audio_locale,
+				languageCode: langsData.languages.find((lang) => lang.cr_locale === version.audio_locale)?.code || ''
+			}));
+			if (!sameEpisode || !sources.every((source) => source.guid && source.locale && source.languageCode)) fallbackCause = 'version metadata unavailable';
+			if (sameEpisode && sources.every((source) => source.guid && source.locale && source.languageCode)) {
+				if (!(await this.refreshToken(true, true))) return false;
+				const headers: FetchParams = {
+					headers: {
+						Authorization: `Bearer ${this.token.access_token}`,
+						...(this.token.auth_type === 'web' ? { ...api.crunchyDefHeader, 'User-Agent': api.crunchyWebUserAgent } : this.deviceHeaders())
+					}
+				};
+				const preferred = [...new Set(requested.map((version) => version!.guid))];
+				const discovery = await discoverVideoCandidates({
+					req: this.req,
+					headers,
+					sources,
+					requested: preferred,
+					ordinal: options.x,
+					ignoreTiming: !!options.noaudio || !!options.forcevideo,
+					debug: this.debug || !!this.req.argv?.debug,
+					acquire: async (source, signal) => {
+						const response = await this.req.getData(
+							`https://cr-play-service.prd.crunchyrollsvc.com/v3/${source.guid}/${CrunchyVideoPlayStreams[this.token.auth_type === 'web' ? 'chrome' : 'androidtv']}/play?queue=0`,
+							{ ...headers, signal }
+						);
+						if (!response.ok || !response.res) throw new Error('Playback request failed');
+						const stream = (await response.res.json()) as CrunchyPlayStream;
+						return { token: stream.token, url: stream.url };
+					},
+					prepareDownload:
+						options.vstream === 'android' || options.vstream === 'androidtab'
+							? async (source, signal) => {
+									const response = await this.req.getData(
+										`https://cr-play-service.prd.crunchyrollsvc.com/v3/${source.guid}/${CrunchyVideoPlayStreams[options.vstream]}/download`,
+										{ ...headers, signal }
+									);
+									const status = response.res?.status ?? response.error?.res?.status;
+									if (!response.ok || !response.res) {
+										if (status === 403 || status === 404) return { status: 'unavailable' as const };
+										throw new Error(status === 429 ? 'rate limited' : 'download request outcome unknown');
+									}
+									const stream = (await response.res.json()) as CrunchyPlayStream;
+									return { status: 'ok' as const, token: stream.token, url: stream.url };
+								}
+							: undefined,
+					resolve: (_source, lease, downloadUrl) => this.convertDownloadToPlayback(downloadUrl, lease.url),
+					close: async (source, token, signal) => {
+						const response = await this.req.getData(`https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${source.guid}/${token}`, {
+							...headers,
+							signal,
+							method: 'DELETE'
+						});
+						return response.ok && (response.res?.status === 200 || response.res?.status === 204);
+					}
+				});
+				if (discovery.status === 'unsafe') {
+					console.error('Unable to safely complete video discovery');
+					return false;
+				}
+				if (discovery.status === 'fallback') fallbackCause = discovery.reason;
+				if (discovery.status === 'ok' && !discovery.entries.length)
+					fallbackCause = discovery.timingFallbackReason ? (options.q === 0 ? discovery.timingFallbackReason : undefined) : 'metadata unavailable';
+				if (discovery.status === 'ok' && discovery.entries.length) {
+					console.info(`Available Video Qualities:\n\t${discovery.entries.map((entry, index) => `[${index + 1}] ${formatVideoCandidate(entry)}`).join('\n\t')}`);
+					if (options.q > discovery.entries.length) {
+						console.error(`Requested quality ${options.q} is not available`);
+						return false;
+					}
+					let selected = discovery.entries[options.q === 0 ? discovery.entries.length - 1 : options.q - 1];
+					if (!selected) {
+						console.error('Requested quality is not available');
+						return false;
+					}
+					const requestedName = data.data[0]?.lang?.name || langsData.languages.find((lang) => lang.cr_locale === requested[0]?.audio_locale)?.name;
+					const runVideo = async (choice: CatalogVideo) => {
+						const lang = langsData.languages.find((item) => item.cr_locale === choice.source.locale);
+						const pass: GlobalVideoPass = {
+							kind: 'video',
+							selected: choice,
+							references: discovery.references,
+							ignoreTiming: !!options.noaudio || !!options.forcevideo,
+							requestedName
+						};
+						const videoData = { ...data, data: [{ ...data.data[0], lang }] };
+						let videoResult: Awaited<ReturnType<Crunchy['downloadMediaList']>>;
+						try {
+							videoResult = await this.downloadMediaList(videoData, { ...options, noaudio: true, skipsubs: true, nosubs: true, chapters: false }, pass);
+						} catch (error) {
+							console.error(`Video pass failed: ${String(error)}`);
+						}
+						return { videoResult, pass };
+					};
+					let video = await runVideo(selected);
+					let streamFallback = false;
+					if ((!video.videoResult || video.videoResult.error) && video.pass.selectionLost && !video.pass.cleanupFailed && !video.pass.noRetry && options.q === 0) {
+						const fallback = discovery.entries.filter((entry) => preferred.includes(entry.source.guid) && entry.family === 'Current').slice(-1)[0];
+						if (fallback) {
+							streamFallback = true;
+							video = await runVideo(fallback);
+						}
+					}
+					if (!video.videoResult || video.videoResult.error || (!options.dryRun && !video.videoResult.data.some((item) => item.type === 'Video'))) return false;
+					selected = video.pass.selected;
+					if (streamFallback) console.info(`[Notice: falling back to ${selected.source.languageCode} video — stream changed]`);
+					else if (options.q === 0 && discovery.timingFallbackReason)
+						console.info(`[Notice: falling back to ${selected.source.languageCode} video — ${discovery.timingFallbackReason}]`);
+					const forceWarning = !!options.forcevideo && !options.noaudio && !timingCompatible(selected, discovery.references).compatible;
+					if (forceWarning) console.warn('Forced video timing differs or is unknown; audio and video may be out of sync.');
+					const audioPass: GlobalVideoPass = {
+						kind: 'audio',
+						selected,
+						references: discovery.references,
+						ignoreTiming: !!options.noaudio || !!options.forcevideo,
+						forceVideo: !!options.forcevideo,
+						forceWarning,
+						requestedName
+					};
+					let audio: Awaited<ReturnType<Crunchy['downloadMediaList']>>;
+					const audioOptions = { ...options, novids: true };
+					try {
+						audio = await this.downloadMediaList(data, audioOptions, audioPass);
+					} catch (error) {
+						console.error(`Audio pass failed: ${String(error)}`);
+						return false;
+					}
+					if (!audio || audio.error || (!options.dryRun && !options.noaudio && !audio.data.some((item) => item.type === 'Audio'))) return false;
+					muxOptions = { ...options, subdlfailed: audioOptions.subdlfailed };
+					res = { ...video.videoResult, data: [...video.videoResult.data, ...audio.data] };
+				}
+			}
+		}
+		if (!res) {
+			if (fallbackCause) console.info(`[Notice: falling back to ${fallbackLanguage} video — ${fallbackCause}]`);
+			res = await this.downloadMediaList(data, options);
+		}
 		if (res === undefined || res.error) {
 			return false;
 		} else {
+			if (options.dryRun) return true;
 			if (!options.skipmux) {
-				await this.muxStreams(res.data, { ...options, output: res.fileName });
+				await this.muxStreams(res.data, { ...muxOptions, output: res.fileName });
 			} else {
 				console.info('Skipping mux');
 			}
@@ -1758,7 +1952,8 @@ export default class Crunchy implements ServiceClass {
 
 	public async downloadMediaList(
 		medias: CrunchyEpMeta,
-		options: CrunchyDownloadOptions
+		options: CrunchyDownloadOptions,
+		globalPass?: GlobalVideoPass
 	): Promise<
 		| {
 				data: DownloadedMedia[];
@@ -1772,11 +1967,16 @@ export default class Crunchy implements ServiceClass {
 			return;
 		}
 
-		if (!this.cfg.bin.ffmpeg) this.cfg.bin = await yamlCfg.loadBinCfg();
+		if (!options.dryRun && !this.cfg.bin.ffmpeg) this.cfg.bin = await yamlCfg.loadBinCfg();
 
 		let mediaName = '...';
 		let fileName;
-		const variables: Variable[] = [];
+		const variables: Variable[] = globalPass
+			? [
+					{ name: 'height', type: 'number', replaceWith: globalPass.selected.height },
+					{ name: 'width', type: 'number', replaceWith: globalPass.selected.width }
+				]
+			: [];
 		if (medias.seasonTitle && medias.episodeNumber && medias.episodeTitle) {
 			mediaName = `${medias.seasonTitle} - ${medias.episodeNumber} - ${medias.episodeTitle}`;
 		}
@@ -1792,6 +1992,7 @@ export default class Crunchy implements ServiceClass {
 		let dlVideoOnce = false; // Variable to save if best selected video quality was downloaded
 
 		for (const mMeta of medias.data) {
+			if (globalPass && (globalPass.cleanupFailed || globalPass.noRetry)) return undefined;
 			console.info(`Requesting: [${mMeta.mediaId}] ${mediaName}`);
 
 			// Make sure we have a media id without a : in it
@@ -1801,7 +2002,7 @@ export default class Crunchy implements ServiceClass {
 			if (!(await this.refreshToken(true, true))) return undefined;
 			// Web logins (--token) only work with a browser user agent
 			const clientHeaders = this.token.auth_type === 'web' ? { ...api.crunchyDefHeader, 'User-Agent': api.crunchyWebUserAgent } : this.deviceHeaders();
-			let currentVersion;
+			let currentVersion: EpisodeVersion | undefined;
 			let isPrimary = mMeta.isSubbed;
 			const AuthHeaders: FetchParams = {
 				headers: {
@@ -1812,7 +2013,9 @@ export default class Crunchy implements ServiceClass {
 
 			//Get Media GUID
 			if (mMeta.versions) {
-				if (mMeta.lang) {
+				if (globalPass?.kind === 'video') {
+					currentVersion = mMeta.versions.find((version) => version.guid === globalPass.selected.source.guid);
+				} else if (mMeta.lang) {
 					currentVersion = mMeta.versions.find((a) => a.audio_locale == mMeta.lang?.cr_locale);
 				} else if (options.dubLang.length == 1) {
 					const currentLang = langsData.languages.find((a) => a.code == options.dubLang[0]);
@@ -1944,7 +2147,34 @@ export default class Crunchy implements ServiceClass {
 			let isDLVideoBypass: boolean = options.vstream === 'android' || options.vstream === 'androidtab' ? true : false;
 			let isDLAudioBypass: boolean = options.astream === 'android' || options.astream === 'androidtab' ? true : false;
 			let isDLBypassCapable: boolean = true;
+			let previewVideoToken: string | undefined;
+			let previewAudioToken: string | undefined;
+			let previewDownloadToken: string | undefined;
+			const attemptedCloses = new Set<string>();
+			const closeGlobalToken = async (token: string): Promise<boolean> => {
+				if (attemptedCloses.has(token)) return true;
+				attemptedCloses.add(token);
+				const url = `https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${currentVersion ? currentVersion.guid : currentMediaId}/${token}`;
+				const result = await boundedRequest((signal) => this.req.getData(url, { ...AuthHeaders, signal, method: 'DELETE' }));
+				return result.ok && (result.res?.status === 200 || result.res?.status === 204);
+			};
 
+			const releaseGlobalSessions = async (): Promise<boolean> => {
+				for (const token of new Set([previewVideoToken, previewAudioToken, previewDownloadToken].filter((value): value is string => !!value))) {
+					try {
+						if (await closeGlobalToken(token)) continue;
+					} catch {
+						/* The attempted close is terminal. */
+					}
+					console.warn('Failed to close playback session');
+					if (globalPass) globalPass.cleanupFailed = true;
+					return false;
+				}
+				return true;
+			};
+
+			// prettier-ignore
+			try {
 			if (isDLVideoBypass || isDLAudioBypass) {
 				const me = await this.req.getData(api.me, AuthHeaders);
 				if (me.ok && me.res) {
@@ -1987,26 +2217,50 @@ export default class Crunchy implements ServiceClass {
 				options.astream = 'androidtv';
 			}
 
-			if (options.tsd) {
+			if (options.tsd && !options.dryRun) {
 				console.warn('Total Session Death Active');
 				const activeStreamsReq = await this.req.getData(api.streaming_sessions, AuthHeaders);
 				if (activeStreamsReq.ok && activeStreamsReq.res) {
 					const data = await activeStreamsReq.res.json();
 					for (const s of data.items) {
-						await this.req.getData(`https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${s.contentId}/${s.token}`, { ...{ method: 'DELETE' }, ...AuthHeaders });
+						await this.req.getData(`https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${s.contentId}/${s.token}`, {
+							...{ method: 'DELETE' },
+							...AuthHeaders
+						});
 					}
 					console.warn(`Killed ${data.items?.length ?? 0} Sessions`);
 				}
 			}
 
-			const videoPlaybackReq = await this.req.getData(
-				`https://cr-play-service.prd.crunchyrollsvc.com/v3/${currentVersion ? currentVersion.guid : currentMediaId}/${CrunchyVideoPlayStreams[this.token.auth_type === 'web' ? 'chrome' : 'androidtv']}/play?queue=0`,
-				AuthHeaders
+			const fetchPlayback = async (url: string) => {
+				if (!globalPass) return this.req.getData(url, AuthHeaders);
+				try {
+					return await boundedRequest(async (signal) => {
+						const response = await this.req.getData(url, { ...AuthHeaders, signal });
+						if (!response.ok || !response.res) return { ok: false, status: response.res?.status ?? response.error?.res?.status };
+						const body = await response.res.json();
+						return { ok: true, res: { json: async () => body }, token: (body as CrunchyPlayStream)?.token };
+					}, async (late) => {
+						if ('token' in late && late.token && !(await closeGlobalToken(late.token))) console.warn('Failed to close a late playback session');
+					});
+				} catch (error) {
+					globalPass.cleanupFailed = true;
+					dlFailed = true;
+					console.warn('Playback request ended before its session could be verified');
+					if (this.debug || this.req.argv?.debug) console.debug(`[DEBUG] Playback request failed: ${String(error)}`);
+					return { ok: false };
+				}
+			};
+			const videoPlaybackReq = await fetchPlayback(
+				`https://cr-play-service.prd.crunchyrollsvc.com/v3/${currentVersion ? currentVersion.guid : currentMediaId}/${CrunchyVideoPlayStreams[this.token.auth_type === 'web' ? 'chrome' : 'androidtv']}/play?queue=0`
 			);
 			if (!videoPlaybackReq.ok || !videoPlaybackReq.res) {
 				console.warn('Request Video Stream URLs FAILED!');
+				if (globalPass) { globalPass.noRetry = true; return undefined; }
 			} else {
 				videoStream = (await videoPlaybackReq.res.json()) as CrunchyPlayStream;
+				previewVideoToken = videoStream.token;
+				if (globalPass && (!videoStream.token || !videoStream.url)) { globalPass.cleanupFailed = true; return undefined; }
 				const derivedPlaystreams = {} as CrunchyStreams;
 				for (const hardsub in videoStream.hardSubs) {
 					const stream = videoStream.hardSubs[hardsub];
@@ -2015,18 +2269,27 @@ export default class Crunchy implements ServiceClass {
 						hardsub_locale: stream.hlang
 					};
 				}
-				if (isDLVideoBypass) {
-					const videoDLReq = await this.req.getData(
-						`https://cr-play-service.prd.crunchyrollsvc.com/v3/${currentVersion ? currentVersion.guid : currentMediaId}/${CrunchyVideoPlayStreams[options.vstream]}/download`,
-						AuthHeaders
+				if (isDLVideoBypass && (!globalPass || globalPass.kind === 'video' || options.cstream || options.vstream === options.astream)) {
+					const videoDLReq = await fetchPlayback(
+						`https://cr-play-service.prd.crunchyrollsvc.com/v3/${currentVersion ? currentVersion.guid : currentMediaId}/${CrunchyVideoPlayStreams[options.vstream]}/download`
 					);
 					if (videoDLReq.ok && videoDLReq.res) {
 						const data = (await videoDLReq.res.json()) as CrunchyPlayStream;
+						if (globalPass) {
+							previewDownloadToken = data.token;
+							if (!previewDownloadToken) { globalPass.cleanupFailed = true; return undefined; }
+							if (previewDownloadToken !== videoStream.token) {
+								if (!(await closeGlobalToken(previewDownloadToken))) { globalPass.cleanupFailed = true; return undefined; }
+								previewDownloadToken = undefined;
+							}
+							if (!data.url || !/^https?:\/\//i.test(data.url)) return undefined;
+						}
 						derivedPlaystreams[''] = {
 							url: this.convertDownloadToPlayback(data.url, videoStream.url),
 							hardsub_locale: ''
 						};
 					} else {
+						if (globalPass && (!('status' in videoDLReq) || (videoDLReq.status !== 403 && videoDLReq.status !== 404))) { globalPass.cleanupFailed = true; return undefined; }
 						derivedPlaystreams[''] = {
 							url: videoStream.url,
 							hardsub_locale: ''
@@ -2052,15 +2315,20 @@ export default class Crunchy implements ServiceClass {
 				};
 			}
 
-			if (!options.cstream && options.vstream !== options.astream && videoStream) {
-				const audioPlaybackReq = await this.req.getData(
-					`https://cr-play-service.prd.crunchyrollsvc.com/v3/${currentVersion ? currentVersion.guid : currentMediaId}/${CrunchyAudioPlayStreams[options.astream]}/${isDLAudioBypass ? 'download' : 'play?queue=1'}`,
-					AuthHeaders
+			if (globalPass?.kind !== 'video' && !options.cstream && options.vstream !== options.astream && videoStream) {
+				const audioPlaybackReq = await fetchPlayback(
+					`https://cr-play-service.prd.crunchyrollsvc.com/v3/${currentVersion ? currentVersion.guid : currentMediaId}/${CrunchyAudioPlayStreams[options.astream]}/${isDLAudioBypass ? 'download' : 'play?queue=1'}`
 				);
 				if (!audioPlaybackReq.ok || !audioPlaybackReq.res) {
 					console.warn('Request Audio Stream URLs FAILED!');
+					if (globalPass) {
+						if (isDLAudioBypass && 'status' in audioPlaybackReq && (audioPlaybackReq.status === 403 || audioPlaybackReq.status === 404)) pbData.apb = pbData.vpb;
+						else { globalPass.noRetry = true; return undefined; }
+					}
 				} else {
 					audioStream = (await audioPlaybackReq.res.json()) as CrunchyPlayStream;
+					previewAudioToken = audioStream.token;
+					if (globalPass && (!audioStream.token || !audioStream.url)) { globalPass.cleanupFailed = true; return undefined; }
 					const derivedPlaystreams = {} as CrunchyStreams;
 					// Give Audiostream the Videostream hardsubs if undefined or empty array
 					if (!audioStream.hardSubs || Object.values(audioStream.hardSubs).length === 0) audioStream.hardSubs = videoStream.hardSubs;
@@ -2072,6 +2340,10 @@ export default class Crunchy implements ServiceClass {
 						};
 					}
 					if (isDLAudioBypass) {
+						if (globalPass && previewAudioToken && previewAudioToken !== videoStream.token) {
+							if (!(await closeGlobalToken(previewAudioToken))) { globalPass.cleanupFailed = true; return undefined; }
+							previewAudioToken = undefined;
+						}
 						audioStream.token = videoStream.token;
 						derivedPlaystreams[''] = {
 							url: this.convertDownloadToPlayback(audioStream.url, videoStream.url),
@@ -2126,18 +2398,18 @@ export default class Crunchy implements ServiceClass {
 			const vpbStreams = pbData.vpb;
 			const apbStreams = pbData.apb;
 
-			if (!canDecrypt && (!options.novids || !options.noaudio)) {
+			if (!options.dryRun && !canDecrypt && (!options.novids || !options.noaudio)) {
 				console.error('No valid Widevine or PlayReady CDM detected. Please ensure a supported and functional CDM is installed.');
 				return undefined;
 			}
 
-			if (!this.cfg.bin.mp4decrypt && !this.cfg.bin.shaka && (!options.novids || !options.noaudio)) {
+			if (!options.dryRun && !this.cfg.bin.mp4decrypt && !this.cfg.bin.shaka && (!options.novids || !options.noaudio)) {
 				console.error('Neither Shaka nor MP4Decrypt found. Please ensure at least one of them is installed.');
 				return undefined;
 			}
 
 			for (const s of Object.keys(pbData.vpb)) {
-				if ((s.match(/hls/) || s.match(/dash/)) && !(s.match(/hls/) && s.match(/drm/)) && !s.match(/trailer/)) {
+				if ((s.match(/hls/) || s.match(/dash/)) && !(s.match(/hls/) && s.match(/drm/) && !options.dryRun) && !s.match(/trailer/)) {
 					const pb = Object.values(vpbStreams[s]).map((v) => {
 						v.hardsub_lang = v.hardsub_locale ? langsData.fixAndFindCrLC(v.hardsub_locale).locale : v.hardsub_locale;
 						if (v.hardsub_lang && hsLangs.indexOf(v.hardsub_lang) < 0) {
@@ -2153,7 +2425,7 @@ export default class Crunchy implements ServiceClass {
 			}
 
 			for (const s of Object.keys(pbData.apb)) {
-				if ((s.match(/hls/) || s.match(/dash/)) && !(s.match(/hls/) && s.match(/drm/)) && !s.match(/trailer/)) {
+				if ((s.match(/hls/) || s.match(/dash/)) && !(s.match(/hls/) && s.match(/drm/) && !options.dryRun) && !s.match(/trailer/)) {
 					const pb = Object.values(apbStreams[s]).map((v) => {
 						v.hardsub_lang = v.hardsub_locale ? langsData.fixAndFindCrLC(v.hardsub_locale).locale : v.hardsub_locale;
 						if (v.hardsub_lang && hsLangs.indexOf(v.hardsub_lang) < 0) {
@@ -2275,7 +2547,7 @@ export default class Crunchy implements ServiceClass {
 			let tsFile = undefined;
 
 			// Delete the stream if it's not needed
-			if (options.novids && options.noaudio) {
+			if (options.novids && options.noaudio && !options.dryRun && !globalPass) {
 				if (videoStream) {
 					if (!(await this.refreshToken(true, true))) return undefined;
 					(AuthHeaders.headers as Record<string, string>).Authorization = `Bearer ${this.token.access_token}`;
@@ -2299,70 +2571,81 @@ export default class Crunchy implements ServiceClass {
 			}
 
 			if (!dlFailed && vcurStream && acurStream && vcurStream !== undefined && acurStream !== undefined && !(options.novids && options.noaudio)) {
-				const vstreamPlaylistsReq = await this.req.getData(vcurStream.url, AuthHeaders);
-				const astreamPlaylistsReq = vcurStream.url !== acurStream.url ? await this.req.getData(acurStream.url, AuthHeaders) : vstreamPlaylistsReq;
-				if (!vstreamPlaylistsReq.ok || !vstreamPlaylistsReq.res || !astreamPlaylistsReq.ok || !astreamPlaylistsReq.res) {
+				let videoUrl = vcurStream.url as string;
+				if (globalPass?.kind === 'video' && globalPass.selected.family !== 'Current') {
+					const wanted = globalPass.selected.family === 'Legacy 0' ? 0 : 1;
+					const legacy = legacyUrls(videoUrl).find((candidate) => new RegExp(`/${wanted}/clean/dash/`).test(candidate.split(/[?#]/, 1)[0]));
+					if (!legacy) { globalPass.selectionLost = true; return undefined; }
+					videoUrl = legacy;
+				}
+				const fetchManifest = async (url: string) => {
+					if (!globalPass) return this.req.getData(url, AuthHeaders);
+					try {
+						if (this.debug || this.req.argv?.debug) console.debug(`[DEBUG] Selected manifest request: ${url}`);
+						return await boundedRequest(async (signal) => {
+							const result = await this.req.getData(url, { ...AuthHeaders, signal });
+							if (this.debug || this.req.argv?.debug) console.debug(`[DEBUG] Selected manifest status: ${result.res?.status ?? result.error?.res?.status ?? 'request failed'}`);
+							if (!result.ok || !result.res) { if ((result.res?.status ?? result.error?.res?.status) === 429) globalPass.noRetry = true; return { ok: false }; }
+							const body = await readLimitedManifest(result.res);
+							return { ok: true, res: { text: async () => body } };
+						});
+					} catch (error) { if (this.debug || this.req.argv?.debug) console.debug(`[DEBUG] Manifest request failed: ${String(error)}`); return { ok: false }; }
+				};
+				const vstreamPlaylistsReq = globalPass?.kind === 'audio' && vcurStream.url === acurStream.url ? undefined : await fetchManifest(videoUrl);
+				const astreamPlaylistsReq = globalPass?.kind === 'video' ? undefined : globalPass?.kind === 'audio' || vcurStream.url !== acurStream.url ? await fetchManifest(acurStream.url) : vstreamPlaylistsReq;
+				const failedVideo = (globalPass?.kind !== 'audio' || !!vstreamPlaylistsReq) && (!vstreamPlaylistsReq?.ok || !vstreamPlaylistsReq.res);
+				const failedAudio = globalPass?.kind !== 'video' && (!astreamPlaylistsReq?.ok || !astreamPlaylistsReq.res);
+				if (failedVideo || failedAudio) {
+					if (globalPass?.kind === 'video') globalPass.selectionLost = true;
 					console.error("CAN'T FETCH VIDEO PLAYLISTS!");
 					dlFailed = true;
 				} else {
-					const vstreamPlaylistBody = await vstreamPlaylistsReq.res.text();
-					const astreamPlaylistBody = vcurStream.url !== acurStream.url ? await astreamPlaylistsReq.res.text() : vstreamPlaylistBody;
-					if (vstreamPlaylistBody.match('MPD') && astreamPlaylistBody.match('MPD')) {
-						//Parse MPD Playlists
-						const vstreamPlaylists = await parse(
-							vstreamPlaylistBody,
-							langsData.findLang(langsData.fixLanguageTag(pbData.meta.audio_locale as string) || ''),
-							vcurStream.url.match(/.*\.urlset\//)?.[0]
-						);
-						const astreamPlaylists =
-							vcurStream.url !== acurStream.url
-								? await parse(
-										astreamPlaylistBody,
-										langsData.findLang(langsData.fixLanguageTag(pbData.meta.audio_locale as string) || ''),
-										acurStream.url.match(/.*\.urlset\//)?.[0]
-									)
-								: vstreamPlaylists;
-
-						//Get name of CDNs/Servers
-						const vstreamServers = Object.keys(vstreamPlaylists);
+					const vstreamPlaylistBody = vstreamPlaylistsReq?.res ? await vstreamPlaylistsReq.res.text() : '';
+					const astreamPlaylistBody = astreamPlaylistsReq?.res ? (astreamPlaylistsReq === vstreamPlaylistsReq ? vstreamPlaylistBody : await astreamPlaylistsReq.res.text()) : '';
+					if ((globalPass?.kind === 'audio' || vstreamPlaylistBody.match('MPD')) && (globalPass?.kind === 'video' || astreamPlaylistBody.match('MPD'))) {
+						let fresh: CatalogVideo | undefined;
+						if (globalPass?.kind === 'video') {
+							fresh = inspectVideoManifest(vstreamPlaylistBody, globalPass.selected.source, globalPass.selected.family, videoUrl, options.x).find((item) => item.representationKey === globalPass.selected.representationKey);
+							if (!fresh || (!globalPass.ignoreTiming && !timingCompatible(fresh, globalPass.references).compatible)) { globalPass.selectionLost = true; return undefined; }
+							globalPass.selected = fresh;
+							if (this.debug || this.req.argv?.debug) console.debug(`[DEBUG] Selected manifest parsed and matched representation ${fresh.representationId}`);
+						}
+						if (globalPass?.kind === 'audio') {
+							const locale = currentVersion?.audio_locale || mMeta.lang?.cr_locale || (pbData.meta.audio_locale as string);
+							const source = { guid: currentVersion?.guid || currentMediaId, locale, languageCode: langsData.languages.find((lang) => lang.cr_locale === locale)?.code || '' };
+							const anchors = rankVideoCandidates(inspectVideoManifest(vstreamPlaylistBody || astreamPlaylistBody, source, 'Current', videoUrl, options.x), [source.guid]);
+							if (!anchors.length) { console.error('Requested current manifest has no usable video anchor'); return undefined; }
+							const compatible = timingCompatible(globalPass.selected, [anchors[anchors.length - 1]]).compatible;
+							if (!compatible && !globalPass.ignoreTiming) { console.error('Requested audio timing is no longer compatible with selected video'); return undefined; }
+							if (!compatible && globalPass.forceVideo && !globalPass.forceWarning) { console.warn('Forced video timing differs or is unknown; audio and video may be out of sync.'); globalPass.forceWarning = true; }
+						}
+						const parseLanguage = langsData.findLang(langsData.fixLanguageTag(pbData.meta.audio_locale as string) || '');
+						const vstreamPlaylists = globalPass?.kind === 'audio' ? {} : fresh
+							? await boundedRequest((signal) => parse(vstreamPlaylistBody, parseLanguage, videoUrl.match(/.*\.urlset\//)?.[0], { selection: { kind: 'video', period: fresh!.periodOrdinal, adaptation: fresh!.adaptationOrdinal, representation: fresh!.representationOrdinal, baseUrlOrdinals: fresh!.baseUrlOrdinals, manifestUrl: videoUrl }, signal }))
+							: await parse(vstreamPlaylistBody, parseLanguage, videoUrl.match(/.*\.urlset\//)?.[0]);
+						const astreamPlaylists = globalPass?.kind === 'video' ? {} : globalPass?.kind === 'audio'
+							? await boundedRequest((signal) => parse(astreamPlaylistBody, parseLanguage, acurStream.url.match(/.*\.urlset\//)?.[0], { selection: { kind: 'audio', language: mMeta.lang?.cr_locale || (pbData.meta.audio_locale as string), manifestUrl: acurStream.url, serverOrdinal: options.x }, signal }))
+							: vcurStream.url !== acurStream.url ? await parse(astreamPlaylistBody, parseLanguage, acurStream.url.match(/.*\.urlset\//)?.[0]) : vstreamPlaylists;
 						const astreamServers = Object.keys(astreamPlaylists);
-
-						options.x = options.x > vstreamServers.length ? 1 : options.x;
-
-						const vselectedServer = vstreamServers[options.x - 1];
-						const vselectedList = vstreamPlaylists[vselectedServer];
-
-						const aselectedServer = astreamServers[options.x - 1];
-						const aselectedList = astreamPlaylists[aselectedServer];
-
-						//set Video Qualities
-						const videos = vselectedList.video.map((item) => {
-							return {
-								...item,
-								resolutionText: `${item.quality.width}x${item.quality.height} (${Math.round(item.bandwidth / 1024)}KiB/s)`
-							};
-						});
+						const requestedAudioServer = astreamServers[options.x - 1];
+						const aselectedServer = (requestedAudioServer && astreamPlaylists[requestedAudioServer].audio.length && requestedAudioServer) || astreamServers.find((server) => astreamPlaylists[server].audio.length) || astreamServers[0];
+						const aselectedList = astreamPlaylists[aselectedServer] || { audio: [] };
+						const extra = !globalPass && !options.novids && vcurStream.hardsub_lang === '-' && !(dlVideoOnce && options.dlVideoOnce)
+							? await optionalManifests(this.req, vcurStream.url, AuthHeaders, langsData.findLang(langsData.fixLanguageTag(pbData.meta.audio_locale as string) || ''), this.debug || !!this.req.argv?.debug) : [];
+						const videos = videoQualities(vstreamPlaylists, extra, globalPass ? 1 : options.x, this.debug || !!this.req.argv?.debug, vcurStream.audio_lang);
 
 						const audios = aselectedList.audio.map((item) => {
 							return {
 								...item,
-								resolutionText: `${Math.round(item.bandwidth / 1000)}kB/s`
+								resolutionText: `${Math.round(item.bandwidth / 1000)} kb/s`
 							};
-						});
-
-						videos.sort((a, b) => {
-							return a.bandwidth - b.bandwidth;
-						});
-
-						videos.sort((a, b) => {
-							return a.quality.width - b.quality.width;
 						});
 
 						audios.sort((a, b) => {
 							return a.bandwidth - b.bandwidth;
 						});
 
-						let chosenVideoQuality = options.q === 0 ? videos.length : options.q;
+						let chosenVideoQuality = globalPass || options.q === 0 ? videos.length : options.q;
 						if (chosenVideoQuality > videos.length) {
 							console.warn(
 								`The requested quality of ${options.q} is greater than the maximum ${videos.length}.\n[WARN] Therefor the maximum will be capped at ${videos.length}.`
@@ -2371,17 +2654,18 @@ export default class Crunchy implements ServiceClass {
 						}
 						chosenVideoQuality--;
 
-						let chosenAudioQuality = options.q === 0 ? audios.length : options.q;
+						let chosenAudioQuality = globalPass || options.q === 0 ? audios.length : options.q;
 						if (chosenAudioQuality > audios.length) {
 							chosenAudioQuality = audios.length;
 						}
 						chosenAudioQuality--;
 
-						const chosenVideoSegments = videos[chosenVideoQuality];
-						const chosenAudioSegments = audios[chosenAudioQuality];
+						const chosenVideoSegments = videos[chosenVideoQuality] || (globalPass?.kind === 'audio' ? { quality: { width: globalPass.selected.width, height: globalPass.selected.height }, bandwidth: 0, segments: [], pssh_wvd: undefined, pssh_prd: undefined, resolutionText: '', server: '' } : undefined);
+						const chosenAudioSegments = audios[chosenAudioQuality] || (globalPass?.kind === 'video' ? { bandwidth: 0, segments: [], pssh_wvd: undefined, pssh_prd: undefined, resolutionText: '' } : undefined);
+						if (!chosenVideoSegments || !chosenAudioSegments) { if (globalPass?.kind === 'video') globalPass.selectionLost = true; console.error('No usable selected tracks'); return undefined; }
 
-						console.info(`Available Video Qualities:\n\t${videos.map((a, ind) => `[${ind + 1}] ${a.resolutionText}`).join('\n\t')}`);
-						console.info(`Available Audio Qualities:\n\t${audios.map((a, ind) => `[${ind + 1}] ${a.resolutionText}`).join('\n\t')}`);
+						if (!globalPass) console.info(`Available Video Qualities:\n\t${videos.map((a, ind) => `[${ind + 1}] ${a.resolutionText}`).join('\n\t')}`);
+						if (globalPass?.kind !== 'video') console.info(`Available Audio Qualities:\n\t${audios.map((a, ind) => `[${ind + 1}] ${a.resolutionText}`).join('\n\t')}`);
 
 						variables.push(
 							{
@@ -2401,104 +2685,59 @@ export default class Crunchy implements ServiceClass {
 							console.error(`Unable to find language for code ${acurStream.audio_lang}`);
 							return;
 						}
-						console.info(
-							`Selected quality: \n\tVideo: ${chosenVideoSegments.resolutionText}\n\tAudio: ${chosenAudioSegments.resolutionText}\n\tVideo Server: ${vselectedServer}\n\tAudio Server: ${aselectedServer}`
-						);
-						console.info('Stream URL:', chosenVideoSegments.segments[0].uri.split(',.urlset')[0]);
+						if (globalPass?.kind === 'video') console.info(`Selected video: ${formatVideoCandidate(globalPass.selected)}\n\tVideo Server: ${chosenVideoSegments.server}`);
+						else if (globalPass?.kind === 'audio') console.info(`Selected audio: ${chosenAudioSegments.resolutionText}\n\tAudio Server: ${aselectedServer}`);
+						else console.info(`Selected quality: \n\tVideo: ${chosenVideoSegments.resolutionText}\n\tAudio: ${chosenAudioSegments.resolutionText}\n\tVideo Server: ${chosenVideoSegments.server}\n\tAudio Server: ${aselectedServer}`);
+						if (options.dryRun) {
+							if (globalPass?.kind !== 'audio') {
+								console.info('Video initialization URL:', chosenVideoSegments.segments[0].map.uri);
+								console.info('Video first media segment URL:', chosenVideoSegments.segments[0].uri);
+							}
+							if (globalPass?.kind !== 'video') {
+								console.info('Audio initialization URL:', chosenAudioSegments.segments[0].map.uri);
+								console.info('Audio first media segment URL:', chosenAudioSegments.segments[0].uri);
+							}
+							if (!options.novids) dlVideoOnce = true;
+							continue;
+						}
+						if (globalPass?.kind !== 'audio') console.info('Stream URL:', chosenVideoSegments.segments[0].uri.split(',.urlset')[0]);
 						// TODO check filename
 						fileName = parseFileName(options.fileName, variables, options.numbers, options.override).join(path.sep);
-						const outFile = parseFileName(options.fileName + '.' + (mMeta.lang?.name || lang.name), variables, options.numbers, options.override).join(path.sep);
+						const outFile = parseFileName(options.fileName + '.' + (globalPass?.kind === 'video' ? globalPass.requestedName || lang.name : mMeta.lang?.name || lang.name), variables, options.numbers, options.override).join(path.sep);
 						const tempFile = parseFileName(`temp-${currentVersion ? currentVersion.guid : currentMediaId}`, variables, options.numbers, options.override).join(
 							path.sep
 						);
 						const tempTsFile = path.isAbsolute(tempFile as string) ? tempFile : path.join(this.cfg.dir.content, tempFile);
 
-						let encryptionKeysVideo;
-						let encryptionKeysAudio;
+						let encryptionKeysVideo: Awaited<ReturnType<typeof getKeysWVD>> | undefined;
+						let encryptionKeysAudio: Awaited<ReturnType<typeof getKeysWVD>> | undefined;
 
-						//Handle Getting Decryption Keys if needed
-						if (chosenVideoSegments.pssh_wvd || chosenVideoSegments.pssh_prd || chosenAudioSegments.pssh_wvd || chosenAudioSegments.pssh_prd) {
+						const needVideo = !options.novids && !(dlVideoOnce && options.dlVideoOnce);
+						const needAudio = !options.noaudio;
+						const videoPssh = cdm === 'widevine' ? chosenVideoSegments.pssh_wvd : chosenVideoSegments.pssh_prd;
+						const audioPssh = cdm === 'widevine' ? chosenAudioSegments.pssh_wvd : chosenAudioSegments.pssh_prd;
+						if ((needVideo && (chosenVideoSegments.pssh_wvd || chosenVideoSegments.pssh_prd) && !videoPssh) || (needAudio && (chosenAudioSegments.pssh_wvd || chosenAudioSegments.pssh_prd) && !audioPssh)) { console.error('No compatible PSSH for the selected decryptor'); return undefined; }
+						if ((needVideo && videoPssh) || (needAudio && audioPssh)) {
 							if (!(await this.refreshToken(true, true))) return undefined;
 							(AuthHeaders.headers as Record<string, string>).Authorization = `Bearer ${this.token.access_token}`;
-							if (videoStream) {
-								await this.req.getData(
-									`https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${currentVersion ? currentVersion.guid : currentMediaId}/${videoStream.token}/keepAlive?playhead=1`,
-									{ ...{ method: 'PATCH' }, ...AuthHeaders }
-								);
+							const tokenForAudio = (audioStream ?? videoStream)!.token;
+							const activeTokens = new Set([needVideo ? videoStream?.token : undefined, needAudio ? tokenForAudio : undefined].filter((token): token is string => !!token));
+							for (const token of activeTokens) await this.req.getData(`https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${currentVersion ? currentVersion.guid : currentMediaId}/${token}/keepAlive?playhead=1`, { ...AuthHeaders, method: 'PATCH' });
+							const getKeys = cdm === 'widevine' ? getKeysWVD : getKeysPRD;
+							const license = cdm === 'widevine' ? api.drm_widevine : api.drm_playready;
+							const keyHeaders = (token: string) => ({ Authorization: `Bearer ${this.token.access_token}`, ...clientHeaders, Pragma: 'no-cache', 'Cache-Control': 'no-cache', 'content-type': 'application/octet-stream', 'x-cr-content-id': currentVersion ? currentVersion.guid : currentMediaId, 'x-cr-video-token': token });
+							if (needVideo && videoPssh) encryptionKeysVideo = await getKeys(videoPssh, license, keyHeaders(videoStream!.token));
+							if (needAudio && audioPssh) {
+								if (!globalPass && needVideo && audioPssh === videoPssh) encryptionKeysAudio = encryptionKeysVideo;
+								else encryptionKeysAudio = await getKeys(audioPssh, license, keyHeaders(tokenForAudio));
 							}
-							if (audioStream && videoStream?.token !== audioStream.token) {
-								await this.req.getData(
-									`https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${currentVersion ? currentVersion.guid : currentMediaId}/${audioStream.token}/keepAlive?playhead=1`,
-									{ ...{ method: 'PATCH' }, ...AuthHeaders }
-								);
-							}
-
-							console.info(`Getting decryption keys with ${cdm}`);
-							// New Crunchyroll DRM endpoint for Widevine
-							if (cdm === 'widevine') {
-								encryptionKeysVideo = await getKeysWVD(chosenVideoSegments.pssh_wvd, api.drm_widevine, {
-									Authorization: `Bearer ${this.token.access_token}`,
-									...clientHeaders,
-									Pragma: 'no-cache',
-									'Cache-Control': 'no-cache',
-									'content-type': 'application/octet-stream',
-									'x-cr-content-id': currentVersion ? currentVersion.guid : currentMediaId,
-									'x-cr-video-token': videoStream!.token
-								});
-
-								// Check if the audio pssh is different since Crunchyroll started to have different dec keys for audio tracks
-								if (chosenAudioSegments.pssh_wvd && chosenAudioSegments.pssh_wvd !== chosenVideoSegments.pssh_wvd) {
-									encryptionKeysAudio = await getKeysWVD(chosenAudioSegments.pssh_wvd, api.drm_widevine, {
-										Authorization: `Bearer ${this.token.access_token}`,
-										...clientHeaders,
-										Pragma: 'no-cache',
-										'Cache-Control': 'no-cache',
-										'content-type': 'application/octet-stream',
-										'x-cr-content-id': currentVersion ? currentVersion.guid : currentMediaId,
-										'x-cr-video-token': (audioStream ?? videoStream)!.token
-									});
-								} else {
-									encryptionKeysAudio = encryptionKeysVideo;
-								}
-							}
-
-							// New Crunchyroll DRM endpoint for Playready
-							if (cdm === 'playready') {
-								encryptionKeysVideo = await getKeysPRD(chosenVideoSegments.pssh_prd, api.drm_playready, {
-									Authorization: `Bearer ${this.token.access_token}`,
-									...clientHeaders,
-									Pragma: 'no-cache',
-									'Cache-Control': 'no-cache',
-									'content-type': 'application/octet-stream',
-									'x-cr-content-id': currentVersion ? currentVersion.guid : currentMediaId,
-									'x-cr-video-token': videoStream!.token
-								});
-
-								// Check if the audio pssh is different since Crunchyroll started to have different dec keys for audio tracks
-								if (chosenAudioSegments.pssh_prd && chosenAudioSegments.pssh_prd !== chosenVideoSegments.pssh_prd) {
-									encryptionKeysAudio = await getKeysPRD(chosenAudioSegments.pssh_prd, api.drm_playready, {
-										Authorization: `Bearer ${this.token.access_token}`,
-										...clientHeaders,
-										Pragma: 'no-cache',
-										'Cache-Control': 'no-cache',
-										'content-type': 'application/octet-stream',
-										'x-cr-content-id': currentVersion ? currentVersion.guid : currentMediaId,
-										'x-cr-video-token': (audioStream ?? videoStream)!.token
-									});
-								} else {
-									encryptionKeysAudio = encryptionKeysVideo;
-								}
-							}
-
-							if (!encryptionKeysVideo || encryptionKeysVideo.length == 0 || !encryptionKeysAudio || encryptionKeysAudio.length == 0) {
-								console.error('Failed to get encryption keys');
-								return undefined;
-							}
-
+							if ((needVideo && videoPssh && !encryptionKeysVideo?.length) || (needAudio && audioPssh && !encryptionKeysAudio?.length)) { console.error('Failed to get encryption keys'); return undefined; }
 							console.info('Got decryption keys');
 						}
 
-						if (videoStream) {
+						if (globalPass && !(await releaseGlobalSessions())) return undefined;
+
+						if (videoStream && !globalPass) {
 							if (!(await this.refreshToken(true, true))) return undefined;
 							(AuthHeaders.headers as Record<string, string>).Authorization = `Bearer ${this.token.access_token}`;
 							await this.req.getData(
@@ -2509,7 +2748,7 @@ export default class Crunchy implements ServiceClass {
 								}
 							);
 						}
-						if (audioStream && videoStream?.token !== audioStream.token) {
+						if (audioStream && videoStream?.token !== audioStream.token && !globalPass) {
 							await this.req.getData(
 								`https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${currentVersion ? currentVersion.guid : currentMediaId}/${audioStream.token}`,
 								{
@@ -2583,7 +2822,7 @@ export default class Crunchy implements ServiceClass {
 								segments: chosenAudioSegments.segments
 							};
 							const audioDownload = await new streamdl({
-								output: chosenVideoSegments.pssh_wvd || chosenVideoSegments.pssh_prd ? `${tempTsFile}.audio.enc.m4s` : `${tsFile}.audio.m4s`,
+								output: chosenAudioSegments.pssh_wvd || chosenAudioSegments.pssh_prd ? `${tempTsFile}.audio.enc.m4s` : `${tsFile}.audio.m4s`,
 								timeout: options.timeout,
 								m3u8json: audioJson,
 								// baseurl: chunkPlaylist.baseUrl,
@@ -2613,7 +2852,7 @@ export default class Crunchy implements ServiceClass {
 
 						//Handle Decryption if needed
 						if (
-							(chosenVideoSegments.pssh_wvd || chosenVideoSegments.pssh_prd || chosenAudioSegments.pssh_wvd || chosenAudioSegments.pssh_prd) &&
+							((videoDownloaded && (chosenVideoSegments.pssh_wvd || chosenVideoSegments.pssh_prd)) || (audioDownloaded && (chosenAudioSegments.pssh_wvd || chosenAudioSegments.pssh_prd))) &&
 							(videoDownloaded || audioDownloaded) &&
 							!dlFailed
 						) {
@@ -2642,7 +2881,9 @@ export default class Crunchy implements ServiceClass {
 										console.error(decryptVideo.err);
 										console.error(`Decryption failed with exit code ${decryptVideo.err.code}`);
 										if (this.cfg.bin.shaka) {
-											console.error(`Downgrade to Shaka-Packager v2.6.1 (https://github.com/shaka-project/shaka-packager/releases/tag/v2.6.1) and try again`);
+											console.error(
+												`Downgrade to Shaka-Packager v2.6.1 (https://github.com/shaka-project/shaka-packager/releases/tag/v2.6.1) and try again`
+											);
 										}
 										fs.renameSync(`${tempTsFile}.video.enc.m4s`, `${tsFile}.video.enc.m4s`);
 										return undefined;
@@ -2673,7 +2914,9 @@ export default class Crunchy implements ServiceClass {
 										console.error(decryptAudio.err);
 										console.error(`Decryption failed with exit code ${decryptAudio.err.code}`);
 										if (this.cfg.bin.shaka) {
-											console.error(`Downgrade to Shaka-Packager v2.6.1 (https://github.com/shaka-project/shaka-packager/releases/tag/v2.6.1) and try again`);
+											console.error(
+												`Downgrade to Shaka-Packager v2.6.1 (https://github.com/shaka-project/shaka-packager/releases/tag/v2.6.1) and try again`
+											);
 										}
 										fs.renameSync(`${tempTsFile}.audio.enc.m4s`, `${tsFile}.audio.enc.m4s`);
 										return undefined;
@@ -2715,7 +2958,10 @@ export default class Crunchy implements ServiceClass {
 								});
 							}
 						}
-					} else if (!options.novids) {
+					} else if (globalPass) {
+						if (globalPass.kind === 'video') globalPass.selectionLost = true;
+						return undefined;
+					} else if (!options.novids || options.dryRun) {
 						// Init parser
 						const parser = new Parser();
 
@@ -2831,9 +3077,15 @@ export default class Crunchy implements ServiceClass {
 							}
 							console.info(`Selected quality: ${Object.keys(plSelectedList).find((a) => plSelectedList[a] === selPlUrl)} @ ${plSelectedServer}`);
 							console.info('Stream URL:', selPlUrl);
+							if (options.dryRun) {
+								if (!options.novids) dlVideoOnce = true;
+								continue;
+							}
 							// TODO check filename
 							fileName = parseFileName(options.fileName, variables, options.numbers, options.override).join(path.sep);
-							const outFile = parseFileName(options.fileName + '.' + (mMeta.lang?.name || lang.name), variables, options.numbers, options.override).join(path.sep);
+							const outFile = parseFileName(options.fileName + '.' + (mMeta.lang?.name || lang.name), variables, options.numbers, options.override).join(
+								path.sep
+							);
 							console.info(`Output filename: ${outFile}`);
 							const chunkPage = await this.req.getData(selPlUrl, {
 								headers: api.crunchyDefHeader
@@ -2922,6 +3174,9 @@ export default class Crunchy implements ServiceClass {
 			} else if (options.novids && options.noaudio) {
 				fileName = parseFileName(options.fileName, variables, options.numbers, options.override).join(path.sep);
 			}
+
+			if (options.dryRun) continue;
+			if (globalPass && !(await releaseGlobalSessions())) return undefined;
 
 			if (compiledChapters.length > 0) {
 				try {
@@ -3055,80 +3310,125 @@ export default class Crunchy implements ServiceClass {
 										// Fix fonts
 										switch (langItem.cr_locale) {
 											case 'de-DE':
-												sBody = sBody.replace(/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm, (match, name, align) => {
-													return `Style: ${name},Arial,23,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2,0,${align},0,0,20,1`;
-												});
+												sBody = sBody.replace(
+													/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm,
+													(match, name, align) => {
+														return `Style: ${name},Arial,23,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2,0,${align},0,0,20,1`;
+													}
+												);
 												break;
 											case 'id-ID':
-												sBody = sBody.replace(/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm, (match, name, align) => {
-													return `Style: ${name},Arial,20,&H00FFFFFF,&H0000FFFF,&H00000000,&H7F404040,-1,0,0,0,100,100,0,0,1,2,1,${align},0020,0020,0022,0`;
-												});
+												sBody = sBody.replace(
+													/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm,
+													(match, name, align) => {
+														return `Style: ${name},Arial,20,&H00FFFFFF,&H0000FFFF,&H00000000,&H7F404040,-1,0,0,0,100,100,0,0,1,2,1,${align},0020,0020,0022,0`;
+													}
+												);
 												break;
 											case 'hi-IN':
-												sBody = sBody.replace(/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm, (match, name, align) => {
-													return `Style: ${name},Mangal,24,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,1,${align},0010,0010,0018,0`;
-												});
+												sBody = sBody.replace(
+													/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm,
+													(match, name, align) => {
+														return `Style: ${name},Mangal,24,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,1,${align},0010,0010,0018,0`;
+													}
+												);
 												break;
 											case 'ta-IN':
-												sBody = sBody.replace(/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm, (match, name, align) => {
-													return `Style: ${name},Noto Sans Tamil,24,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,1,${align},0010,0010,0018,0`;
-												});
+												sBody = sBody.replace(
+													/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm,
+													(match, name, align) => {
+														return `Style: ${name},Noto Sans Tamil,24,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,1,${align},0010,0010,0018,0`;
+													}
+												);
 												break;
 											case 'te-IN':
-												sBody = sBody.replace(/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm, (match, name, align) => {
-													return `Style: ${name},Noto Sans Telugu,24,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,1,${align},0010,0010,0018,0`;
-												});
+												sBody = sBody.replace(
+													/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm,
+													(match, name, align) => {
+														return `Style: ${name},Noto Sans Telugu,24,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,1,${align},0010,0010,0018,0`;
+													}
+												);
 												break;
 											case 'vi-VN':
-												sBody = sBody.replace(/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm, (match, name, align) => {
-													return `Style: ${name},Arial Unicode MS,20,&H00FFFFFF,&H0000FFFF,&H00000000,&H7F404040,-1,0,0,0,100,100,0,0,1,2,1,${align},0020,0020,0022,0`;
-												});
+												sBody = sBody.replace(
+													/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm,
+													(match, name, align) => {
+														return `Style: ${name},Arial Unicode MS,20,&H00FFFFFF,&H0000FFFF,&H00000000,&H7F404040,-1,0,0,0,100,100,0,0,1,2,1,${align},0020,0020,0022,0`;
+													}
+												);
 												break;
 											case 'ms-MY':
-												sBody = sBody.replace(/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm, (match, name, align) => {
-													return `Style: ${name},Arial,20,&H00FFFFFF,&H0000FFFF,&H00000000,&H7F404040,-1,0,0,0,100,100,0,0,1,2,1,${align},0020,0020,0022,0`;
-												});
+												sBody = sBody.replace(
+													/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm,
+													(match, name, align) => {
+														return `Style: ${name},Arial,20,&H00FFFFFF,&H0000FFFF,&H00000000,&H7F404040,-1,0,0,0,100,100,0,0,1,2,1,${align},0020,0020,0022,0`;
+													}
+												);
 												break;
 											case 'th-TH':
-												sBody = sBody.replace(/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm, (match, name, align) => {
-													return `Style: ${name},Noto Sans Thai,30,&H00FFFFFF,&H0000FFFF,&H00000000,&H7F404040,-1,0,0,0,100,100,0,0,1,2,1,${align},0020,0020,0022,0`;
-												});
+												sBody = sBody.replace(
+													/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm,
+													(match, name, align) => {
+														return `Style: ${name},Noto Sans Thai,30,&H00FFFFFF,&H0000FFFF,&H00000000,&H7F404040,-1,0,0,0,100,100,0,0,1,2,1,${align},0020,0020,0022,0`;
+													}
+												);
 												break;
 											case 'zh-CN':
 											case 'zh-HK':
-												sBody = sBody.replace(/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm, (match, name, align) => {
-													return `Style: ${name},Arial Unicode MS,20,&H00FFFFFF,&H0000FFFF,&H00000000,&H7F404040,-1,0,0,0,100,100,0,0,1,2,1,${align},0020,0020,0022,0`;
-												});
+												sBody = sBody.replace(
+													/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm,
+													(match, name, align) => {
+														return `Style: ${name},Arial Unicode MS,20,&H00FFFFFF,&H0000FFFF,&H00000000,&H7F404040,-1,0,0,0,100,100,0,0,1,2,1,${align},0020,0020,0022,0`;
+													}
+												);
 												break;
 											case 'ru-RU':
-												sBody = sBody.replace(/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm, (match, name, align) => {
-													return `Style: ${name},Tahoma,22,&H00FFFFFF,&H000000FF,&H00000000,&H96000000,0,0,0,0,100,100,0,0,1,2,1,${align},0010,0010,0025,204`;
-												});
+												sBody = sBody.replace(
+													/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm,
+													(match, name, align) => {
+														return `Style: ${name},Tahoma,22,&H00FFFFFF,&H000000FF,&H00000000,&H96000000,0,0,0,0,100,100,0,0,1,2,1,${align},0010,0010,0025,204`;
+													}
+												);
 												break;
 											case 'it-IT':
-												sBody = sBody.replace(/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm, (match, name, align) => {
-													return `Style: ${name},Trebuchet MS,22,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,${align},0010,0010,0015,1`;
-												});
+												sBody = sBody.replace(
+													/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm,
+													(match, name, align) => {
+														return `Style: ${name},Trebuchet MS,22,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,${align},0010,0010,0015,1`;
+													}
+												);
 												break;
 											case 'ar-SA':
-												sBody = sBody.replace(/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm, (match, name, align) => {
-													return `Style: ${name},Adobe Arabic,26,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,1,0,${align},0010,0010,0018,0`;
-												});
+												sBody = sBody.replace(
+													/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm,
+													(match, name, align) => {
+														return `Style: ${name},Adobe Arabic,26,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,1,0,${align},0010,0010,0018,0`;
+													}
+												);
 												break;
 											case 'fr-FR':
-												sBody = sBody.replace(/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm, (match, name, align) => {
-													return `Style: ${name},Trebuchet MS,22,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,1,1,${align},0002,0002,0025,1`;
-												});
+												sBody = sBody.replace(
+													/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm,
+													(match, name, align) => {
+														return `Style: ${name},Trebuchet MS,22,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,1,1,${align},0002,0002,0025,1`;
+													}
+												);
 												break;
 											case 'pt-BR':
-												sBody = sBody.replace(/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm, (match, name, align) => {
-													return `Style: ${name},Trebuchet MS,22,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2,1,${align},0040,0040,0015,0`;
-												});
+												sBody = sBody.replace(
+													/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm,
+													(match, name, align) => {
+														return `Style: ${name},Trebuchet MS,22,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2,1,${align},0040,0040,0015,0`;
+													}
+												);
 												break;
 											default:
-												sBody = sBody.replace(/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm, (match, name, align) => {
-													return `Style: ${name},Trebuchet MS,24,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,1,${align},0010,0010,0018,0`;
-												});
+												sBody = sBody.replace(
+													/^Style:\s*([^,]+),[^,]+\s*,\s*[\d.]+(?:,[^,]+){15},(\d+)(?:,[^,]+){3},(\d+)$/gm,
+													(match, name, align) => {
+														return `Style: ${name},Trebuchet MS,24,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,1,${align},0010,0010,0018,0`;
+													}
+												);
 												break;
 										}
 
@@ -3256,6 +3556,22 @@ export default class Crunchy implements ServiceClass {
 			}
 
 			await this.sleep(options.waittime);
+			} finally {
+				if (options.dryRun || globalPass) {
+					for (const token of new Set([previewVideoToken, previewAudioToken, previewDownloadToken].filter((value): value is string => !!value))) {
+						try {
+							const closeUrl = `https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${currentVersion ? currentVersion.guid : currentMediaId}/${token}`;
+							const closed = globalPass
+								? await closeGlobalToken(token)
+								: (await this.req.getData(closeUrl, { ...AuthHeaders, method: 'DELETE' })).ok;
+							if (!closed) { console.warn('Failed to close playback session'); if (globalPass) { globalPass.cleanupFailed = true; dlFailed = true; } }
+						} catch {
+							console.warn('Failed to close playback session');
+							if (globalPass) { globalPass.cleanupFailed = true; dlFailed = true; }
+						}
+					}
+				}
+			}
 		}
 		return {
 			error: dlFailed,

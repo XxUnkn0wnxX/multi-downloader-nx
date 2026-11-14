@@ -25,7 +25,12 @@ const SERVICES: Record<string, any> = {
 		process.exitCode = 1;
 		return;
 	}
-	if (!argv.skipUpdate) await update(argv.update);
+	if (argv.dryRun && (argv.update || argv.addArchive)) {
+		console.error('--dry-run cannot be combined with --update or --addArchive.');
+		process.exitCode = 1;
+		return;
+	}
+	if (!argv.dryRun && !argv.skipUpdate) await update(argv.update);
 
 	if (argv.all && argv.but) {
 		console.error('--all and --but exclude each other!');

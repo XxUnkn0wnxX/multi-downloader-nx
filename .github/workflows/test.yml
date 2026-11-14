@@ -32,6 +32,16 @@ jobs:
               run: pnpm exec tsc --noEmit
             - name: Test Crunchyroll token input
               run: node tests/crunchy-token-input.mjs
+            - name: Test manifest selection and download previews
+              run: |
+                  node tests/crunchy-video-catalog.mjs
+                  node tests/crunchy-global-video.mjs
+                  node tests/crunchy-manifests.mjs
+                  node tests/dry-run.mjs
+            - name: Verify generated CLI reference
+              run: |
+                  pnpm run docs
+                  git diff --exit-code -- docs/DOCUMENTATION.md
     eslint:
         needs: tsc
         runs-on: ubuntu-latest

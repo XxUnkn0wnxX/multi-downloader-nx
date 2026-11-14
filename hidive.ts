@@ -63,7 +63,7 @@ export default class Hidive implements ServiceClass {
       return console.info('test done');*/
 
 		// load binaries
-		this.cfg.bin = await yamlCfg.loadBinCfg();
+		if (!argv.dryRun) this.cfg.bin = await yamlCfg.loadBinCfg();
 		if (argv.allDubs) {
 			argv.dubLang = langsData.dubLanguageCodes;
 		}
@@ -667,6 +667,8 @@ export default class Hidive implements ServiceClass {
 		if (res === undefined || res.error) {
 			console.error('Failed to download media list');
 			return { isOk: false, reason: new Error('Failed to download media list') };
+		} else if (res.dryRun) {
+			return { isOk: true, dryRun: true };
 		} else {
 			if (!options.skipmux) {
 				await this.muxStreams(res.data, { ...options, output: res.fileName }, false);
@@ -760,6 +762,8 @@ export default class Hidive implements ServiceClass {
 		if (res === undefined || res.error) {
 			console.error('Failed to download media list');
 			return { isOk: false, reason: new Error('Failed to download media list') };
+		} else if (res.dryRun) {
+			return { isOk: true, dryRun: true };
 		} else {
 			if (!options.skipmux) {
 				await this.muxStreams(res.data, { ...options, output: res.fileName }, false);
@@ -786,14 +790,14 @@ export default class Hidive implements ServiceClass {
 		const subsMargin = 0;
 		const chosenFontSize = options.originalFontSize ? undefined : options.fontSize;
 		let encryptionKeys: KeyContainer[] = [];
-		if (!canDecrypt && (!options.novids || !options.noaudio)) {
+		if (!options.dryRun && !canDecrypt && (!options.novids || !options.noaudio)) {
 			console.error('No valid Widevine or PlayReady CDM detected. Please ensure a supported and functional CDM is installed.');
 			return undefined;
 		}
 
-		if (!this.cfg.bin.ffmpeg) this.cfg.bin = await yamlCfg.loadBinCfg();
+		if (!options.dryRun && !this.cfg.bin.ffmpeg) this.cfg.bin = await yamlCfg.loadBinCfg();
 
-		if (!this.cfg.bin.mp4decrypt && !this.cfg.bin.shaka && (!options.novids || !options.noaudio)) {
+		if (!options.dryRun && !this.cfg.bin.mp4decrypt && !this.cfg.bin.shaka && (!options.novids || !options.noaudio)) {
 			console.error('Neither Shaka nor MP4Decrypt found. Please ensure at least one of them is installed.');
 			return undefined;
 		}
@@ -820,24 +824,32 @@ export default class Hidive implements ServiceClass {
 
 		//Get name of CDNs/Servers
 		const streamServers = Object.keys(streamPlaylists);
+		if (streamServers.length === 0) {
+			console.error('No stream servers available.');
+			return undefined;
+		}
 
 		options.x = options.x > streamServers.length ? 1 : options.x;
 
 		const selectedServer = streamServers[options.x - 1];
 		const selectedList = streamPlaylists[selectedServer];
+		if (!selectedList || !Array.isArray(selectedList.video) || selectedList.video.length === 0) {
+			console.error('No video qualities available.');
+			return undefined;
+		}
 
 		//set Video Qualities
 		const videos = selectedList.video.map((item) => {
 			return {
 				...item,
-				resolutionText: `${item.quality.width}x${item.quality.height} (${Math.round(item.bandwidth / 1024)}KiB/s)`
+				resolutionText: `${item.quality.width}x${item.quality.height} (${Math.round(item.bandwidth / 1000)} kb/s)`
 			};
 		});
 
-		const audios = selectedList.audio.map((item) => {
+		const audios = (selectedList.audio ?? []).map((item) => {
 			return {
 				...item,
-				resolutionText: `${Math.round(item.bandwidth / 1000)}kB/s`
+				resolutionText: `${Math.round(item.bandwidth / 1000)} kb/s`
 			};
 		});
 
@@ -895,25 +907,36 @@ export default class Hidive implements ServiceClass {
 				chosenAudios.push(audioByLanguage[dubLang][chosenAudioQuality]);
 			}
 		}
-		if (chosenAudios.length == 0) {
+		if (chosenAudios.length == 0 && !(options.dryRun && options.noaudio)) {
 			console.error(`Chosen audio language(s) does not exist for episode ${selectedEpisode.episodeInformation.episodeNumber}`);
 			return undefined;
 		}
 
+		console.info(
+			`Selected quality: \n\tVideo: ${chosenVideoSegments.resolutionText}${chosenAudios.length > 0 ? `\n\tAudio: ${chosenAudios[0].resolutionText}` : ''}\n\tServer: ${selectedServer}`
+		);
+		console.info(`Selected (Available) Audio Languages: ${chosenAudios.map((a) => a.language.name).join(', ')}`);
+		if (options.dryRun) {
+			console.info('Video Stream URL:', chosenVideoSegments.segments[0].map.uri);
+			for (const audio of chosenAudios) {
+				console.info(`Audio Stream URL (${audio.language.name}):`, audio.segments[0].map.uri);
+			}
+		} else {
+			console.info('Stream URL:', chosenVideoSegments.segments[0].map.uri.split('/init.mp4')[0]);
+		}
+
+		if (options.dryRun) return { dryRun: true, error: false, data: [], fileName: '' };
+
 		const fileName = parseFileName(options.fileName, variables, options.numbers, options.override).join(path.sep);
 
-		console.info(`Selected quality: \n\tVideo: ${chosenVideoSegments.resolutionText}\n\tAudio: ${chosenAudios[0].resolutionText}\n\tServer: ${selectedServer}`);
-		console.info(`Selected (Available) Audio Languages: ${chosenAudios.map((a) => a.language.name).join(', ')}`);
-		console.info('Stream URL:', chosenVideoSegments.segments[0].map.uri.split('/init.mp4')[0]);
-
-		if ((chosenAudios[0].pssh_wvd && cdm === 'widevine') || (chosenVideoSegments.pssh_wvd && cdm === 'widevine')) {
+		if ((chosenAudios[0]?.pssh_wvd && cdm === 'widevine') || (chosenVideoSegments.pssh_wvd && cdm === 'widevine')) {
 			encryptionKeys = await getKeysWVD(chosenVideoSegments.pssh_wvd, 'https://shield-drm.imggaming.com/api/v2/license', {
 				Authorization: `Bearer ${selectedEpisode.jwtToken}`,
 				'X-Drm-Info': 'eyJzeXN0ZW0iOiJjb20ud2lkZXZpbmUuYWxwaGEifQ=='
 			});
 		}
 
-		if ((chosenAudios[0].pssh_prd && cdm === 'playready') || (chosenVideoSegments.pssh_prd && cdm === 'playready')) {
+		if ((chosenAudios[0]?.pssh_prd && cdm === 'playready') || (chosenVideoSegments.pssh_prd && cdm === 'playready')) {
 			encryptionKeys = await getKeysPRD(chosenVideoSegments.pssh_prd, 'https://shield-drm.imggaming.com/api/v2/license', {
 				Authorization: `Bearer ${selectedEpisode.jwtToken}`,
 				'X-Drm-Info': 'eyJzeXN0ZW0iOiJjb20ubWljcm9zb2Z0LnBsYXlyZWFkeSJ9'

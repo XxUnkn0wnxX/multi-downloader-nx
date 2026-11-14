@@ -120,7 +120,7 @@ const DownloadSelector: React.FC<DownloadSelectorProps> = ({ onFinish }) => {
 							required
 							onChange={(e) => {
 								const parsed = parseInt(e.target.value);
-								if (isNaN(parsed) || parsed < 0 || parsed > 10) return;
+								if (!Number.isSafeInteger(parsed) || parsed < 0 || (store.service !== 'crunchy' && parsed > 10)) return;
 								dispatch({
 									type: 'downloadOptions',
 									payload: { ...store.downloadOptions, q: parsed }

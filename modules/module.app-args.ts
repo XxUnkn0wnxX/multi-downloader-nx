@@ -17,6 +17,8 @@ export let argvC: {
 	mkvmergeOptions: string[];
 	force: 'Y' | 'y' | 'N' | 'n' | 'C' | 'c';
 	skipUpdate: boolean;
+	dryRun?: boolean;
+	forcevideo?: boolean;
 	videoTitle: string;
 	override: string[];
 	fsRetryTime: number;
