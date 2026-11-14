@@ -52,7 +52,8 @@ import {
 	DEVICE_USER_AGENT,
 	DEVICE_BETA_WARNING,
 	deviceAuthAttempt,
-	deviceFallbackEligible
+	deviceFallbackEligible,
+	deviceErrorDetails
 } from './modules/module.crunchy-device-auth';
 
 export type sxItem = {
@@ -500,14 +501,16 @@ export default class Crunchy implements ServiceClass {
 		return this.token.auth_type === 'device' ? { ...api.crunchyDefHeader, 'User-Agent': this.deviceUserAgent() } : api.crunchyDefHeader;
 	}
 
-	public async getProfile(silent = false, signal?: AbortSignal): Promise<boolean> {
+	public async getProfile(silent = false, signal?: AbortSignal, quietErrors = false, onError?: (details: string) => void): Promise<boolean> {
 		if (!this.token.access_token) {
-			console.error('No access token!');
+			if (quietErrors) onError?.('No access token');
+			else console.error('No access token!');
 			return false;
 		}
 
 		const profileReqOptions = {
 			signal,
+			quietErrors,
 			headers: {
 				...this.deviceHeaders(),
 				Authorization: `Bearer ${this.token.access_token}`
@@ -515,7 +518,8 @@ export default class Crunchy implements ServiceClass {
 		};
 		const profileReq = await this.req.getData(api.profile, profileReqOptions);
 		if (!profileReq.ok || !profileReq.res) {
-			console.error('Get profile failed!');
+			if (quietErrors) onError?.(await deviceErrorDetails(profileReq));
+			else console.error('Get profile failed!');
 			return false;
 		}
 		const profile = await profileReq.res.json();
@@ -611,6 +615,14 @@ export default class Crunchy implements ServiceClass {
 		const previousCMS = this.cmsToken;
 		let committed = false;
 		let validationTimer: ReturnType<typeof setTimeout> | undefined;
+		let validationStage = 'profile validation';
+		let validationError = '';
+		const rememberValidationError = (details: string) => (validationError = details);
+		const failValidation = (detail: string) => {
+			console.error('Status: Error');
+			console.error(`Device authentication failed: ${detail}.`);
+			return false;
+		};
 		try {
 			const deviceId = randomUUID();
 			const token = await requestDeviceToken({
@@ -622,7 +634,17 @@ export default class Crunchy implements ServiceClass {
 				deviceId,
 				signal: controller.signal,
 				debug: this.debug,
-				log: (message) => console.info(message)
+				log: (message) => console.info(message),
+				onCountdown: (remainingSeconds, status) => {
+					if (remainingSeconds === undefined) {
+						if (!this.debug && process.stdout.isTTY) process.stdout.write('\n');
+						return;
+					}
+					const state = status === 'approved' ? 'Approved' : status === 'timed-out' ? 'Timed Out' : status === 'error' ? 'Error' : 'Waiting for approval';
+					const message = `Expires in ${remainingSeconds} seconds. (${state})`;
+					if (!this.debug && process.stdout.isTTY) process.stdout.write(`\r\x1b[2K${message}`);
+					else console.info(message);
+				}
 			});
 			if (!token) return false;
 			this.token = {
@@ -637,20 +659,22 @@ export default class Crunchy implements ServiceClass {
 			};
 			this.cmsToken = {};
 			validationTimer = setTimeout(cancel, 30000);
-			if (
-				!(await this.getProfile(false, controller.signal)) ||
-				controller.signal.aborted ||
-				!(await this.getCMStoken(false, controller.signal)) ||
-				controller.signal.aborted ||
-				!yamlCfg.saveCRTokenAtomic(this.token)
-			)
-				return false;
+			if (!(await this.getProfile(false, controller.signal, true, rememberValidationError)) || controller.signal.aborted) {
+				return failValidation(`profile validation failed${validationError ? ` (${validationError})` : ''}`);
+			}
+			validationStage = 'CMS authentication';
+			if (!(await this.getCMStoken(false, controller.signal, true, rememberValidationError)) || controller.signal.aborted) {
+				return failValidation(`CMS validation failed${validationError ? ` (${validationError})` : ''}`);
+			}
+			validationStage = 'session save';
+			if (!yamlCfg.saveCRTokenAtomic(this.token)) {
+				return failValidation('session could not be saved');
+			}
 			committed = true;
 			console.info('Device authentication succeeded.');
 			return true;
 		} catch {
-			console.error('Device authentication failed.');
-			return false;
+			return failValidation(`${validationStage} failed${validationError ? ` (${validationError})` : ''}`);
 		} finally {
 			if (validationTimer) clearTimeout(validationTimer);
 			if (signal) signal.removeEventListener('abort', cancel);
@@ -798,9 +822,10 @@ export default class Crunchy implements ServiceClass {
 		}
 	}
 
-	public async getCMStoken(ifNeeded = false, signal?: AbortSignal): Promise<boolean> {
+	public async getCMStoken(ifNeeded = false, signal?: AbortSignal, quietErrors = false, onError?: (details: string) => void): Promise<boolean> {
 		if (!this.token.access_token) {
-			console.error('No access token!');
+			if (quietErrors) onError?.('No access token');
+			else console.error('No access token!');
 			return false;
 		}
 
@@ -812,6 +837,7 @@ export default class Crunchy implements ServiceClass {
 
 		const cmsTokenReqOpts = {
 			signal,
+			quietErrors,
 			headers: {
 				Authorization: `Bearer ${this.token.access_token}`,
 				...this.deviceHeaders()
@@ -819,12 +845,15 @@ export default class Crunchy implements ServiceClass {
 		};
 		const cmsTokenReq = await this.req.getData(api.cms_auth, cmsTokenReqOpts);
 		if (!cmsTokenReq.ok || !cmsTokenReq.res) {
-			console.error('Authentication CMS token failed!');
+			if (quietErrors) onError?.(await deviceErrorDetails(cmsTokenReq));
+			else console.error('Authentication CMS token failed!');
 			return false;
 		}
 		this.cmsToken = await cmsTokenReq.res.json();
 		console.info('Your Country: %s\n', this.cmsToken.cms?.bucket.split('/')[1]);
-		return this.checkToken();
+		const valid = this.checkToken();
+		if (!valid && quietErrors) onError?.('CMS response did not include a valid token');
+		return valid;
 	}
 
 	public async getCmsData() {

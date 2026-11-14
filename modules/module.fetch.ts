@@ -25,6 +25,7 @@ export type Params = {
 type CustomParams = {
 	useProxy: boolean;
 	allowH2: boolean;
+	quietErrors?: boolean;
 };
 
 type GetDataResponse = {
@@ -93,11 +94,12 @@ export class Req {
 		}
 
 		let receivedResponse: Awaited<ReturnType<typeof fetch>> | undefined;
+		const logRequestErrors = !params.quietErrors || this.debug;
 		try {
 			const res = await fetch(durl, { ...options, dispatcher });
 			receivedResponse = res;
 			if (!res.ok) {
-				console.error(`${res.status}: ${res.statusText}`);
+				if (logRequestErrors) console.error(`${res.status}: ${res.statusText}`);
 				const body = await res.clone().text();
 				const docTitle = body.match(/<title>(.*)<\/title>/);
 				if (body && docTitle) {
@@ -132,9 +134,9 @@ export class Req {
 					// 	console.error(docTitle[1]);
 					// }
 
-					console.error(docTitle[1]);
+					if (logRequestErrors) console.error(docTitle[1]);
 				} else {
-					console.error(body);
+					if (logRequestErrors) console.error(body);
 				}
 			}
 			return {
@@ -148,16 +150,18 @@ export class Req {
 			} & TypeError & {
 					res: Response;
 				};
-			if (error.res && error.res.status && error.res.statusText) {
-				console.error(`${error.name} ${error.res.status}: ${error.res.statusText}`);
-			} else {
-				console.error(`${error.name}: ${error.res?.statusText || error.message}`);
+			if (logRequestErrors) {
+				if (error.res && error.res.status && error.res.statusText) {
+					console.error(`${error.name} ${error.res.status}: ${error.res.statusText}`);
+				} else {
+					console.error(`${error.name}: ${error.res?.statusText || error.message}`);
+				}
 			}
 			if (error.res && !receivedResponse) {
 				try {
 					const body = await error.res.clone().text();
 					const docTitle = body.match(/<title>(.*)<\/title>/);
-					if (body && docTitle) console.error(docTitle[1]);
+					if (body && docTitle && logRequestErrors) console.error(docTitle[1]);
 				} catch {
 					// Preserve the response even if its error body cannot be read.
 				}

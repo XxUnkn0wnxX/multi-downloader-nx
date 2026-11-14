@@ -10,7 +10,7 @@ import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import ts from 'typescript';
 
-const { AbortController, Response, setTimeout, clearTimeout, atob } = globalThis;
+const { AbortController, Response, setTimeout, clearTimeout, setInterval, clearInterval, atob } = globalThis;
 const require = createRequire(import.meta.url);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'anidl-token-input-'));
@@ -31,7 +31,23 @@ try {
 		const module = { exports };
 		vm.runInNewContext(
 			code,
-			{ exports, module, require: requireFn, process, console: output, URL, URLSearchParams, Error, AbortController, setTimeout, clearTimeout, atob, ...extra },
+			{
+				exports,
+				module,
+				require: requireFn,
+				process,
+				console: output,
+				URL,
+				URLSearchParams,
+				Error,
+				AbortController,
+				setTimeout,
+				clearTimeout,
+				setInterval,
+				clearInterval,
+				atob,
+				...extra
+			},
 			{ filename: file }
 		);
 		return module.exports;
@@ -231,8 +247,218 @@ try {
 		assert.equal(result, token);
 		same(sleeps, [500, 500]);
 		same(JSON.parse(calls[1].options.body), { device_code: 'code', device_id: 'uuid', device_name: 'ANDROIDTV 3.76.0', device_type: 'ANDROIDTV' });
-		assert(messages.indexOf('https://crunchyroll.com/activate') < messages.indexOf('Code: AbCd'));
+		const presentationStart = messages.indexOf('Visit: crunchyroll.com/activate');
+		assert.deepEqual(messages.slice(presentationStart, presentationStart + 3), [
+			'Visit: crunchyroll.com/activate',
+			'Enter Code: ABCD',
+			'Expires in 300 seconds. (Waiting for approval)'
+		]);
 		assert(messages.some((s) => s.includes('response: 204')));
+	});
+	await test('device countdown follows the activation deadline and stops on approval, cancellation, and expiry', async () => {
+		const createCountdownHelper = (extra = {}) => {
+			let tick,
+				active = false;
+			const helper = compile(path.join(root, 'modules/module.crunchy-device-auth.ts'), (id) => require(id), {
+				setInterval: (callback, ms) => {
+					assert.equal(ms, 1000);
+					tick = callback;
+					active = true;
+					return 1;
+				},
+				clearInterval: () => (active = false),
+				...extra
+			});
+			return {
+				helper,
+				get active() {
+					return active;
+				},
+				tick: () => tick?.()
+			};
+		};
+		const token = { access_token: 'access', refresh_token: 'refresh', expires_in: 3600 };
+		{
+			let now = 0,
+				calls = 0;
+			const countdown = createCountdownHelper();
+			const values = [];
+			const states = [];
+			const result = await countdown.helper.requestDeviceToken({
+				authUrl: 'https://example.invalid/auth/v1/token',
+				headers: {},
+				deviceId: 'uuid',
+				signal: new AbortController().signal,
+				debug: false,
+				log: () => {},
+				onCountdown: (seconds, state) => {
+					values.push(seconds);
+					states.push(state);
+				},
+				now: () => now,
+				sleep: async (ms) => {
+					now += ms;
+					countdown.tick();
+				},
+				request: async () => (++calls === 1 ? jsonResponse({ user_code: 'X', device_code: 'Y', interval: 1000, expires_in: 5 }) : jsonResponse(token))
+			});
+			assert.equal(result.access_token, 'access');
+			assert.deepEqual(values, [5, 4, 4, undefined]);
+			assert.deepEqual(states, ['waiting', 'waiting', 'approved', undefined]);
+			assert.equal(countdown.active, false);
+		}
+		{
+			let now = 0,
+				calls = 0;
+			const controller = new AbortController();
+			const countdown = createCountdownHelper();
+			const values = [];
+			const states = [];
+			const messages = [];
+			await countdown.helper.requestDeviceToken({
+				authUrl: 'https://example.invalid/auth/v1/token',
+				headers: {},
+				deviceId: 'uuid',
+				signal: controller.signal,
+				debug: false,
+				log: (line) => messages.push(line),
+				onCountdown: (seconds, state) => {
+					values.push(seconds);
+					states.push(state);
+				},
+				now: () => now,
+				sleep: async (ms) => {
+					now += ms;
+					countdown.tick();
+					controller.abort();
+				},
+				request: async () => (++calls === 1 ? jsonResponse({ user_code: 'X', device_code: 'Y', interval: 500, expires_in: 5 }) : jsonResponse(token))
+			});
+			assert.equal(calls, 1);
+			assert.equal(messages.at(-1), 'Device login cancelled.');
+			assert.deepEqual(values, [5, 5, undefined]);
+			assert.deepEqual(states, ['waiting', 'waiting', undefined]);
+			assert.equal(countdown.active, false);
+		}
+		{
+			let now = 0,
+				calls = 0;
+			const countdown = createCountdownHelper();
+			const values = [];
+			const states = [];
+			const messages = [];
+			await countdown.helper.requestDeviceToken({
+				authUrl: 'https://example.invalid/auth/v1/token',
+				headers: {},
+				deviceId: 'uuid',
+				signal: new AbortController().signal,
+				debug: false,
+				log: (line) => messages.push(line),
+				onCountdown: (seconds, state) => {
+					values.push(seconds);
+					states.push(state);
+				},
+				now: () => now,
+				sleep: async (ms) => {
+					now += ms;
+					countdown.tick();
+				},
+				request: async () =>
+					++calls === 1
+						? jsonResponse({ user_code: 'X', device_code: 'Y', interval: 500, expires_in: 5 })
+						: { ok: false, res: new Response('{"error":"invalid_grant","error_description":"approval denied"}', { status: 403 }) }
+			});
+			assert.equal(calls, 2);
+			assert.deepEqual(states, ['waiting', 'waiting', 'error', undefined]);
+			assert.match(messages.at(-1), /HTTP 403 invalid_grant approval denied/);
+			assert.equal(values[2], 5);
+			assert.equal(countdown.active, false);
+		}
+		{
+			let now = 0,
+				calls = 0;
+			const countdown = createCountdownHelper();
+			const values = [];
+			const states = [];
+			const messages = [];
+			await countdown.helper.requestDeviceToken({
+				authUrl: 'https://example.invalid/auth/v1/token',
+				headers: {},
+				deviceId: 'uuid',
+				signal: new AbortController().signal,
+				debug: false,
+				log: (line) => messages.push(line),
+				onCountdown: (seconds, state) => {
+					values.push(seconds);
+					states.push(state);
+				},
+				now: () => now,
+				sleep: async (ms) => {
+					now += ms;
+					countdown.tick();
+				},
+				request: async () => (++calls === 1 ? jsonResponse({ user_code: 'X', device_code: 'Y', interval: 500, expires_in: 1 }) : { ok: true, res: { status: 204 } })
+			});
+			assert.equal(calls, 2);
+			assert.equal(messages.at(-1), 'Device code expired. Run --device again to get a new code.');
+			assert.deepEqual(values, [1, 1, 0, undefined]);
+			assert.deepEqual(states, ['waiting', 'waiting', 'timed-out', undefined]);
+			assert.equal(countdown.active, false);
+		}
+		{
+			let now = 0,
+				calls = 0,
+				expire;
+			let expiryTimerCleared = false;
+			const countdown = createCountdownHelper({
+				setTimeout: (callback, ms) => {
+					if (ms === 1000) {
+						expire = callback;
+						return 'expiry';
+					}
+					return setTimeout(callback, ms);
+				},
+				clearTimeout: (timer) => {
+					if (timer === 'expiry') expiryTimerCleared = true;
+					else clearTimeout(timer);
+				}
+			});
+			const values = [];
+			const states = [];
+			const messages = [];
+			await countdown.helper.requestDeviceToken({
+				authUrl: 'https://example.invalid/auth/v1/token',
+				headers: {},
+				deviceId: 'uuid',
+				signal: new AbortController().signal,
+				debug: false,
+				log: (line) => messages.push(line),
+				onCountdown: (seconds, state) => {
+					values.push(seconds);
+					states.push(state);
+				},
+				now: () => now,
+				sleep: async (ms) => {
+					now += ms;
+				},
+				request: async (_url, options) => {
+					if (++calls === 1) return jsonResponse({ user_code: 'X', device_code: 'Y', interval: 500, expires_in: 1 });
+					return new Promise((resolve) => {
+						options.signal.addEventListener('abort', () => resolve({ ok: false }), { once: true });
+						now = 500;
+						countdown.tick();
+						now = 1000;
+						expire();
+					});
+				}
+			});
+			assert.equal(calls, 2);
+			assert.equal(messages.at(-1), 'Device code expired. Run --device again to get a new code.');
+			assert.deepEqual(values, [1, 1, 0, undefined]);
+			assert.deepEqual(states, ['waiting', 'waiting', 'timed-out', undefined]);
+			assert.equal(countdown.active, false);
+			assert.equal(expiryTimerCleared, true);
+		}
 	});
 	await test('device polling bounds transient errors and supports cancellation', async () => {
 		let now = 0,
@@ -262,9 +488,15 @@ try {
 	});
 	await test('device login stages profile, CMS and disk writes before replacing the previous session', async () => {
 		const original = deviceHelper.requestDeviceToken;
-		deviceHelper.requestDeviceToken = async () => ({ access_token: 'new', refresh_token: 'new-refresh', expires_in: 3600 });
+		deviceHelper.requestDeviceToken = async (options) => {
+			options.onCountdown(300, 'waiting');
+			options.onCountdown(200, 'approved');
+			options.onCountdown(undefined);
+			return { access_token: 'new', refresh_token: 'new-refresh', expires_in: 3600 };
+		};
 		try {
 			for (const failure of ['profile', 'cms', 'disk']) {
+				logs.length = 0;
 				const { service } = makeService({});
 				const old = { access_token: 'old' },
 					oldCMS = { cms: { bucket: '/old' } };
@@ -279,6 +511,11 @@ try {
 				assert.equal(await service.loginWithDevice(new AbortController().signal), false);
 				assert.equal(service.token, old);
 				assert.equal(service.cmsToken, oldCMS);
+				const reason = failure === 'profile' ? 'profile validation failed' : failure === 'cms' ? 'CMS validation failed' : 'session could not be saved';
+				const approvedIndex = logs.findIndex(([, line]) => line === 'Expires in 200 seconds. (Approved)');
+				const failureIndex = logs.findIndex(([kind, line]) => kind === 'error' && line === 'Status: Error');
+				const detailsIndex = logs.findIndex(([kind, line]) => kind === 'error' && line === `Device authentication failed: ${reason}.`);
+				assert(approvedIndex >= 0 && failureIndex > approvedIndex && detailsIndex > failureIndex);
 			}
 			const { service } = makeService({});
 			service.getProfile = async () => true;
@@ -287,6 +524,68 @@ try {
 			assert.equal(await service.loginWithDevice(new AbortController().signal), true);
 			assert.equal(service.token.auth_type, 'device');
 			assert.equal(service.token.device_name, 'ANDROIDTV 3.76.0');
+		} finally {
+			deviceHelper.requestDeviceToken = original;
+		}
+	});
+	await test('device approval status is printed before profile output', async () => {
+		const original = deviceHelper.requestDeviceToken;
+		logs.length = 0;
+		deviceHelper.requestDeviceToken = async (options) => {
+			options.onCountdown(300, 'waiting');
+			options.onCountdown(287, 'approved');
+			options.onCountdown(undefined);
+			return { access_token: 'new', refresh_token: 'new-refresh', expires_in: 3600 };
+		};
+		try {
+			const { service } = makeService(successfulResponses);
+			assert.equal(await service.loginWithDevice(new AbortController().signal), true);
+			const approvedIndex = logs.findIndex(([, line]) => line === 'Expires in 287 seconds. (Approved)');
+			const profileIndex = logs.findIndex(([, line]) => line.includes('USER: %s (%s) test-user'));
+			assert(approvedIndex >= 0);
+			assert(profileIndex > approvedIndex);
+		} finally {
+			deviceHelper.requestDeviceToken = original;
+		}
+	});
+	await test('device timeout status precedes the exact retry instruction', async () => {
+		const original = deviceHelper.requestDeviceToken;
+		logs.length = 0;
+		deviceHelper.requestDeviceToken = async (options) => {
+			options.onCountdown(300, 'waiting');
+			options.onCountdown(0, 'timed-out');
+			options.onCountdown(undefined);
+			options.log('Device code expired. Run --device again to get a new code.');
+			return undefined;
+		};
+		try {
+			const { service } = makeService({});
+			assert.equal(await service.loginWithDevice(new AbortController().signal), false);
+			const timeoutIndex = logs.findIndex(([, line]) => line === 'Expires in 0 seconds. (Timed Out)');
+			const instructionIndex = logs.findIndex(([, line]) => line === 'Device code expired. Run --device again to get a new code.');
+			assert(timeoutIndex >= 0);
+			assert(instructionIndex > timeoutIndex);
+			assert(!logs.some(([, line]) => line === 'Expires in 300 seconds. (Approved)'));
+		} finally {
+			deviceHelper.requestDeviceToken = original;
+		}
+	});
+	await test('device request errors show compact status then provider details', async () => {
+		const original = deviceHelper.requestDeviceToken;
+		logs.length = 0;
+		deviceHelper.requestDeviceToken = async (options) => {
+			options.onCountdown(247, 'error');
+			options.onCountdown(undefined);
+			options.log('Device approval was rejected (HTTP 403 invalid_grant approval denied). Retry the command.');
+			return undefined;
+		};
+		try {
+			const { service } = makeService({});
+			assert.equal(await service.loginWithDevice(new AbortController().signal), false);
+			const statusIndex = logs.findIndex(([, line]) => line === 'Expires in 247 seconds. (Error)');
+			const detailsIndex = logs.findIndex(([, line]) => line.includes('HTTP 403 invalid_grant approval denied'));
+			assert(statusIndex >= 0);
+			assert(detailsIndex > statusIndex);
 		} finally {
 			deviceHelper.requestDeviceToken = original;
 		}
@@ -378,6 +677,7 @@ try {
 	});
 
 	await test('real transport forwards abort signals and preserves rejected response bodies', async () => {
+		logs.length = 0;
 		let seen;
 		const { Req } = compile(path.join(root, 'modules/module.fetch.ts'), (id) => {
 			if (id === './module.cfg-loader') return { loadCfg: () => ({ cli: {} }) };
@@ -395,10 +695,52 @@ try {
 			throw new Error(`Unexpected transport import ${id}`);
 		});
 		const controller = new AbortController();
-		const result = await new Req().getData('https://example.invalid/auth', { method: 'POST', signal: controller.signal });
+		const result = await new Req().getData('https://example.invalid/auth', { method: 'POST', signal: controller.signal, quietErrors: true });
 		assert.equal(seen.options.signal, controller.signal);
 		assert.equal((await result.res.json()).error, 'invalid_grant');
 		assert(logs.some(([kind, line]) => kind === 'debug' && line.includes('FETCH OPTIONS')));
+		assert(logs.some(([kind, line]) => kind === 'error' && line.includes('invalid_grant')));
+	});
+	await test('device quiet errors hide response bodies outside debug while preserving the response', async () => {
+		logs.length = 0;
+		const { Req } = compile(path.join(root, 'modules/module.fetch.ts'), (id) => {
+			if (id === './module.cfg-loader') return { loadCfg: () => ({ cli: {} }) };
+			if (id === './module.app-args') return { appArgv: () => ({ debug: false }) };
+			if (id === './log') return { console: fakeConsole };
+			if (id === 'undici') return { Agent: class {}, ProxyAgent: class {}, fetch: async () => new Response('{"error":"invalid_grant"}', { status: 400 }) };
+			throw new Error(`Unexpected transport import ${id}`);
+		});
+		const result = await new Req().getData('https://example.invalid/auth', { quietErrors: true });
+		assert.equal(result.res.status, 400);
+		assert.equal((await result.res.json()).error, 'invalid_grant');
+		assert(!logs.some(([, line]) => line.includes('invalid_grant') || line.includes('400:')));
+	});
+	await test('device profile validation reports concise HTTP details without changing normal caller logging', async () => {
+		logs.length = 0;
+		const { Req } = compile(path.join(root, 'modules/module.fetch.ts'), (id) => {
+			if (id === './module.cfg-loader') return { loadCfg: () => ({ cli: {} }) };
+			if (id === './module.app-args') return { appArgv: () => ({ debug: false }) };
+			if (id === './log') return { console: fakeConsole };
+			if (id === 'undici') {
+				return {
+					Agent: class {},
+					ProxyAgent: class {},
+					fetch: async () => new Response('{"error":"invalid_grant","error_description":"profile denied"}', { status: 401 })
+				};
+			}
+			throw new Error(`Unexpected transport import ${id}`);
+		});
+		const { service } = makeService({});
+		service.req = new Req();
+		service.token = { access_token: 'candidate', auth_type: 'device' };
+		let details = '';
+		assert.equal(await service.getProfile(true, undefined, true, (value) => (details = value)), false);
+		assert.match(details, /HTTP 401 invalid_grant profile denied/);
+		assert(!logs.some(([, line]) => line.includes('invalid_grant') || line === 'Get profile failed!'));
+		logs.length = 0;
+		assert.equal(await service.getProfile(true), false);
+		assert(logs.some(([kind, line]) => kind === 'error' && line.includes('invalid_grant')));
+		assert(logs.some(([kind, line]) => kind === 'error' && line === 'Get profile failed!'));
 	});
 	await test('device flow rejects malformed initiation, expires, and cancels an in-flight request', async () => {
 		let calls = 0,
@@ -428,6 +770,8 @@ try {
 			undefined
 		);
 		assert.equal(calls, 1);
+		assert.equal(messages[0], 'Status: Error');
+		assert(messages[1].includes('Invalid device code response.'));
 		calls = 0;
 		const start = () => jsonResponse({ user_code: 'X', device_code: 'Y', interval: 500, expires_in: 1 });
 		assert.equal(await deviceHelper.requestDeviceToken({ ...common, request: async () => (++calls === 1 ? start() : { ok: true, res: { status: 204 } }) }), undefined);
@@ -1015,7 +1359,7 @@ try {
 			assert(calls[2].url.includes('beta-api.crunchyroll.com'));
 			assert.equal(JSON.parse(calls[2].options.body).device_code, 'from-beta');
 			assert.equal(result.device_auth_origin, 'api');
-			assert(messages.includes('Code: AbC'));
+			assert(messages.includes('Enter Code: ABC'));
 		}
 	});
 	await test('initiation denial, rate limit, malformed success and cancellation never fall back', async () => {

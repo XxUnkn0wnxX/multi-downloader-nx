@@ -4,7 +4,7 @@ export const DEVICE_NAME = 'ANDROIDTV 3.76.0';
 export const DEVICE_TYPE = 'ANDROIDTV';
 export const DEVICE_USER_AGENT = 'Crunchyroll/3.76.0_22366 Android/12; ANDROIDTV; SHIELD Android TV; NVIDIA; NVIDIA';
 
-type Result = { ok: boolean; res?: Response; headers?: Record<string, string> };
+type Result = { ok: boolean; res?: Response; headers?: Record<string, string>; error?: { name?: string; message?: string } };
 type DeviceOptions = {
 	request: (url: string, options: FetchParams) => Promise<Result>;
 	authUrl: string;
@@ -15,6 +15,7 @@ type DeviceOptions = {
 	signal: AbortSignal;
 	debug: boolean;
 	log: (message: string) => void;
+	onCountdown?: (remainingSeconds: number | undefined, status?: 'waiting' | 'approved' | 'timed-out' | 'error') => void;
 	now?: () => number;
 	sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 };
@@ -63,6 +64,33 @@ export async function deviceFallbackEligible(result: Result): Promise<boolean> {
 	}
 }
 
+export async function deviceErrorDetails(result: { res?: Response; error?: { name?: string; message?: string } }): Promise<string> {
+	const status = result.res?.status;
+	let providerCode: string | undefined;
+	let reason: string | undefined;
+	if (result.res && typeof result.res.clone === 'function') {
+		try {
+			const body = await result.res.clone().text();
+			const value = JSON.parse(body);
+			const error = value?.error;
+			const code = value?.error_code ?? value?.code ?? (typeof error === 'string' ? error : error?.code);
+			const description = value?.error_description ?? value?.message ?? value?.detail ?? error?.message ?? error?.description;
+			if (typeof code === 'string' || typeof code === 'number') providerCode = String(code);
+			if (typeof description === 'string') reason = description;
+		} catch {
+			// Keep the HTTP status even when the provider body is not JSON or cannot be read.
+		}
+	}
+	const safe = (value: string) =>
+		value
+			.replace(/https?:\/\/\S+/gi, '[URL]')
+			.replace(/[\r\n\t]+/g, ' ')
+			.slice(0, 100);
+	const details = [status ? `HTTP ${status}` : '', providerCode ? safe(providerCode) : '', reason ? safe(reason) : ''].filter(Boolean);
+	if (!status && !details.length && result.error?.name) details.push(safe(result.error.name));
+	return details.join(' ');
+}
+
 export function validDeviceToken(token: any): boolean {
 	return (
 		!!token &&
@@ -105,11 +133,27 @@ export async function requestDeviceToken(options: DeviceOptions): Promise<Record
 	if (options.signal.aborted) cancel();
 	else options.signal.addEventListener('abort', cancel, { once: true });
 	let expiryTimer: ReturnType<typeof setTimeout> | undefined;
+	let countdownTimer: ReturnType<typeof setInterval> | undefined;
+	let countdownActive = false;
+	let timeoutReported = false;
 	let expired = false;
 	let initiationTimedOut = false;
+	let deadline: number | undefined;
 	let origin: 'www' | 'api' = 'www';
 	const now = options.now ?? Date.now;
 	const wait = options.sleep ?? sleep;
+	const stopCountdown = () => {
+		if (countdownTimer) clearInterval(countdownTimer);
+		countdownTimer = undefined;
+		if (countdownActive) options.onCountdown?.(undefined);
+		countdownActive = false;
+	};
+	const reportTimeout = () => {
+		if (timeoutReported) return;
+		timeoutReported = true;
+		options.onCountdown?.(0, 'timed-out');
+		stopCountdown();
+	};
 	let root = options.authUrl.replace(/\/token\/?$/, '');
 	const makeRequest = async (endpoint: string, body: string) => {
 		const url = `${root}/device/${endpoint}`;
@@ -120,7 +164,8 @@ export async function requestDeviceToken(options: DeviceOptions): Promise<Record
 			body,
 			useProxy: true,
 			signal,
-			allowH2: true
+			allowH2: true,
+			quietErrors: !debug
 		});
 		if (debug) log(`[DEBUG] Device ${endpoint} response: ${result.res?.status ?? 'network error'}`);
 		return result;
@@ -130,7 +175,12 @@ export async function requestDeviceToken(options: DeviceOptions): Promise<Record
 		const initiate = async (authUrl: string) => {
 			const url = `${authUrl.replace(/\/token\/?$/, '')}/device/code`;
 			if (debug) log(`[DEBUG] Device code request: ${url}`);
-			const attempt = await deviceAuthAttempt(request, url, { method: 'POST', headers: { ...headers }, body: '', useProxy: true, allowH2: true }, signal);
+			const attempt = await deviceAuthAttempt(
+				request,
+				url,
+				{ method: 'POST', headers: { ...headers }, body: '', useProxy: true, allowH2: true, quietErrors: !debug },
+				signal
+			);
 			if (debug) log(`[DEBUG] Device code response: ${attempt.result.res?.status ?? 'network error'}`);
 			return attempt;
 		};
@@ -145,7 +195,10 @@ export async function requestDeviceToken(options: DeviceOptions): Promise<Record
 		}
 		initiationTimedOut = attempt.timedOut;
 		if (attempt.cancelled || signal.aborted) throw new Error('Device login cancelled.');
-		if (!attempt.result.ok || !attempt.result.res || attempt.timedOut) throw new Error('Could not request a device code. Retry the command.');
+		if (!attempt.result.ok || !attempt.result.res || attempt.timedOut) {
+			const details = attempt.timedOut ? '' : await deviceErrorDetails(attempt.result);
+			throw new Error(`Device code request failed.${details ? ` ${details}.` : ''} Retry the command.`);
+		}
 		const data = await attempt.result.res.json();
 		if (signal.aborted) throw new Error('Device login cancelled.');
 		if (
@@ -165,18 +218,32 @@ export async function requestDeviceToken(options: DeviceOptions): Promise<Record
 			data.interval > 2147483647
 		)
 			throw new Error('Invalid device code response.');
-		log('https://crunchyroll.com/activate');
-		log(`Code: ${data.user_code}`);
-		log(`Expires in ${data.expires_in} seconds. Waiting for approval...`);
-		const deadline = now() + data.expires_in * 1000;
+		log('Visit: crunchyroll.com/activate');
+		log(`Enter Code: ${data.user_code.toUpperCase()}`);
+		deadline = now() + data.expires_in * 1000;
+		if (options.onCountdown) {
+			countdownActive = true;
+			const updateCountdown = () => {
+				const remainingSeconds = Math.max(0, Math.ceil((deadline! - now()) / 1000));
+				if (remainingSeconds > 0) options.onCountdown?.(remainingSeconds, 'waiting');
+			};
+			updateCountdown();
+			countdownTimer = setInterval(updateCountdown, 1000);
+		} else log(`Expires in ${data.expires_in} seconds. (Waiting for approval)`);
 		expiryTimer = setTimeout(() => {
 			expired = true;
+			reportTimeout();
 			controller.abort();
 		}, data.expires_in * 1000);
 		let errors = 0;
 		while (!signal.aborted && now() < deadline) {
 			await wait(Math.min(data.interval, deadline - now()), signal);
-			if (signal.aborted || now() >= deadline) break;
+			if (signal.aborted) break;
+			if (now() >= deadline) {
+				expired = true;
+				reportTimeout();
+				break;
+			}
 			const result = await makeRequest('token', JSON.stringify({ device_code: data.device_code, device_id: deviceId, device_name: DEVICE_NAME, device_type: DEVICE_TYPE }));
 			if (signal.aborted) break;
 			if (result.res?.status === 204) {
@@ -185,33 +252,58 @@ export async function requestDeviceToken(options: DeviceOptions): Promise<Record
 			}
 			if (result.ok && result.res) {
 				const token = await result.res.json();
-				if (signal.aborted || now() >= deadline) break;
+				if (signal.aborted) break;
+				if (now() >= deadline) {
+					expired = true;
+					reportTimeout();
+					break;
+				}
 				if (!validDeviceToken(token)) throw new Error('Invalid device token response.');
 				token.device_auth_origin = origin;
+				const remainingSeconds = Math.max(0, Math.ceil((deadline - now()) / 1000));
+				if (options.onCountdown) options.onCountdown(remainingSeconds, 'approved');
+				else log(`Expires in ${remainingSeconds} seconds. (Approved)`);
+				stopCountdown();
 				return token;
 			}
-			if (result.res?.status === 429) throw new Error('Device approval rate limited. Retry later.');
+			if (result.res?.status === 429) {
+				const details = await deviceErrorDetails(result);
+				throw new Error(`Device approval rate limited${details ? ` (${details})` : ''}. Retry later.`);
+			}
 			if (!result.res || result.res.status >= 500) {
 				if (++errors <= 3) continue;
-				throw new Error('Device approval failed after repeated temporary errors. Retry the command.');
+				const details = await deviceErrorDetails(result);
+				throw new Error(`Device approval failed after repeated temporary errors${details ? ` (${details})` : ''}. Retry the command.`);
 			}
-			throw new Error('Device approval was rejected. Retry the command.');
+			const details = await deviceErrorDetails(result);
+			throw new Error(`Device approval was rejected${details ? ` (${details})` : ''}. Retry the command.`);
 		}
-		throw new Error(signal.aborted && !expired ? 'Device login cancelled.' : 'Device code expired. Retry the command.');
+		if (!expired && now() >= deadline) {
+			expired = true;
+			reportTimeout();
+		}
+		throw new Error(signal.aborted && !expired ? 'Device login cancelled.' : 'Device code expired. Run --device again to get a new code.');
 	} catch (error) {
-		log(
-			initiationTimedOut
-				? 'Device code request timed out. Retry the command.'
-				: expired
-					? 'Device code expired. Retry the command.'
-					: signal.aborted
-						? 'Device login cancelled.'
-						: error instanceof Error
-							? error.message
-							: 'Device login failed.'
-		);
+		const message = initiationTimedOut
+			? 'Device code request timed out. Retry the command.'
+			: expired
+				? 'Device code expired. Run --device again to get a new code.'
+				: signal.aborted
+					? 'Device login cancelled.'
+					: error instanceof Error
+						? error.message
+						: 'Device login failed.';
+		const hadCountdown = countdownActive;
+		if (hadCountdown && !signal.aborted && !expired) {
+			const remainingSeconds = deadline === undefined ? 0 : Math.max(0, Math.ceil((deadline - now()) / 1000));
+			options.onCountdown?.(remainingSeconds, 'error');
+		}
+		stopCountdown();
+		if (!signal.aborted && !expired && deadline === undefined) log('Status: Error');
+		log(message);
 		return;
 	} finally {
+		stopCountdown();
 		if (expiryTimer) clearTimeout(expiryTimer);
 		options.signal.removeEventListener('abort', cancel);
 	}
