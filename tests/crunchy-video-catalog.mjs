@@ -315,9 +315,9 @@ assert.deepEqual(
 	['low', 'other', 'preferred', 'higher-bw', 'highest'],
 	'q=0 can select the last entry after ascending resolution, bandwidth, and requested-source tie preference'
 );
-assert.equal(catalog.formatVideoCandidate(candidates[1]), '1280x720 (2000 kb/s) [Current M] [jpn]');
-assert.equal(catalog.formatVideoCandidate(descriptor({ source: source('english', 'eng'), bandwidth: 9606297 })), '1920x1080 (9606 kb/s) [Current M] [eng]');
-assert.equal(catalog.formatVideoCandidate(descriptor({ family: 'Legacy 1', source: source('old', 'eng'), bandwidth: 9606297 })), '1920x1080 (9606 kb/s) [Legacy M] [eng]');
+assert.equal(catalog.formatVideoCandidate(candidates[1]), '1280x720 (2000 kb/s) [Current M] [V:jpn]');
+assert.equal(catalog.formatVideoCandidate(descriptor({ source: source('english', 'eng'), bandwidth: 9606297 })), '1920x1080 (9606 kb/s) [Current M] [V:eng]');
+assert.equal(catalog.formatVideoCandidate(descriptor({ family: 'Legacy 1', source: source('old', 'eng'), bandwidth: 9606297 })), '1920x1080 (9606 kb/s) [Legacy M] [V:eng]');
 const groupedQualities = catalog.formatGroupedVideoQualities([
 	...ranked.map((entry) => ({ height: entry.height, text: catalog.formatVideoCandidate(entry) })),
 	{ text: 'unknown height' }
@@ -326,13 +326,13 @@ assert.equal(
 	groupedQualities,
 	[
 		'    360p',
-		'        [1] 640x360 (1000 kb/s) [Current M] [jpn]',
+		'        [1] 640x360 (1000 kb/s) [Current M] [V:jpn]',
 		'    720p',
-		'        [2] 1280x720 (2000 kb/s) [Legacy M] [jpn]',
-		'        [3] 1280x720 (2000 kb/s) [Current M] [jpn]',
-		'        [4] 1280x720 (3000 kb/s) [Current M] [jpn]',
+		'        [2] 1280x720 (2000 kb/s) [Legacy M] [V:jpn]',
+		'        [3] 1280x720 (2000 kb/s) [Current M] [V:jpn]',
+		'        [4] 1280x720 (3000 kb/s) [Current M] [V:jpn]',
 		'    1080p',
-		'        [5] 1920x1080 (4000 kb/s) [Current M] [jpn]',
+		'        [5] 1920x1080 (4000 kb/s) [Current M] [V:jpn]',
 		'    Other',
 		'        [6] unknown height'
 	].join('\n')
@@ -342,13 +342,13 @@ const q0Qualities = catalog.formatGroupedVideoQualities(
 	[...ranked.map((entry) => ({ height: entry.height, text: catalog.formatVideoCandidate(entry) })), { text: 'unknown height' }],
 	ranked.length - 1
 );
-assert(q0Qualities.includes('        [5] 1920x1080 (4000 kb/s) [Current M] [jpn] <-- Selected'));
+assert(q0Qualities.includes('        [5] 1920x1080 (4000 kb/s) [Current M] [V:jpn] <-- Selected'));
 assert(!q0Qualities.includes('        [6] unknown height <-- Selected'));
 const explicitQualities = catalog.formatGroupedVideoQualities(
 	ranked.map((entry) => ({ height: entry.height, text: catalog.formatVideoCandidate(entry) })),
 	1
 );
-assert(explicitQualities.includes('        [2] 1280x720 (2000 kb/s) [Legacy M] [jpn] <-- Selected'));
+assert(explicitQualities.includes('        [2] 1280x720 (2000 kb/s) [Legacy M] [V:jpn] <-- Selected'));
 assert.equal(catalog.formatVideoQualityRow(2, 'quality label', 'Discarded'), '        [2] quality label <-- Discarded');
 assert.equal(catalog.formatVideoQualityRow(5, 'quality label', 'Re-selected'), '        [5] quality label <-- Re-selected');
 
@@ -401,7 +401,7 @@ const inventoryShape = [...currentEn, ...currentJa, ...oldZero, ...oldOne];
 assert.equal(inventoryShape.length, 18);
 const inventoryCompatible = inventoryShape.filter((entry) => catalog.timingCompatible(entry, [currentEn[0], currentJa[0]]).compatible);
 assert.equal(inventoryCompatible.length, 18, 'synthetic descriptors preserve the 4+4+5+5 parent-observed timing-compatible shape');
-assert.equal(catalog.formatVideoCandidate(catalog.rankVideoCandidates(inventoryShape)[inventoryShape.length - 1]), '1920x1080 (14241 kb/s) [Legacy M] [jpn]');
+assert.equal(catalog.formatVideoCandidate(catalog.rankVideoCandidates(inventoryShape)[inventoryShape.length - 1]), '1920x1080 (14241 kb/s) [Legacy M] [V:jpn]');
 
 assert.equal(catalog.inspectVideoManifest('<MPD><broken></MPD>', source(), 'Legacy 0', manifestUrl).length, 0);
 assert.equal(catalog.inspectVideoManifest('<MPD/>', source(), 'Current', manifestUrl).length, 0);

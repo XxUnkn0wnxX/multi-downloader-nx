@@ -78,7 +78,7 @@ By default, downloads go to the `videos/` folder beside the application. Use for
 
 The video and audio endpoints are independent choices. Available renditions and access depend on the episode, account, and service response. Endpoint names do not guarantee a fixed bitrate or CBR. Choosing separate video and audio endpoints can require more than one playback session, subject to provider and account limits.
 
-For raw DASH, the numbered quality list can include compatible video from `[Current M]` and `[Legacy M]` sources, with the source language shown as `[eng]` or `[jpn]`. Resolution headings group the list without resetting quality numbers. `-q 0` selects the highest dimensions, then advertised bandwidth. The highest current audio rendition is selected independently for each requested dub.
+For raw DASH, the numbered quality list can include compatible video from `[Current M]` and `[Legacy M]` sources, with the video source language shown as `[V:eng]` or `[V:jpn]`. Resolution headings group the list without resetting quality numbers. `-q 0` selects the highest dimensions, then advertised bandwidth. The highest current audio rendition is selected independently for each requested dub.
 
 Quality-list rates use decimal `kb/s` (1 kb/s = 1,000 bits/s). `KiB/s` measures 1,024 bytes/s.
 

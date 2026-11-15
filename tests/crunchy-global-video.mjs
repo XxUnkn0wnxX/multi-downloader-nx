@@ -727,9 +727,9 @@ assert.equal(await service.downloadEpisode(mediaData, mediaOptions), true);
 assert.equal(mediaLogs.filter((entry) => String(entry[0]).startsWith('Available Video Qualities:')).length, 1);
 assert(mediaLogs.some((entry) => String(entry[0]).includes('    1080p\n        [1]')));
 assert.equal(mediaLogs.filter((entry) => String(entry[0]).includes('<-- Selected')).length, 1);
-assert(mediaLogs.some((entry) => String(entry[0]).includes('[2]') && String(entry[0]).includes('[Legacy M] [jpn] <-- Selected')));
-assert(mediaLogs.some((entry) => String(entry[0]).includes('[Legacy M] [jpn]')));
-assert(mediaLogs.some((entry) => String(entry[0]).includes('[Current M] [eng]')));
+assert(mediaLogs.some((entry) => String(entry[0]).includes('[2]') && String(entry[0]).includes('[Legacy M] [V:jpn] <-- Selected')));
+assert(mediaLogs.some((entry) => String(entry[0]).includes('[Legacy M] [V:jpn]')));
+assert(mediaLogs.some((entry) => String(entry[0]).includes('[Current M] [V:eng]')));
 
 assert.deepEqual(
 	licenseCalls.map((call) => [call.pssh, call.headers['x-cr-content-id'], call.headers['x-cr-video-token']]),
@@ -831,8 +831,8 @@ assert.equal(mediaLogs.filter((entry) => String(entry[0]).startsWith('Available 
 const discardedRow = mediaLogs.findIndex((entry) => String(entry[0]).includes('<-- Discarded'));
 const reselectedRow = mediaLogs.findIndex((entry) => String(entry[0]).includes('<-- Re-selected'));
 assert(discardedRow >= 0 && reselectedRow > discardedRow);
-assert(mediaLogs[discardedRow].join(' ').includes('[Legacy M] [jpn]'));
-assert(mediaLogs[reselectedRow].join(' ').includes('[Current M] [eng]'));
+assert(mediaLogs[discardedRow].join(' ').includes('[Legacy M] [V:jpn]'));
+assert(mediaLogs[reselectedRow].join(' ').includes('[Current M] [V:eng]'));
 const originalQualityRows = mediaLogs.find((entry) => String(entry[0]).startsWith('Available Video Qualities:'))[0].split('\n');
 assert.equal(mediaLogs[discardedRow][0], originalQualityRows.find((row) => row.endsWith('<-- Selected')).replace('<-- Selected', '<-- Discarded'));
 assert(originalQualityRows.includes(mediaLogs[reselectedRow][0].replace(' <-- Re-selected', '')));
@@ -863,7 +863,7 @@ resetGlobal({ durationDrift: true });
 assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions }), true);
 assert.equal(mediaLogs.filter((entry) => String(entry[0]) === '[Notice: falling back to eng video — timing drift 2.00s]').length, 1);
 const timingReplacement = mediaLogs.find((entry) => String(entry[0]).includes('<-- Re-selected'));
-assert(timingReplacement?.[0].includes('[Current M] [eng]'));
+assert(timingReplacement?.[0].includes('[Current M] [V:eng]'));
 assert.equal(timingReplacement.licenseCount, 0);
 assert.equal(timingReplacement.downloadCount, 0);
 assert.equal(mediaLogs.filter((entry) => String(entry[0]).includes('<-- Discarded')).length, 0);

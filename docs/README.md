@@ -29,7 +29,7 @@ For other services, use `--auth` when prompted. Crunchyroll CLI login uses `--de
 
 ## Crunchyroll quality selection
 
-For raw DASH streams, the numbered quality list can include compatible video from the current and legacy manifests. Each entry shows `[Current M]` or `[Legacy M]` and its source language, such as `[eng]` or `[jpn]`. Resolution headings group the list; quality numbers continue across groups. The default `-q 0` selects the highest dimensions, then the highest advertised bandwidth; explicit numbers select individual entries. The highest current audio rendition is selected independently for each requested dub.
+For raw DASH streams, the numbered quality list can include compatible video from the current and legacy manifests. Each entry shows `[Current M]` or `[Legacy M]` and its video source language, such as `[V:eng]` or `[V:jpn]`. Resolution headings group the list; quality numbers continue across groups. The default `-q 0` selects the highest dimensions, then the highest advertised bandwidth; explicit numbers select individual entries. The highest current audio rendition is selected independently for each requested dub.
 
 The chosen row ends with `<-- Selected`. If it is replaced during fallback, only the old row marked `<-- Discarded` and the replacement marked `<-- Re-selected` are printed, alongside the short reason. The full list is not repeated.
 

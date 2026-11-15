@@ -3097,7 +3097,7 @@ export default class Crunchy implements ServiceClass {
 							}
 						}
 						const selectedQuality = plQuality[quality - 1];
-						const selectedQualityText = selectedQuality ? `${selectedQuality.str} [Current M] [${vcurStream.audio_lang || 'und'}]` : '';
+						const selectedQualityText = selectedQuality ? `${selectedQuality.str} [Current M] [V:${vcurStream.audio_lang || 'und'}]` : '';
 						const selPlUrl = plSelectedList[plQuality.map((a) => a.dim)[quality - 1]] ? plSelectedList[plQuality.map((a) => a.dim)[quality - 1]] : '';
 						console.info(`Servers available:\n\t${plServerList.join('\n\t')}`);
 						const selectedIndex = selectedQuality && selPlUrl !== '' && !options.novids && !(dlVideoOnce && options.dlVideoOnce) ? quality - 1 : undefined;
@@ -3106,7 +3106,7 @@ export default class Crunchy implements ServiceClass {
 						} else {
 							console.info(
 								`Available qualities:\n${formatGroupedVideoQualities(
-									plQuality.map((a) => ({ height: a.RESOLUTION?.height, text: `${a.str} [Current M] [${vcurStream.audio_lang || 'und'}]` })),
+									plQuality.map((a) => ({ height: a.RESOLUTION?.height, text: `${a.str} [Current M] [V:${vcurStream.audio_lang || 'und'}]` })),
 									selectedIndex
 								)}`
 							);
@@ -3132,7 +3132,7 @@ export default class Crunchy implements ServiceClass {
 								console.error(`Unable to find language for code ${vcurStream.audio_lang}`);
 								return;
 							}
-							console.info(`Selected quality: ${Object.keys(plSelectedList).find((a) => plSelectedList[a] === selPlUrl)} [Current M] [${vcurStream.audio_lang || 'und'}] @ ${plSelectedServer}`);
+							console.info(`Selected quality: ${Object.keys(plSelectedList).find((a) => plSelectedList[a] === selPlUrl)} [Current M] [V:${vcurStream.audio_lang || 'und'}] @ ${plSelectedServer}`);
 							console.info('Stream URL:', selPlUrl);
 							if (options.dryRun) {
 								if (!options.novids) dlVideoOnce = true;

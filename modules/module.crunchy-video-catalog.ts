@@ -490,7 +490,7 @@ export function rankVideoCandidates(entries: CatalogVideo[], preferredGuids: str
 
 export function formatVideoCandidate(entry: CatalogVideo): string {
 	const manifest = entry.family === 'Current' ? 'Current M' : 'Legacy M';
-	return `${entry.width}x${entry.height} (${Math.round(entry.bandwidth / 1000)} kb/s) [${manifest}] [${entry.source.languageCode}]`;
+	return `${entry.width}x${entry.height} (${Math.round(entry.bandwidth / 1000)} kb/s) [${manifest}] [V:${entry.source.languageCode}]`;
 }
 
 export type VideoQualityMarker = 'Selected' | 'Discarded' | 'Re-selected';

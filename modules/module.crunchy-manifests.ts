@@ -93,7 +93,7 @@ export function videoQualities(current: MPDParsed, optional: { family: Family; p
 				...item,
 				family,
 				server,
-				resolutionText: `${item.quality.width}x${item.quality.height} (${Math.round(item.bandwidth / 1000)} kb/s) [${family === 'Current' ? 'Current M' : 'Legacy M'}] [${languageCode}]`
+				resolutionText: `${item.quality.width}x${item.quality.height} (${Math.round(item.bandwidth / 1000)} kb/s) [${family === 'Current' ? 'Current M' : 'Legacy M'}] [V:${languageCode}]`
 			});
 		}
 	}
