@@ -3,7 +3,9 @@
 **AniDL** downloads episodes from **Crunchyroll**, **HIDIVE**, and **AnimationDigitalNetwork (ADN)** through a command-line interface or GUI. This is a fork of [anidl/multi-downloader-nx](https://github.com/anidl/multi-downloader-nx); its additions and compatibility fixes are documented in [Fork changes](fork-changes.md).
 
 > [!WARNING]
-> Development and testing are ongoing in this fork. The `develop` branch may include unfinished changes or regressions.
+> `develop` is under active development and testing and may contain unfinished changes.
+>
+> `main` contains the current implementation, but testing is ongoing and further fixes may be needed.
 
 [![Tests](../../../actions/workflows/test.yml/badge.svg?branch=main)](../../../actions/workflows/test.yml) [![Discord](https://img.shields.io/discord/884479461997805568?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/qEpbWen5vq)
 
