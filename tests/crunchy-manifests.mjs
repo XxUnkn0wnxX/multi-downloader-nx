@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import output from 'node:console';
+import process from 'node:process';
 import { setTimeout, clearTimeout } from 'node:timers';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -29,7 +30,19 @@ function compile(file, deps, overrides = {}) {
 	const module = { exports: {} };
 	vm.runInNewContext(
 		code,
-		{ module, exports: module.exports, require: (id) => deps[id] ?? require(id), URL, AbortController, setTimeout, clearTimeout, Buffer, console: output, ...overrides },
+		{
+			module,
+			exports: module.exports,
+			require: (id) => deps[id] ?? require(id),
+			URL,
+			AbortController,
+			setTimeout,
+			clearTimeout,
+			Buffer,
+			process,
+			console: output,
+			...overrides
+		},
 		{ filename: file }
 	);
 	return module.exports;
@@ -37,6 +50,13 @@ function compile(file, deps, overrides = {}) {
 const lang = { findLang: () => ({ code: 'en' }), languages: [] };
 const mpd = compile('modules/module.transform-mpd.ts', { './module.langsData': lang, './log': { console: log }, './module.fetch': { Req: class {} } });
 const catalogModule = compile('modules/module.crunchy-video-catalog.ts', {});
+const recoveryModule = compile('modules/module.crunchy-playback-recovery.ts', {});
+let fakeNow = 0;
+const schedulerModule = compile('modules/module.crunchy-discovery-scheduler.ts', { './module.crunchy-video-catalog': catalogModule }, { performance: { now: () => fakeNow } });
+schedulerModule.defaultDiscoveryClock.sleep = async (ms) => {
+	fakeNow += ms;
+};
+schedulerModule.defaultDiscoveryClock.random = () => 0;
 const helper = compile('modules/module.crunchy-manifests.ts', {
 	'./module.transform-mpd': mpd,
 	'./log': { console: log },
@@ -316,10 +336,16 @@ const deps = {
 		WorkingIndicator: class {
 			start() {}
 			stop() {}
+			phase() {}
 			waiting() {}
 		}
 	},
-	'./modules/module.crunchy-video-selection': { discoverVideoCandidates: async () => ({ status: 'fallback' }) },
+	'./modules/module.crunchy-playback-recovery': recoveryModule,
+	'./modules/module.crunchy-discovery-scheduler': schedulerModule,
+	'./modules/module.crunchy-video-selection': {
+		discoverVideoCandidates: async () => ({ status: 'fallback' }),
+		boundedRequest: async (operation) => operation(new AbortController().signal)
+	},
 	fs: {
 		existsSync: () => true,
 		mkdirSync: () => {
@@ -371,7 +397,7 @@ const deps = {
 			return {};
 		}
 	},
-	'./modules/module.api-urls': { api: { crunchyDefHeader: {}, streaming_sessions: 'https://example.test/sessions' }, domain: {} },
+	'./modules/module.api-urls': { api: { crunchyDefHeader: {}, me: 'https://example.test/me', streaming_sessions: 'https://example.test/sessions' }, domain: {} },
 	'./@types/enums': { CrunchyVideoPlayStreams: { androidtv: 'video' }, CrunchyAudioPlayStreams: { web: 'audio' } },
 	'./modules/cdm': {
 		canDecrypt: false,
@@ -423,6 +449,7 @@ async function preview(q, sameToken = false, failAudio = false, count = 1, extra
 	let videoUrl = extraOptions.testHls ? 'https://example.test/video.m3u8' : url;
 	const audioUrl = extraOptions.testHls ? 'https://audio.example.test/audio.m3u8' : 'https://audio.example.test/audio.mpd';
 	const requests = [];
+	let oldSessionActive = true;
 	const service = Object.create(Crunchy.prototype);
 	service.cfg = { bin: extraOptions.testNormal ? { ffmpeg: 'fake', mp4decrypt: 'fake' } : {}, dir: { content: '/unused' } };
 	service.token = { access_token: 'test' };
@@ -435,7 +462,15 @@ async function preview(q, sameToken = false, failAudio = false, count = 1, extra
 		argv: { debug: !!extraOptions.testGuiDebug },
 		async getData(target, opts = {}) {
 			requests.push([target, opts.method]);
-			if (opts.method === 'DELETE' || opts.method === 'PATCH') return { ok: true };
+			if (target === 'https://example.test/me') return { ok: true, res: { json: async () => ({ external_id: 'synthetic' }) } };
+			if (target.includes('/subs/v1/subscriptions/')) return { ok: true, res: { json: async () => ({ items: [{ benefit: 'concurrent_streams.1' }] }) } };
+			if (target === 'https://example.test/sessions')
+				return { ok: true, res: { json: async () => ({ items: oldSessionActive ? [{ contentId: 'old', token: 'old-token' }] : [] }) } };
+			if (opts.method === 'DELETE' && target.endsWith('/old/old-token')) {
+				oldSessionActive = false;
+				return { ok: true, res: { status: 204 } };
+			}
+			if (opts.method === 'DELETE' || opts.method === 'PATCH') return { ok: true, res: { status: 204 } };
 			if (target.includes('/v3/') && target.includes('/video/')) {
 				if (!extraOptions.testHls) videoUrl = url.replace('/static/', `/v2/manifest/${target.match(/\/v3\/(ID\d+)\//)?.[1]}/static/`);
 				return {
@@ -519,6 +554,9 @@ async function preview(q, sameToken = false, failAudio = false, count = 1, extra
 		downloaderInputs: [...downloaderInputs]
 	};
 }
+const plainPreview = await preview(0, false, false, 1, { tsd: false });
+assert.equal(plainPreview.result, true);
+assert(!plainPreview.requests.some(([target]) => target.includes('/sessions')));
 const high = await preview(0, false, false, 2);
 assert.equal(high.result, true);
 const requestedDashDisplay = String(high.logs.find((entry) => String(entry[0]).startsWith('Available Video Qualities:'))?.[0]);
@@ -542,11 +580,12 @@ assert.equal(fullRequestedDashDisplay.split('\n').filter((line) => /^\s+\[\d+\]/
 assert(!fullRequestedDashDisplay.includes('qualities hidden'));
 assert(fullRequestedDashDisplay.includes('[8]') && fullRequestedDashDisplay.includes('[13]') && fullRequestedDashDisplay.includes('[14]'));
 assert(fullRequestedDashDisplay.includes('<-- Selected'));
-assert.equal(high.requests.filter(([, method]) => method === 'DELETE').length, 4);
+assert.equal(high.requests.filter(([target, method]) => method === 'DELETE' && !target.endsWith('/old/old-token')).length, 4);
 assert.equal(high.effects.length, 0);
 assert(high.logs.some((entry) => entry.join(' ').includes('one.example.test/legacy1/4')));
 assert(high.logs.some((entry) => entry.join(' ').includes('audio.example.test/media?x=1')));
-assert(!high.requests.some(([target]) => target.includes('/sessions')));
+assert.equal(high.requests.filter(([target]) => target.includes('/sessions')).length, 2);
+assert.equal(high.requests.filter(([target]) => target.endsWith('/old/old-token')).length, 1);
 assert.equal(high.optionalUrls.length, 2);
 assert(high.optionalUrls[0].includes('/v2/manifest/ID0/'));
 assert(high.optionalUrls[1].includes('/v2/manifest/ID1/'));
@@ -554,11 +593,11 @@ assert(high.logs.some((entry) => entry[0] === 'Video first media segment URL:' &
 assert(high.logs.some((entry) => entry[0] === 'Video first media segment URL:' && entry[1].includes('dub=ID1')));
 const explicit = await preview(12, true);
 assert.equal(explicit.result, true);
-assert.equal(explicit.requests.filter(([, method]) => method === 'DELETE').length, 1);
+assert.equal(explicit.requests.filter(([target, method]) => method === 'DELETE' && !target.endsWith('/old/old-token')).length, 1);
 assert(explicit.logs.some((entry) => entry.join(' ').includes('one.example.test/legacy1/3')));
 const failure = await preview(0, false, true);
 assert.equal(failure.result, false);
-assert.equal(failure.requests.filter(([, method]) => method === 'DELETE').length, 1);
+assert.equal(failure.requests.filter(([target, method]) => method === 'DELETE' && !target.endsWith('/old/old-token')).length, 1);
 assert.equal(failure.effects.length, 0);
 
 const once = await preview(0, false, false, 2, { dlVideoOnce: true });
@@ -595,7 +634,7 @@ assert.equal(selectedLogs.filter((entry) => entry[0] === 'Font URL:').length, 2)
 
 const malformed = await preview(0, false, false, 1, { testParseFailure: true });
 assert.match(String(malformed.error), /parse failed/);
-assert.equal(malformed.requests.filter(([, method]) => method === 'DELETE').length, 2);
+assert.equal(malformed.requests.filter(([target, method]) => method === 'DELETE' && !target.endsWith('/old/old-token')).length, 2);
 const hls = await preview(0, false, false, 1, { testHls: true });
 if (hls.error) throw hls.error;
 assert.equal(hls.result, true);
@@ -605,7 +644,7 @@ assert(hls.logs.some((entry) => entry.join(' ').includes('Selected quality: 1280
 assert(!hls.logs.some((entry) => entry.join(' ').includes('KiB/s')));
 assert(hls.logs.some((entry) => entry.join(' ').includes('https://cdn.example.test/chunk.m3u8?sig=123')));
 assert(!hls.requests.some(([target]) => target.includes('chunk.m3u8')));
-assert.equal(hls.requests.filter(([, method]) => method === 'DELETE').length, 2);
+assert.equal(hls.requests.filter(([target, method]) => method === 'DELETE' && !target.endsWith('/old/old-token')).length, 2);
 
 const fractionalHls = await preview(0.5, false, false, 1, { testHls: true });
 assert.equal(fractionalHls.error, undefined, 'a fractional HLS quality keeps the existing unavailable-quality path without a display exception');

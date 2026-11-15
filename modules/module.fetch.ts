@@ -28,6 +28,7 @@ type CustomParams = {
 	quietErrors?: boolean;
 	onResponse?: (response: Response) => void;
 	skipErrorBody?: boolean;
+	deferErrorBody?: boolean;
 };
 
 type GetDataResponse = {
@@ -101,6 +102,7 @@ export class Req {
 			const res = await fetch(durl, { ...options, dispatcher });
 			receivedResponse = res;
 			params.onResponse?.(res as any);
+			if (res.status === 429 && params.deferErrorBody) return { ok: false, res: res as any, headers: params.headers as Record<string, string> };
 			if (!res.ok && params.skipErrorBody) {
 				try {
 					await res.body?.cancel();

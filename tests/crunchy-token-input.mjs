@@ -127,6 +127,25 @@ try {
 		'./modules/module.helper': { default: { question: async () => (helperPrompts++, 'prompt input') }, __esModule: true },
 		'./modules/module.crunchy-token': realHelper,
 		'./modules/module.crunchy-device-auth': deviceHelper,
+		'./modules/module.working-indicator': {
+			WorkingIndicator: class {
+				start() {}
+				stop() {}
+				phase() {}
+				waiting() {}
+				slot() {}
+			}
+		},
+		'./modules/module.crunchy-discovery-scheduler': {
+			DiscoveryScheduler: class {
+				async dispatch() {}
+				remaining() {
+					return 90000;
+				}
+			}
+		},
+		'./modules/module.crunchy-playback-recovery': { PlaybackRefusal: class extends Error {} },
+		'./modules/module.crunchy-video-selection': { boundedRequest: async (operation) => operation(new AbortController().signal) },
 		'./@types/enums': { CrunchyVideoPlayStreams: { androidtv: 'androidtv', chrome: 'chrome' } },
 		'node:crypto': { randomUUID: () => generatedDeviceId }
 	};
@@ -147,6 +166,8 @@ try {
 		'./modules/module.crunchy-manifests',
 		'./modules/module.crunchy-video-catalog',
 		'./modules/module.crunchy-video-selection',
+		'./modules/module.crunchy-playback-recovery',
+		'./modules/module.crunchy-discovery-scheduler',
 		'./modules/module.working-indicator',
 		'./modules/module.vtt2ass',
 		'./@types/enums'
@@ -821,6 +842,35 @@ try {
 		release();
 		assert.equal((await pending).res.status, 429);
 	});
+	await test('playback deferred error body applies only to HTTP 429', async () => {
+		let cloned = 0,
+			status = 403;
+		const { Req } = compile(path.join(root, 'modules/module.fetch.ts'), (id) => {
+			if (id === './module.cfg-loader') return { loadCfg: () => ({ cli: {} }) };
+			if (id === './module.app-args') return { appArgv: () => ({ debug: false }) };
+			if (id === './log') return { console: fakeConsole };
+			if (id === 'undici')
+				return {
+					Agent: class {},
+					ProxyAgent: class {},
+					fetch: async () => ({
+						ok: false,
+						status,
+						statusText: 'failure',
+						clone: () => {
+							cloned++;
+							return { text: async () => 'error' };
+						}
+					})
+				};
+			throw Error(`Unexpected transport import ${id}`);
+		});
+		assert.equal((await new Req().getData('https://example.invalid/', { quietErrors: true, deferErrorBody: true })).res.status, 403);
+		assert.equal(cloned, 1);
+		status = 429;
+		assert.equal((await new Req().getData('https://example.invalid/', { quietErrors: true, deferErrorBody: true })).res.status, 429);
+		assert.equal(cloned, 1);
+	});
 	await test('device quiet errors hide response bodies outside debug while preserving the response', async () => {
 		logs.length = 0;
 		const { Req } = compile(path.join(root, 'modules/module.fetch.ts'), (id) => {
@@ -1350,6 +1400,7 @@ try {
 			},
 			{ argv: { service: 'crunchy', addArchive: true, s: 'TEST_SEASON' }, result: true, expectedCalls: 0, exit: undefined, updates: 1, archives: 1 },
 			{ argv: { service: 'crunchy', downloadArchive: true }, result: false, expectedCalls: 1, exit: 1, updates: 1 },
+			{ argv: { service: 'crunchy', downloadArchive: true }, result: true, expectedCalls: 2, exit: undefined, updates: 1 },
 			{ argv: { service: 'crunchy', auth: true }, result: true, expectedCalls: 0, exit: 1, updates: 0, warning: deviceHelper.CRUNCHY_CLI_AUTH_WARNING },
 			{ argv: { service: 'crunchy', username: 'legacy-user' }, result: true, expectedCalls: 0, exit: 1, updates: 0, warning: deviceHelper.CRUNCHY_CLI_AUTH_WARNING },
 			{ argv: { service: 'crunchy', password: '' }, result: true, expectedCalls: 0, exit: 1, updates: 0, warning: deviceHelper.CRUNCHY_CLI_AUTH_WARNING },
@@ -1368,6 +1419,7 @@ try {
 			{ argv: { service: 'hidive', device: true }, result: true, expectedCalls: 0, exit: 1, updates: 0 }
 		]) {
 			logs.length = 0;
+			const budgets = [];
 			let calls = 0,
 				updates = 0,
 				archives = 0;
@@ -1378,6 +1430,9 @@ try {
 				}
 			};
 			class Provider {
+				constructor(_debug, budget) {
+					if (budget) budgets.push(budget);
+				}
 				async cli() {
 					calls++;
 					return scenario.result;
@@ -1405,6 +1460,10 @@ try {
 			);
 			await new Promise((resolve) => setTimeout(resolve, 0));
 			assert.equal(calls, scenario.expectedCalls);
+			if (scenario.argv.service === 'crunchy' && calls === 2) {
+				assert.equal(budgets.length, 2);
+				assert.equal(budgets[0], budgets[1]);
+			}
 			assert.equal(fakeProcess.exitCode, scenario.exit);
 			assert.equal(updates, scenario.updates);
 			assert.equal(archives, scenario.archives ?? 0);
@@ -1543,10 +1602,7 @@ try {
 			assert.equal(call.options.headers['User-Agent'], deviceUA);
 			assert.equal(call.options.allowH2, undefined);
 		}
-		await assert.rejects(
-			service.downloadMediaList({ data: [{ mediaId: 'episode', playback: 'available' }] }, { vstream: 'androidtv', astream: 'androidtv' }),
-			/captured playback/
-		);
+		assert.equal(await service.downloadMediaList({ data: [{ mediaId: 'episode', playback: 'available' }] }, { vstream: 'androidtv', astream: 'androidtv' }), undefined);
 		const playback = calls.at(-1);
 		assert(playback.url.includes('/play?queue=0'));
 		assert.equal(playback.options.headers['User-Agent'], deviceUA);

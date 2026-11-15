@@ -3,6 +3,7 @@ import { appArgv, overrideArguments } from './modules/module.app-args';
 import * as yamlCfg from './modules/module.cfg-loader';
 import { makeCommand, addToArchive } from './modules/module.downloadArchive';
 import Crunchy from './crunchy';
+import { PlaybackRecoveryBudget } from './modules/module.crunchy-playback-recovery';
 import Hidive from './hidive';
 import ADN from './adn';
 
@@ -16,6 +17,7 @@ const SERVICES: Record<string, any> = {
 };
 
 (async () => {
+	const recoveryBudget: PlaybackRecoveryBudget = { used: false };
 	const cfg = yamlCfg.loadCfg();
 	const argv = appArgv(cfg.cli);
 	const authError = validateCrunchyAuthModes(argv);
@@ -71,7 +73,7 @@ const SERVICES: Record<string, any> = {
 				process.exit(1);
 			}
 
-			const service = new Service();
+			const service = argv.service === 'crunchy' ? new Crunchy(false, recoveryBudget) : new Service();
 			const result = await service.cli();
 			if (argv.service === 'crunchy' && result === false) {
 				process.exitCode = 1;
@@ -85,7 +87,7 @@ const SERVICES: Record<string, any> = {
 			process.exit(1);
 		}
 
-		const service = new Service();
+		const service = argv.service === 'crunchy' ? new Crunchy(false, recoveryBudget) : new Service();
 		const result = await service.cli();
 		if (argv.service === 'crunchy' && result === false) process.exitCode = 1;
 	}

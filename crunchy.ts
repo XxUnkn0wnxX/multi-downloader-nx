@@ -57,6 +57,16 @@ import {
 	VideoSource
 } from './modules/module.crunchy-video-catalog';
 import { boundedRequest, discoverVideoCandidates, readLimitedManifest } from './modules/module.crunchy-video-selection';
+import {
+	PlaybackRecoveryBudget,
+	PlaybackRefusal,
+	isPlaybackRefusal,
+	concurrentStreamLimit,
+	playbackSessions,
+	PlaybackSession,
+	PlaybackRecoveryState
+} from './modules/module.crunchy-playback-recovery';
+import { DiscoveryScheduler } from './modules/module.crunchy-discovery-scheduler';
 import { WorkingIndicator } from './modules/module.working-indicator';
 import { AndroidObject, CrunchyAndroidObject, CrunchyMVObject } from './@types/crunchyAndroidObject';
 import { CrunchyChapters, CrunchyChapter, CrunchyOldChapter } from './@types/crunchyChapters';
@@ -114,7 +124,10 @@ export default class Crunchy implements ServiceClass {
 		cms_web?: Record<string, string>;
 	} = {};
 
-	constructor(private debug = false) {
+	constructor(
+		private debug = false,
+		private readonly commandRecovery?: PlaybackRecoveryBudget
+	) {
 		this.cfg = yamlCfg.loadCfg();
 		this.token = yamlCfg.loadCRToken();
 		this.req = new reqModule.Req();
@@ -123,6 +136,230 @@ export default class Crunchy implements ServiceClass {
 
 	public checkToken(): boolean {
 		return Object.keys(this.cmsToken.cms ?? {}).length > 0;
+	}
+
+	/** Explicit account playback reset; the limit is a client safety bound. */
+	private async resetPlaybackSessions(
+		headers: FetchParams,
+		context?: {
+			checkOnly?: boolean;
+			snapshot?: PlaybackSession[];
+			budget?: PlaybackRecoveryBudget;
+			signal?: AbortSignal;
+			timeoutMs?: number;
+			phase?: (label: string) => void;
+			dispatch?: () => Promise<void>;
+		}
+	): Promise<{ ok: boolean; closed: number; remaining?: number; reason?: string }> {
+		const controller = new AbortController();
+		const onSignal = () => controller.abort();
+		if (context?.signal?.aborted) controller.abort();
+		context?.signal?.addEventListener('abort', onSignal, { once: true });
+		const cli = process.env.isGUI !== 'true';
+		const indicator = context?.phase
+			? undefined
+			: new WorkingIndicator(
+					cli && !this.debug && !this.req.argv?.debug && !!process.stdout.isTTY && !!process.env.TERM && process.env.TERM !== 'dumb',
+					process.stdout,
+					'Clearing playback sessions…'
+				);
+		if (cli) {
+			process.on('SIGINT', onSignal);
+			process.on('SIGTERM', onSignal);
+		}
+		indicator?.start();
+		const phase = (label: string) => {
+			indicator?.phase(label);
+			context?.phase?.(label);
+		};
+		phase(context?.checkOnly ? 'Checking remaining sessions…' : 'Clearing playback sessions…');
+		let closed = 0;
+		const check = (signal: AbortSignal) => {
+			if (signal.aborted) throw new Error('reset cancelled or timed out');
+		};
+		try {
+			return await boundedRequest(
+				async (signal) => {
+					const list = async () => {
+						check(signal);
+						await context?.dispatch?.();
+						check(signal);
+						const response = await this.req.getData(api.streaming_sessions, { ...headers, signal });
+						check(signal);
+						if (!response.ok || !response.res) throw new Error('session list failed');
+						let data: { items?: unknown };
+						try {
+							data = (await response.res.json()) as { items?: unknown };
+						} catch {
+							check(signal);
+							throw new Error('invalid session list');
+						}
+						check(signal);
+						const sessions = playbackSessions(data);
+						if (!sessions) throw new Error('invalid session list');
+						return sessions;
+					};
+					const sessions = context?.snapshot ?? (await list());
+					if (context?.checkOnly) return { ok: sessions.length === 0, closed, remaining: sessions.length };
+					for (const item of sessions) {
+						check(signal);
+						await context?.dispatch?.();
+						check(signal);
+						if (context?.budget) context.budget.used = true;
+						const response = await this.req.getData(`https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${item.contentId}/${item.token}`, {
+							...headers,
+							method: 'DELETE',
+							signal
+						});
+						check(signal);
+						if (!response.ok || (response.res?.status !== 200 && response.res?.status !== 204)) throw new Error('session deletion failed');
+						closed++;
+					}
+					phase('Checking remaining sessions…');
+					const remaining = (await list()).length;
+					return { ok: remaining === 0, closed, remaining };
+				},
+				undefined,
+				controller.signal,
+				context?.timeoutMs
+			);
+		} catch (error) {
+			const message = error && typeof error === 'object' && 'message' in error && typeof error.message === 'string' ? error.message : '';
+			const reason = controller.signal.aborted
+				? 'session reset cancelled'
+				: message === 'request deadline exceeded'
+					? 'session reset timed out'
+					: ['session list failed', 'invalid session list', 'session list exceeds reset limit', 'session deletion failed'].includes(message)
+						? message
+						: 'session reset failed';
+			return { ok: false, closed, reason };
+		} finally {
+			indicator?.stop();
+			context?.signal?.removeEventListener('abort', onSignal);
+			if (cli) {
+				process.removeListener('SIGINT', onSignal);
+				process.removeListener('SIGTERM', onSignal);
+			}
+		}
+	}
+
+	private async inspectPlaybackCapacity(
+		headers: FetchParams,
+		scheduler: DiscoveryScheduler,
+		signal: AbortSignal | undefined,
+		state: PlaybackRecoveryState,
+		pollUntil?: number
+	): Promise<{ limit?: number; sessions?: PlaybackSession[] }> {
+		try {
+			const getJson = async (url: string) => {
+				await scheduler.dispatch(false, pollUntil);
+				const pollRemaining = pollUntil === undefined ? Infinity : pollUntil - scheduler.clock.now();
+				if (pollRemaining <= 0) throw new Error('playback slot wait timed out');
+				return boundedRequest(
+					async (requestSignal) => {
+						const result = await this.req.getData(url, { ...headers, signal: requestSignal });
+						if (!result.ok || !result.res || result.error) throw new Error('capacity request failed');
+						return result.res.json();
+					},
+					undefined,
+					signal,
+					Math.min(scheduler.remaining(), pollRemaining)
+				);
+			};
+			const binding = String((headers.headers as Record<string, string>)?.Authorization ?? '');
+			let limit = state.capacityCache?.binding === binding ? state.capacityCache.limit : undefined;
+			if (limit === undefined) {
+				const me = (await getJson(api.me)) as { external_id?: unknown };
+				if (!me || typeof me.external_id !== 'string' || !me.external_id.trim()) return {};
+				const benefits = await getJson(`https://beta-api.crunchyroll.com/subs/v1/subscriptions/${me.external_id}/benefits`);
+				limit = concurrentStreamLimit(benefits);
+				if (limit === undefined) return {};
+				state.capacityCache = { binding, limit };
+			}
+			const sessions = playbackSessions(await getJson(api.streaming_sessions));
+			return sessions ? { limit, sessions } : {};
+		} catch {
+			scheduler.check();
+			if (signal?.aborted) throw new Error('playback recovery cancelled');
+			return {};
+		}
+	}
+
+	private async resolvePlaybackCapacity(
+		headers: FetchParams,
+		scheduler: DiscoveryScheduler,
+		signal: AbortSignal | undefined,
+		state: PlaybackRecoveryState,
+		indicator: WorkingIndicator,
+		refusal?: { headers: Headers; ordinal: number; at: number; wall: number },
+		allowClear = true
+	): Promise<boolean> {
+		try {
+			indicator.phase('Checking remaining sessions…');
+			let capacity = await this.inspectPlaybackCapacity(headers, scheduler, signal, state);
+			let didReset = false;
+			let polled = false;
+			if (capacity.limit !== undefined && capacity.sessions && capacity.sessions.length >= capacity.limit) {
+				if (state.permitClear && !state.budget.used && allowClear) {
+					const result = await this.resetPlaybackSessions(headers, {
+						snapshot: capacity.sessions,
+						budget: state.budget,
+						signal,
+						timeoutMs: scheduler.remaining(),
+						phase: (label) => indicator.phase(label),
+						dispatch: () => scheduler.dispatch()
+					});
+					state.resetPerformed ||= state.budget.used;
+					if (!result.ok) {
+						console.error(`Playback recovery stopped: ${result.reason ?? 'sessions remain'}`);
+						return false;
+					}
+					didReset = true;
+				} else {
+					const slotDeadline = (scheduler.getWindow().slotDeadline ??= scheduler.clock.now() + 60000);
+					polled = true;
+					while (capacity.limit !== undefined && capacity.sessions && capacity.sessions.length >= capacity.limit) {
+						const remaining = slotDeadline - scheduler.clock.now();
+						if (remaining <= 0) {
+							console.error('Playback slot wait timed out.');
+							return false;
+						}
+						indicator.slot(capacity.sessions.length, capacity.limit, remaining);
+						await scheduler.playbackSleep(Math.min(5000, remaining));
+						if (scheduler.clock.now() >= slotDeadline) {
+							console.error('Playback slot wait timed out.');
+							return false;
+						}
+						capacity = await this.inspectPlaybackCapacity(headers, scheduler, signal, state, slotDeadline);
+						if (scheduler.clock.now() >= slotDeadline) {
+							console.error('Playback slot wait timed out.');
+							return false;
+						}
+					}
+				}
+			}
+			if (refusal) {
+				if (didReset || (polled && capacity.limit !== undefined && capacity.sessions && capacity.sessions.length < capacity.limit)) {
+					await scheduler.waitServerDelay(refusal.headers, refusal.at, refusal.wall);
+				} else await scheduler.waitPlayback(refusal.headers, refusal.ordinal, refusal.at, refusal.wall);
+			}
+			return true;
+		} catch (error) {
+			console.error(`Playback recovery stopped: ${String(error).replace(/^Error: /, '')}`);
+			return false;
+		} finally {
+			indicator.phase('Discovering video qualities');
+		}
+	}
+
+	private playbackRateNotice(alreadyReset: boolean, clearingUnavailable = false): void {
+		console.warn(
+			alreadyReset
+				? 'Rate limit (429) persists after session reset. Wait and try again.'
+				: clearingUnavailable
+					? 'Rate limited (429). Wait and try again.'
+					: 'Rate limited (429). Wait, or try --tsd to clear playback sessions without logging out; this may not clear the limit.'
+		);
 	}
 
 	public async cli() {
@@ -173,7 +410,7 @@ export default class Crunchy implements ServiceClass {
 			const selected = await this.downloadFromSeriesID(argv.series, { ...argv });
 			if (selected.isOk) {
 				for (const select of selected.value) {
-					if (!(await this.downloadEpisode(select, { ...argv, skipsubs: false }, true))) {
+					if (!(await this.downloadEpisode(select, { ...argv, skipsubs: false, queueRecovery: this.commandRecovery }, true))) {
 						console.error(`Unable to download selected episode ${select.episodeNumber}`);
 						return false;
 					}
@@ -201,7 +438,13 @@ export default class Crunchy implements ServiceClass {
 			const selected = await this.getSeasonById(argv.s, argv.numbers, argv.e, argv.but, argv.all);
 			if (selected.isOk) {
 				for (const select of selected.value) {
-					if (!(await this.downloadEpisode(select, { ...argv, skipsubs: false }))) {
+					if (
+						!(await this.downloadEpisode(select, {
+							...argv,
+							skipsubs: false,
+							queueRecovery: this.commandRecovery
+						}))
+					) {
 						console.error(`Unable to download selected episode ${select.episodeNumber}`);
 						return false;
 					}
@@ -216,7 +459,13 @@ export default class Crunchy implements ServiceClass {
 			argv.dubLang = [argv.dubLang[0]];
 			const selected = await this.getObjectById(argv.e, false);
 			for (const select of selected as Partial<CrunchyEpMeta>[]) {
-				if (!(await this.downloadEpisode(select as CrunchyEpMeta, { ...argv, skipsubs: false }))) {
+				if (
+					!(await this.downloadEpisode(select as CrunchyEpMeta, {
+						...argv,
+						skipsubs: false,
+						queueRecovery: this.commandRecovery
+					}))
+				) {
 					console.error(`Unable to download selected episode ${select.episodeNumber}`);
 					return false;
 				}
@@ -230,10 +479,48 @@ export default class Crunchy implements ServiceClass {
 			argv.dubLang = [argv.dubLang[0]];
 			const selected = await this.getObjectById(argv.extid, false, true);
 			for (const select of selected as Partial<CrunchyEpMeta>[]) {
-				if (!(await this.downloadEpisode(select as CrunchyEpMeta, { ...argv, skipsubs: false }))) {
+				if (
+					!(await this.downloadEpisode(select as CrunchyEpMeta, {
+						...argv,
+						skipsubs: false,
+						queueRecovery: this.commandRecovery
+					}))
+				) {
 					console.error(`Unable to download selected episode ${select.episodeNumber}`);
 					return false;
 				}
+			}
+			return true;
+		} else if (
+			argv.tsd &&
+			argv.tsdExplicit &&
+			!argv.requestedActionOrSelector &&
+			!argv.all &&
+			!argv.but &&
+			![argv.search, argv.series, argv.movieListing, argv.showRaw, argv.seasonRaw, argv.s, argv.e, argv.extid].some((value) => value !== undefined) &&
+			!argv._?.length
+		) {
+			if (typeof this.token?.refresh_token !== 'string' || !this.token.refresh_token.trim()) {
+				console.error('Login required before resetting playback sessions.');
+				process.exitCode = 1;
+				return false;
+			}
+			if (!(await this.refreshToken(true, true))) {
+				process.exitCode = 1;
+				return false;
+			}
+			const headers: FetchParams = {
+				headers: {
+					Authorization: `Bearer ${this.token.access_token}`,
+					...(this.token.auth_type === 'web' ? { ...api.crunchyDefHeader, 'User-Agent': api.crunchyWebUserAgent } : this.deviceHeaders())
+				}
+			};
+			const reset = await this.resetPlaybackSessions(headers);
+			console.info(`Closed ${reset.closed} playback sessions. Active sessions remaining: ${reset.remaining ?? 'unknown'}.`);
+			if (!reset.ok) {
+				if (reset.reason) console.error(`Playback session reset incomplete: ${reset.reason}`);
+				process.exitCode = 1;
+				return false;
 			}
 			return true;
 		} else {
@@ -1504,247 +1791,360 @@ export default class Crunchy implements ServiceClass {
 	}
 
 	public async downloadEpisode(data: CrunchyEpMeta, options: CrunchyDownloadOptions, isSeries?: boolean): Promise<boolean> {
-		let res: Awaited<ReturnType<Crunchy['downloadMediaList']>>;
-		let muxOptions = options;
-		let fallbackCause: string | undefined;
-		const versions = data.data?.[0]?.versions;
-		const requestedCode = data.data?.[0]?.lang?.code || (options.dubLang?.length === 1 ? options.dubLang[0] : undefined);
-		const fallbackLanguage =
-			langsData.languages.find((lang) => lang.code === requestedCode)?.code ||
-			(versions?.length === 1 ? langsData.languages.find((lang) => lang.cr_locale === versions[0].audio_locale)?.code : undefined) ||
-			'requested';
-		const eligible =
-			!options.novids && !(options as CrunchyMuxOptions).keepAllVideos && options.hslang === 'none' && !!versions?.length && data.data.every((item) => item.versions?.length);
-		if (eligible && versions) {
-			const requested = data.data.map(
-				(item) =>
-					item.versions?.find((version) => version.audio_locale === item.lang?.cr_locale) ||
-					(options.dubLang.length === 1
-						? item.versions?.find((version) => version.audio_locale === langsData.languages.find((lang) => lang.code === options.dubLang[0])?.cr_locale)
-						: undefined) ||
-					(item.versions?.length === 1 ? item.versions[0] : undefined)
-			);
-			const unique = [...new Map(versions.filter((version) => version.guid && version.media_guid).map((version) => [version.guid, version])).values()];
-			const conflicting = versions.some((version) =>
-				unique.some((item) => item.guid === version.guid && (item.audio_locale !== version.audio_locale || item.media_guid !== version.media_guid))
-			);
-			const sameEpisode =
-				!conflicting && requested.every((version) => version && unique.some((item) => item.guid === version.guid && item.media_guid === version.media_guid));
-			const sources: VideoSource[] = unique.map((version) => ({
-				guid: version.guid,
-				locale: version.audio_locale,
-				languageCode: langsData.languages.find((lang) => lang.cr_locale === version.audio_locale)?.code || ''
-			}));
-			if (!sameEpisode || !sources.every((source) => source.guid && source.locale && source.languageCode)) fallbackCause = 'version metadata unavailable';
-			if (sameEpisode && sources.every((source) => source.guid && source.locale && source.languageCode)) {
-				if (!(await this.refreshToken(true, true))) return false;
-				const headers: FetchParams = {
-					headers: {
-						Authorization: `Bearer ${this.token.access_token}`,
-						...(this.token.auth_type === 'web' ? { ...api.crunchyDefHeader, 'User-Agent': api.crunchyWebUserAgent } : this.deviceHeaders())
-					}
-				};
-				const preferred = [...new Set(requested.map((version) => version!.guid))];
-				const controller = new AbortController();
-				const onSignal = () => controller.abort();
-				const cli = process.env.isGUI !== 'true';
-				const indicator = new WorkingIndicator(cli && !this.debug && !this.req.argv?.debug && !!process.stdout.isTTY && !!process.env.TERM && process.env.TERM !== 'dumb');
+		options = { ...options };
+		const state: PlaybackRecoveryState = {
+			budget: options.queueRecovery ?? this.commandRecovery ?? { used: false },
+			permitClear: !!options.tsd,
+			preflightChecked: false,
+			resetPerformed: false,
+			noticeShown: false,
+			ordinal: 0
+		};
+		options.queueRecovery = state.budget;
+		options.recoveryState = state;
+		if (state.permitClear) {
+			if (!(await this.refreshToken(true, true))) return false;
+			const headers: FetchParams = {
+				headers: {
+					Authorization: `Bearer ${this.token.access_token}`,
+					...(this.token.auth_type === 'web' ? { ...api.crunchyDefHeader, 'User-Agent': api.crunchyWebUserAgent } : this.deviceHeaders())
+				}
+			};
+			const controller = new AbortController();
+			const onSignal = () => controller.abort();
+			const cli = process.env.isGUI !== 'true';
+			const indicator = new WorkingIndicator(cli && !this.debug && !this.req.argv?.debug && !!process.stdout.isTTY && !!process.env.TERM && process.env.TERM !== 'dumb');
+			if (cli) {
+				process.on('SIGINT', onSignal);
+				process.on('SIGTERM', onSignal);
+			}
+			indicator.start();
+			let released = false;
+			const release = () => {
+				if (released) return;
+				released = true;
+				indicator.stop();
 				if (cli) {
-					process.on('SIGINT', onSignal);
-					process.on('SIGTERM', onSignal);
+					process.removeListener('SIGINT', onSignal);
+					process.removeListener('SIGTERM', onSignal);
 				}
-				indicator.start();
-				let discovery: Awaited<ReturnType<typeof discoverVideoCandidates>>;
-				try {
-					discovery = await discoverVideoCandidates({
-						signal: controller.signal,
-						onWaiting: (retry, ms) => indicator.waiting(retry, ms),
-						fixedPauseMs: options.discoveryTimmer,
-						req: this.req,
-						headers,
-						sources,
-						requested: preferred,
-						ordinal: options.x,
-						ignoreTiming: !!options.noaudio || !!options.forcevideo,
-						debug: this.debug || !!this.req.argv?.debug,
-						acquire: async (source, signal) => {
-							const response = await this.req.getData(
-								`https://cr-play-service.prd.crunchyrollsvc.com/v3/${source.guid}/${CrunchyVideoPlayStreams[this.token.auth_type === 'web' ? 'chrome' : 'androidtv']}/play?queue=0`,
-								{ ...headers, signal }
-							);
-							if (!response.ok || !response.res) throw new Error(response.res?.status === 429 ? 'playback HTTP 429' : 'Playback request failed');
-							const stream = (await response.res.json()) as CrunchyPlayStream;
-							return { token: stream.token, url: stream.url };
-						},
-						prepareDownload:
-							options.vstream === 'android' || options.vstream === 'androidtab'
-								? async (source, signal) => {
-										const response = await this.req.getData(
-											`https://cr-play-service.prd.crunchyrollsvc.com/v3/${source.guid}/${CrunchyVideoPlayStreams[options.vstream]}/download`,
-											{ ...headers, signal }
-										);
-										const status = response.res?.status ?? response.error?.res?.status;
-										if (!response.ok || !response.res) {
-											if (status === 403 || status === 404) return { status: 'unavailable' as const };
-											throw new Error(status === 429 ? 'download HTTP 429' : 'download request outcome unknown');
-										}
-										const stream = (await response.res.json()) as CrunchyPlayStream;
-										return { status: 'ok' as const, token: stream.token, url: stream.url };
-									}
-								: undefined,
-						resolve: (_source, lease, downloadUrl) => this.convertDownloadToPlayback(downloadUrl, lease.url),
-						close: async (source, token, signal) => {
-							const response = await this.req.getData(`https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${source.guid}/${token}`, {
-								...headers,
-								signal,
-								method: 'DELETE'
-							});
-							return response.ok && (response.res?.status === 200 || response.res?.status === 204);
+			};
+			const sourceCount = Math.max(1, new Set((data.data?.[0]?.versions ?? []).map((version) => version.guid)).size);
+			const scheduler = new DiscoveryScheduler(
+				sourceCount * (options.vstream === 'android' || options.vstream === 'androidtab' ? 7 : 5),
+				undefined,
+				controller.signal,
+				(retry, ms, kind) => indicator.waiting(retry, ms, kind, state.ordinal, state.resetPerformed ? 2 : 3),
+				options.discoveryTimmer
+			);
+			state.initial = { scheduler, controller, indicator, release };
+			state.preflightChecked = true;
+			if (!(await this.resolvePlaybackCapacity(headers, scheduler, controller.signal, state, indicator))) {
+				release();
+				return false;
+			}
+		}
+
+		try {
+			let res: Awaited<ReturnType<Crunchy['downloadMediaList']>>;
+			let muxOptions = options;
+			let fallbackCause: string | undefined;
+			const versions = data.data?.[0]?.versions;
+			const requestedCode = data.data?.[0]?.lang?.code || (options.dubLang?.length === 1 ? options.dubLang[0] : undefined);
+			const fallbackLanguage =
+				langsData.languages.find((lang) => lang.code === requestedCode)?.code ||
+				(versions?.length === 1 ? langsData.languages.find((lang) => lang.cr_locale === versions[0].audio_locale)?.code : undefined) ||
+				'requested';
+			const eligible =
+				!options.novids &&
+				!(options as CrunchyMuxOptions).keepAllVideos &&
+				options.hslang === 'none' &&
+				!!versions?.length &&
+				data.data.every((item) => item.versions?.length);
+			if (eligible && versions) {
+				const requested = data.data.map(
+					(item) =>
+						item.versions?.find((version) => version.audio_locale === item.lang?.cr_locale) ||
+						(options.dubLang.length === 1
+							? item.versions?.find((version) => version.audio_locale === langsData.languages.find((lang) => lang.code === options.dubLang[0])?.cr_locale)
+							: undefined) ||
+						(item.versions?.length === 1 ? item.versions[0] : undefined)
+				);
+				const unique = [...new Map(versions.filter((version) => version.guid && version.media_guid).map((version) => [version.guid, version])).values()];
+				const conflicting = versions.some((version) =>
+					unique.some((item) => item.guid === version.guid && (item.audio_locale !== version.audio_locale || item.media_guid !== version.media_guid))
+				);
+				const sameEpisode =
+					!conflicting && requested.every((version) => version && unique.some((item) => item.guid === version.guid && item.media_guid === version.media_guid));
+				const sources: VideoSource[] = unique.map((version) => ({
+					guid: version.guid,
+					locale: version.audio_locale,
+					languageCode: langsData.languages.find((lang) => lang.cr_locale === version.audio_locale)?.code || ''
+				}));
+				if (!sameEpisode || !sources.every((source) => source.guid && source.locale && source.languageCode)) fallbackCause = 'version metadata unavailable';
+				if (sameEpisode && sources.every((source) => source.guid && source.locale && source.languageCode)) {
+					if (!(await this.refreshToken(true, true))) return false;
+					const headers: FetchParams = {
+						headers: {
+							Authorization: `Bearer ${this.token.access_token}`,
+							...(this.token.auth_type === 'web' ? { ...api.crunchyDefHeader, 'User-Agent': api.crunchyWebUserAgent } : this.deviceHeaders())
 						}
-					});
-				} finally {
-					indicator.stop();
-					if (cli) {
-						process.removeListener('SIGINT', onSignal);
-						process.removeListener('SIGTERM', onSignal);
+					};
+					const preferred = [...new Set(requested.map((version) => version!.guid))];
+					const headersForPlayback = headers;
+					const initial = state.initial;
+					const controller = initial?.controller ?? new AbortController();
+					const onSignal = () => controller.abort();
+					const cli = process.env.isGUI !== 'true';
+					const indicator =
+						initial?.indicator ??
+						new WorkingIndicator(cli && !this.debug && !this.req.argv?.debug && !!process.stdout.isTTY && !!process.env.TERM && process.env.TERM !== 'dumb');
+					if (!initial && cli) {
+						process.on('SIGINT', onSignal);
+						process.on('SIGTERM', onSignal);
 					}
-				}
-				if (discovery.status === 'cancelled' || discovery.status === 'rate-limited') {
-					console.error(discovery.status === 'cancelled' ? 'Video discovery cancelled' : `Video discovery stopped: ${discovery.reason}`);
-					return false;
-				}
-				if (discovery.status === 'unsafe') {
-					console.error(`Unable to safely complete video discovery${discovery.reason ? `: ${discovery.reason}` : ''}`);
-					return false;
-				}
-				if (discovery.status === 'fallback') fallbackCause = discovery.reason;
-				if (discovery.status === 'ok' && !discovery.entries.length)
-					fallbackCause = discovery.timingFallbackReason ? (options.q === 0 ? discovery.timingFallbackReason : undefined) : 'metadata unavailable';
-				if (discovery.status === 'ok' && discovery.entries.length) {
-					const requestedIndex = options.q === 0 ? discovery.entries.length - 1 : options.q - 1;
-					const validRequestedIndex = requestedIndex >= 0 && requestedIndex < discovery.entries.length ? requestedIndex : undefined;
-					console.info(
-						`Available Video Qualities:\n${formatGroupedVideoQualities(
-							discovery.entries.map((entry) => ({ height: entry.height, text: formatVideoCandidate(entry), family: entry.family, bandwidth: entry.bandwidth })),
-							validRequestedIndex,
-							{ compact: !options.qall }
-						)}`
-					);
-					if (options.q > discovery.entries.length) {
-						console.error(`Requested quality ${options.q} is not available`);
+					indicator.start();
+					let discovery: Awaited<ReturnType<typeof discoverVideoCandidates>>;
+					try {
+						discovery = await discoverVideoCandidates({
+							signal: controller.signal,
+							onWaiting: (retry, ms, kind, playbackRetry) => indicator.waiting(retry, ms, kind, playbackRetry, state.resetPerformed ? 2 : 3),
+							scheduler: initial?.scheduler,
+							replayLimit: () => (state.resetPerformed ? 2 : 3),
+							recoveryBudget: options.queueRecovery,
+							recover: async (attempt, scheduler, signal, headers, refusedAt, refusedWall) => {
+								state.ordinal = attempt;
+								if (!state.noticeShown) {
+									this.playbackRateNotice(state.resetPerformed, state.permitClear || state.budget.used);
+									state.noticeShown = true;
+								}
+								const ok = await this.resolvePlaybackCapacity(
+									headersForPlayback,
+									scheduler,
+									signal,
+									state,
+									indicator,
+									{
+										headers,
+										ordinal: attempt,
+										at: refusedAt,
+										wall: refusedWall
+									},
+									attempt < 3
+								);
+								return ok;
+							},
+							fixedPauseMs: options.discoveryTimmer,
+							req: this.req,
+							headers,
+							sources,
+							requested: preferred,
+							ordinal: options.x,
+							ignoreTiming: !!options.noaudio || !!options.forcevideo,
+							debug: this.debug || !!this.req.argv?.debug,
+							acquire: async (source, signal) => {
+								const response = await this.req.getData(
+									`https://cr-play-service.prd.crunchyrollsvc.com/v3/${source.guid}/${CrunchyVideoPlayStreams[this.token.auth_type === 'web' ? 'chrome' : 'androidtv']}/play?queue=0`,
+									{ ...headers, signal, ...(options.queueRecovery ? { quietErrors: true, deferErrorBody: true } : {}) }
+								);
+								if (!response.ok || !response.res) {
+									if (options.queueRecovery && !response.error && response.res?.status === 429 && isPlaybackRefusal(429, await readLimitedManifest(response.res)))
+										throw new PlaybackRefusal(response.res.headers);
+									throw new Error(response.res?.status === 429 ? 'playback HTTP 429' : 'Playback request failed');
+								}
+								const stream = (await response.res.json()) as CrunchyPlayStream;
+								return { token: stream.token, url: stream.url };
+							},
+							prepareDownload:
+								options.vstream === 'android' || options.vstream === 'androidtab'
+									? async (source, signal) => {
+											const response = await this.req.getData(
+												`https://cr-play-service.prd.crunchyrollsvc.com/v3/${source.guid}/${CrunchyVideoPlayStreams[options.vstream]}/download`,
+												{ ...headers, signal, ...(options.queueRecovery ? { quietErrors: true, deferErrorBody: true } : {}) }
+											);
+											const status = response.res?.status ?? response.error?.res?.status;
+											if (!response.ok || !response.res) {
+												if (!response.error && (status === 403 || status === 404)) return { status: 'unavailable' as const };
+												if (
+													options.queueRecovery &&
+													!response.error &&
+													status === 429 &&
+													response.res &&
+													isPlaybackRefusal(429, await readLimitedManifest(response.res))
+												)
+													throw new PlaybackRefusal(response.res.headers);
+												throw new Error(status === 429 ? 'download HTTP 429' : 'download request outcome unknown');
+											}
+											const stream = (await response.res.json()) as CrunchyPlayStream;
+											return { status: 'ok' as const, token: stream.token, url: stream.url };
+										}
+									: undefined,
+							resolve: (_source, lease, downloadUrl) => this.convertDownloadToPlayback(downloadUrl, lease.url),
+							close: async (source, token, signal) => {
+								const response = await this.req.getData(`https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${source.guid}/${token}`, {
+									...headers,
+									signal,
+									method: 'DELETE'
+								});
+								return response.ok && (response.res?.status === 200 || response.res?.status === 204);
+							}
+						});
+					} finally {
+						if (initial) {
+							initial.release();
+							state.initial = undefined;
+						} else {
+							indicator.stop();
+							if (cli) {
+								process.removeListener('SIGINT', onSignal);
+								process.removeListener('SIGTERM', onSignal);
+							}
+						}
+					}
+					if (discovery.status === 'cancelled' || discovery.status === 'rate-limited') {
+						console.error(discovery.status === 'cancelled' ? 'Video discovery cancelled' : `Video discovery stopped: ${discovery.reason}`);
 						return false;
 					}
-					let selected = discovery.entries[options.q === 0 ? discovery.entries.length - 1 : options.q - 1];
-					if (!selected) {
-						console.error('Requested quality is not available');
+					if (discovery.status === 'unsafe') {
+						if (discovery.reason?.includes('playback HTTP 429') && !state.noticeShown) {
+							this.playbackRateNotice(state.resetPerformed, state.permitClear || state.budget.used);
+							state.noticeShown = true;
+						}
+						console.error(`Unable to safely complete video discovery${discovery.reason ? `: ${discovery.reason}` : ''}`);
 						return false;
 					}
-					const requestedName = data.data[0]?.lang?.name || langsData.languages.find((lang) => lang.cr_locale === requested[0]?.audio_locale)?.name;
-					const runVideo = async (choice: CatalogVideo, onSelectionConfirmed?: (entry: CatalogVideo) => void) => {
-						const lang = langsData.languages.find((item) => item.cr_locale === choice.source.locale);
-						const pass: GlobalVideoPass = {
-							kind: 'video',
-							selected: choice,
+					if (discovery.status === 'fallback') fallbackCause = discovery.reason;
+					if (discovery.status === 'ok' && !discovery.entries.length)
+						fallbackCause = discovery.timingFallbackReason ? (options.q === 0 ? discovery.timingFallbackReason : undefined) : 'metadata unavailable';
+					if (discovery.status === 'ok' && discovery.entries.length) {
+						const requestedIndex = options.q === 0 ? discovery.entries.length - 1 : options.q - 1;
+						const validRequestedIndex = requestedIndex >= 0 && requestedIndex < discovery.entries.length ? requestedIndex : undefined;
+						console.info(
+							`Available Video Qualities:\n${formatGroupedVideoQualities(
+								discovery.entries.map((entry) => ({ height: entry.height, text: formatVideoCandidate(entry), family: entry.family, bandwidth: entry.bandwidth })),
+								validRequestedIndex,
+								{ compact: !options.qall }
+							)}`
+						);
+						if (options.q > discovery.entries.length) {
+							console.error(`Requested quality ${options.q} is not available`);
+							return false;
+						}
+						let selected = discovery.entries[options.q === 0 ? discovery.entries.length - 1 : options.q - 1];
+						if (!selected) {
+							console.error('Requested quality is not available');
+							return false;
+						}
+						const requestedName = data.data[0]?.lang?.name || langsData.languages.find((lang) => lang.cr_locale === requested[0]?.audio_locale)?.name;
+						const runVideo = async (choice: CatalogVideo, onSelectionConfirmed?: (entry: CatalogVideo) => void) => {
+							const lang = langsData.languages.find((item) => item.cr_locale === choice.source.locale);
+							const pass: GlobalVideoPass = {
+								kind: 'video',
+								selected: choice,
+								references: discovery.references,
+								ignoreTiming: !!options.noaudio || !!options.forcevideo,
+								requestedName,
+								onSelectionConfirmed
+							};
+							const videoData = { ...data, data: [{ ...data.data[0], lang }] };
+							let videoResult: Awaited<ReturnType<Crunchy['downloadMediaList']>>;
+							try {
+								videoResult = await this.downloadMediaList(videoData, { ...options, noaudio: true, skipsubs: true, nosubs: true, chapters: false }, pass);
+							} catch (error) {
+								console.error(`Video pass failed: ${String(error)}`);
+							}
+							return { videoResult, pass };
+						};
+						let video = await runVideo(
+							selected,
+							options.q === 0 && discovery.timingFallbackReason
+								? (confirmed) => {
+										const selectedIndex = discovery.entries.findIndex((entry) => entry.representationKey === confirmed.representationKey);
+										if (selectedIndex >= 0) console.info(formatVideoQualityRow(selectedIndex + 1, formatVideoCandidate(confirmed), 'Re-selected'));
+										console.info(`[Notice: falling back to ${confirmed.source.languageCode} video — ${discovery.timingFallbackReason}]`);
+									}
+								: undefined
+						);
+						if ((!video.videoResult || video.videoResult.error) && video.pass.selectionLost && !video.pass.cleanupFailed && !video.pass.noRetry && options.q === 0) {
+							const fallback = discovery.entries.filter((entry) => preferred.includes(entry.source.guid) && entry.family === 'Current').slice(-1)[0];
+							if (fallback) {
+								const discarded = video.pass.selected;
+								video = await runVideo(fallback, (confirmed) => {
+									const discardedIndex = discovery.entries.findIndex((entry) => entry.representationKey === discarded.representationKey);
+									const selectedIndex = discovery.entries.findIndex((entry) => entry.representationKey === confirmed.representationKey);
+									if (discardedIndex >= 0)
+										console.info(formatVideoQualityRow(discardedIndex + 1, formatVideoCandidate(discovery.entries[discardedIndex]), 'Discarded'));
+									if (selectedIndex >= 0)
+										console.info(formatVideoQualityRow(selectedIndex + 1, formatVideoCandidate(discovery.entries[selectedIndex]), 'Re-selected'));
+									console.info(`[Notice: falling back to ${confirmed.source.languageCode} video — stream changed]`);
+								});
+							}
+						}
+						if (!video.videoResult || video.videoResult.error || (!options.dryRun && !video.videoResult.data.some((item) => item.type === 'Video'))) return false;
+						selected = video.pass.selected;
+						const forceWarning = !!options.forcevideo && !options.noaudio && !timingCompatible(selected, discovery.references).compatible;
+						if (forceWarning) console.warn('Forced video timing differs or is unknown; audio and video may be out of sync.');
+						const audioPass: GlobalVideoPass = {
+							kind: 'audio',
+							selected,
 							references: discovery.references,
 							ignoreTiming: !!options.noaudio || !!options.forcevideo,
-							requestedName,
-							onSelectionConfirmed
+							forceVideo: !!options.forcevideo,
+							forceWarning,
+							requestedName
 						};
-						const videoData = { ...data, data: [{ ...data.data[0], lang }] };
-						let videoResult: Awaited<ReturnType<Crunchy['downloadMediaList']>>;
+						let audio: Awaited<ReturnType<Crunchy['downloadMediaList']>>;
+						const audioOptions = { ...options, novids: true };
 						try {
-							videoResult = await this.downloadMediaList(videoData, { ...options, noaudio: true, skipsubs: true, nosubs: true, chapters: false }, pass);
+							audio = await this.downloadMediaList(data, audioOptions, audioPass);
 						} catch (error) {
-							console.error(`Video pass failed: ${String(error)}`);
+							console.error(`Audio pass failed: ${String(error)}`);
+							return false;
 						}
-						return { videoResult, pass };
-					};
-					let video = await runVideo(
-						selected,
-						options.q === 0 && discovery.timingFallbackReason
-							? (confirmed) => {
-									const selectedIndex = discovery.entries.findIndex((entry) => entry.representationKey === confirmed.representationKey);
-									if (selectedIndex >= 0) console.info(formatVideoQualityRow(selectedIndex + 1, formatVideoCandidate(confirmed), 'Re-selected'));
-									console.info(`[Notice: falling back to ${confirmed.source.languageCode} video — ${discovery.timingFallbackReason}]`);
-								}
-							: undefined
-					);
-					if ((!video.videoResult || video.videoResult.error) && video.pass.selectionLost && !video.pass.cleanupFailed && !video.pass.noRetry && options.q === 0) {
-						const fallback = discovery.entries.filter((entry) => preferred.includes(entry.source.guid) && entry.family === 'Current').slice(-1)[0];
-						if (fallback) {
-							const discarded = video.pass.selected;
-							video = await runVideo(fallback, (confirmed) => {
-								const discardedIndex = discovery.entries.findIndex((entry) => entry.representationKey === discarded.representationKey);
-								const selectedIndex = discovery.entries.findIndex((entry) => entry.representationKey === confirmed.representationKey);
-								if (discardedIndex >= 0)
-									console.info(formatVideoQualityRow(discardedIndex + 1, formatVideoCandidate(discovery.entries[discardedIndex]), 'Discarded'));
-								if (selectedIndex >= 0)
-									console.info(formatVideoQualityRow(selectedIndex + 1, formatVideoCandidate(discovery.entries[selectedIndex]), 'Re-selected'));
-								console.info(`[Notice: falling back to ${confirmed.source.languageCode} video — stream changed]`);
-							});
-						}
+						if (!audio || audio.error || (!options.dryRun && !options.noaudio && !audio.data.some((item) => item.type === 'Audio'))) return false;
+						muxOptions = { ...options, subdlfailed: audioOptions.subdlfailed };
+						res = { ...video.videoResult, data: [...video.videoResult.data, ...audio.data] };
 					}
-					if (!video.videoResult || video.videoResult.error || (!options.dryRun && !video.videoResult.data.some((item) => item.type === 'Video'))) return false;
-					selected = video.pass.selected;
-					const forceWarning = !!options.forcevideo && !options.noaudio && !timingCompatible(selected, discovery.references).compatible;
-					if (forceWarning) console.warn('Forced video timing differs or is unknown; audio and video may be out of sync.');
-					const audioPass: GlobalVideoPass = {
-						kind: 'audio',
-						selected,
-						references: discovery.references,
-						ignoreTiming: !!options.noaudio || !!options.forcevideo,
-						forceVideo: !!options.forcevideo,
-						forceWarning,
-						requestedName
-					};
-					let audio: Awaited<ReturnType<Crunchy['downloadMediaList']>>;
-					const audioOptions = { ...options, novids: true };
-					try {
-						audio = await this.downloadMediaList(data, audioOptions, audioPass);
-					} catch (error) {
-						console.error(`Audio pass failed: ${String(error)}`);
-						return false;
-					}
-					if (!audio || audio.error || (!options.dryRun && !options.noaudio && !audio.data.some((item) => item.type === 'Audio'))) return false;
-					muxOptions = { ...options, subdlfailed: audioOptions.subdlfailed };
-					res = { ...video.videoResult, data: [...video.videoResult.data, ...audio.data] };
 				}
 			}
-		}
-		if (!res) {
-			if (fallbackCause) console.info(`[Notice: falling back to ${fallbackLanguage} video — ${fallbackCause}]`);
-			res = await this.downloadMediaList(data, options, undefined, fallbackCause);
-		}
-		if (res === undefined || res.error) {
-			return false;
-		} else {
-			if (options.dryRun) return true;
-			if (!options.skipmux) {
-				await this.muxStreams(res.data, { ...muxOptions, output: res.fileName });
-			} else {
-				console.info('Skipping mux');
+			if (!res) {
+				if (fallbackCause) console.info(`[Notice: falling back to ${fallbackLanguage} video — ${fallbackCause}]`);
+				res = await this.downloadMediaList(data, options, undefined, fallbackCause);
 			}
-			if (!isSeries) {
-				downloaded(
-					{
-						service: 'crunchy',
-						type: 's'
-					},
-					data.seasonID,
-					[data.e]
-				);
+			if (res === undefined || res.error) {
+				return false;
 			} else {
-				downloaded(
-					{
-						service: 'crunchy',
-						type: 'srz'
-					},
-					data.showID,
-					[data.e]
-				);
+				if (options.dryRun) return true;
+				if (!options.skipmux) {
+					await this.muxStreams(res.data, { ...muxOptions, output: res.fileName });
+				} else {
+					console.info('Skipping mux');
+				}
+				if (!isSeries) {
+					downloaded(
+						{
+							service: 'crunchy',
+							type: 's'
+						},
+						data.seasonID,
+						[data.e]
+					);
+				} else {
+					downloaded(
+						{
+							service: 'crunchy',
+							type: 'srz'
+						},
+						data.showID,
+						[data.e]
+					);
+				}
 			}
+			return true;
+		} finally {
+			state.initial?.release();
+			state.initial = undefined;
 		}
-		return true;
 	}
 
 	public async getObjectById(e?: string, earlyReturn?: boolean, external_id?: boolean): Promise<ObjectInfo | Partial<CrunchyEpMeta>[] | undefined> {
@@ -2021,6 +2421,15 @@ export default class Crunchy implements ServiceClass {
 		  }
 		| undefined
 	> {
+		const state: PlaybackRecoveryState = options.recoveryState ?? {
+			budget: options.queueRecovery ?? this.commandRecovery ?? { used: false },
+			permitClear: !!options.tsd,
+			preflightChecked: false,
+			resetPerformed: false,
+			noticeShown: false,
+			ordinal: 0
+		};
+		const recoveryBudget = state.budget;
 		if (!this.cmsToken.cms) {
 			console.error('Authentication required!');
 			return;
@@ -2048,9 +2457,11 @@ export default class Crunchy implements ServiceClass {
 		}
 
 		let dlFailed = false;
+		let queueCleanupFailed = false;
 		let dlVideoOnce = false; // Variable to save if best selected video quality was downloaded
 
 		for (const mMeta of medias.data) {
+			if (queueCleanupFailed) return undefined;
 			if (globalPass && (globalPass.cleanupFailed || globalPass.noRetry)) return undefined;
 			console.info(`Requesting: [${mMeta.mediaId}] ${mediaName}`);
 
@@ -2209,16 +2620,26 @@ export default class Crunchy implements ServiceClass {
 			let previewVideoToken: string | undefined;
 			let previewAudioToken: string | undefined;
 			let previewDownloadToken: string | undefined;
-			const attemptedCloses = new Set<string>();
+			let terminalPlayback429 = false;
+			const attemptedCloses = new Map<string, boolean>();
+			const initial = state.initial;
+			const acquisitionController = initial?.controller ?? new AbortController();
+			let replay = 0;
+			let acquisitionIndicator: WorkingIndicator | undefined;
+			let acquisitionScheduler: DiscoveryScheduler | undefined;
 			const closeGlobalToken = async (token: string): Promise<boolean> => {
-				if (attemptedCloses.has(token)) return true;
-				attemptedCloses.add(token);
+				if (attemptedCloses.has(token)) return attemptedCloses.get(token)!;
+				attemptedCloses.set(token, false);
+				if (recoveryBudget) await acquisitionScheduler!.dispatch(true);
 				const url = `https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${currentVersion ? currentVersion.guid : currentMediaId}/${token}`;
 				const result = await boundedRequest((signal) => this.req.getData(url, { ...AuthHeaders, signal, method: 'DELETE' }));
-				return result.ok && (result.res?.status === 200 || result.res?.status === 204);
+				const closed = result.ok && (result.res?.status === 200 || result.res?.status === 204);
+				attemptedCloses.set(token, closed);
+				return closed;
 			};
 
 			const releaseGlobalSessions = async (): Promise<boolean> => {
+				let allClosed = true;
 				for (const token of new Set([previewVideoToken, previewAudioToken, previewDownloadToken].filter((value): value is string => !!value))) {
 					try {
 						if (await closeGlobalToken(token)) continue;
@@ -2227,9 +2648,9 @@ export default class Crunchy implements ServiceClass {
 					}
 					console.warn('Failed to close playback session');
 					if (globalPass) globalPass.cleanupFailed = true;
-					return false;
+					allClosed = false;
 				}
-				return true;
+				return allClosed;
 			};
 
 			// prettier-ignore
@@ -2241,6 +2662,10 @@ export default class Crunchy implements ServiceClass {
 					const benefits = await this.req.getData(`https://beta-api.crunchyroll.com/subs/v1/subscriptions/${data_me.external_id}/benefits`, AuthHeaders);
 					if (benefits.ok && benefits.res) {
 						const data_benefits = (await benefits.res.json()) as { items: { benefit: string }[] };
+						const limit = concurrentStreamLimit(data_benefits);
+						if (!me.error && !benefits.error && typeof data_me?.external_id === 'string' && data_me.external_id.trim() && limit !== undefined) {
+							state.capacityCache = { binding: String((AuthHeaders.headers as Record<string, string>)?.Authorization ?? ''), limit };
+						}
 						if (data_benefits?.items && !data_benefits.items.find((i) => i.benefit === 'offline_viewing')) {
 							isDLBypassCapable = false;
 						}
@@ -2276,50 +2701,61 @@ export default class Crunchy implements ServiceClass {
 				options.astream = 'androidtv';
 			}
 
-			if (options.tsd && !options.dryRun) {
-				console.warn('Total Session Death Active');
-				const activeStreamsReq = await this.req.getData(api.streaming_sessions, AuthHeaders);
-				if (activeStreamsReq.ok && activeStreamsReq.res) {
-					const data = await activeStreamsReq.res.json();
-					for (const s of data.items) {
-						await this.req.getData(`https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${s.contentId}/${s.token}`, {
-							...{ method: 'DELETE' },
-							...AuthHeaders
-						});
-					}
-					console.warn(`Killed ${data.items?.length ?? 0} Sessions`);
-				}
+			acquisitionIndicator = initial?.indicator ?? new WorkingIndicator(process.env.isGUI !== 'true' && !this.debug && !this.req.argv?.debug && !!process.stdout.isTTY && !!process.env.TERM && process.env.TERM !== 'dumb');
+			acquisitionScheduler = initial?.scheduler ?? new DiscoveryScheduler(7, undefined, acquisitionController.signal, (retry, ms, kind) => acquisitionIndicator!.waiting(retry, ms, kind, replay + 1, state.resetPerformed ? 2 : 3), 0);
+			if (state.permitClear && !state.preflightChecked) {
+				acquisitionIndicator.start();
+				state.preflightChecked = true;
+				const onPreflightSignal = () => acquisitionController.abort();
+				const preflightCli = process.env.isGUI !== 'true';
+				if (!initial && preflightCli) { process.on('SIGINT', onPreflightSignal); process.on('SIGTERM', onPreflightSignal); }
+				let ready: boolean;
+				try { ready = await this.resolvePlaybackCapacity(AuthHeaders, acquisitionScheduler, acquisitionController.signal, state, acquisitionIndicator); }
+				finally { if (!initial && preflightCli) { process.removeListener('SIGINT', onPreflightSignal); process.removeListener('SIGTERM', onPreflightSignal); } }
+				if (!ready) { if (initial) { initial.release(); state.initial = undefined; } else acquisitionIndicator.stop(); return undefined; }
 			}
-
-			const fetchPlayback = async (url: string) => {
-				if (!globalPass) return this.req.getData(url, AuthHeaders);
+			const fetchPlayback = async (url: string): Promise<{ ok: boolean; status?: number; transportError?: boolean; res?: { json: () => Promise<any> } }> => {
+				if (!globalPass && !recoveryBudget) { const response = await this.req.getData(url, AuthHeaders); return { ...response, status: response.res?.status ?? response.error?.res?.status }; }
 				try {
+					if (recoveryBudget) await acquisitionScheduler!.dispatch();
 					return await boundedRequest(async (signal) => {
-						const response = await this.req.getData(url, { ...AuthHeaders, signal });
-						if (!response.ok || !response.res) return { ok: false, status: response.res?.status ?? response.error?.res?.status };
+						const response = await this.req.getData(url, { ...AuthHeaders, signal, ...(recoveryBudget ? { quietErrors: true, deferErrorBody: true } : {}) });
+						if (!response.ok || !response.res) {
+							if (recoveryBudget && !response.error && response.res?.status === 429 && isPlaybackRefusal(429, await readLimitedManifest(response.res))) throw new PlaybackRefusal(response.res.headers);
+							return { ok: false, status: response.res?.status ?? response.error?.res?.status, transportError: !!response.error };
+						}
 						const body = await response.res.json();
 						return { ok: true, res: { json: async () => body }, token: (body as CrunchyPlayStream)?.token };
 					}, async (late) => {
 						if ('token' in late && late.token && !(await closeGlobalToken(late.token))) console.warn('Failed to close a late playback session');
-					});
+					}, recoveryBudget ? acquisitionController.signal : undefined, recoveryBudget ? acquisitionScheduler!.remaining() : undefined);
 				} catch (error) {
-					globalPass.cleanupFailed = true;
+					if (error instanceof PlaybackRefusal) throw error;
+					if (globalPass) globalPass.cleanupFailed = true;
 					dlFailed = true;
 					console.warn('Playback request ended before its session could be verified');
 					if (this.debug || this.req.argv?.debug) console.debug(`[DEBUG] Playback request failed: ${String(error)}`);
 					return { ok: false };
 				}
 			};
+			const onAcquisitionSignal = () => acquisitionController.abort();
+			const acquisitionCli = process.env.isGUI !== 'true';
+			if (!initial && acquisitionCli) { process.on('SIGINT', onAcquisitionSignal); process.on('SIGTERM', onAcquisitionSignal); }
+			try {
+			for (;;) {
+			try {
 			const videoPlaybackReq = await fetchPlayback(
 				`https://cr-play-service.prd.crunchyrollsvc.com/v3/${currentVersion ? currentVersion.guid : currentMediaId}/${CrunchyVideoPlayStreams[this.token.auth_type === 'web' ? 'chrome' : 'androidtv']}/play?queue=0`
 			);
 			if (!videoPlaybackReq.ok || !videoPlaybackReq.res) {
 				console.warn('Request Video Stream URLs FAILED!');
-				if (globalPass) { globalPass.noRetry = true; return undefined; }
+				const status = videoPlaybackReq.status;
+				if (status === 429) { terminalPlayback429 = true; if (!state.noticeShown) { this.playbackRateNotice(state.resetPerformed, state.permitClear || state.budget.used); state.noticeShown = true; } return undefined; }
+				if (globalPass || recoveryBudget) { if (globalPass) globalPass.noRetry = true; return undefined; }
 			} else {
 				videoStream = (await videoPlaybackReq.res.json()) as CrunchyPlayStream;
 				previewVideoToken = videoStream.token;
-				if (globalPass && (!videoStream.token || !videoStream.url)) { globalPass.cleanupFailed = true; return undefined; }
+				if ((globalPass || recoveryBudget) && (!videoStream.token || !videoStream.url)) { if (globalPass) globalPass.cleanupFailed = true; return undefined; }
 				const derivedPlaystreams = {} as CrunchyStreams;
 				for (const hardsub in videoStream.hardSubs) {
 					const stream = videoStream.hardSubs[hardsub];
@@ -2334,11 +2770,11 @@ export default class Crunchy implements ServiceClass {
 					);
 					if (videoDLReq.ok && videoDLReq.res) {
 						const data = (await videoDLReq.res.json()) as CrunchyPlayStream;
-						if (globalPass) {
-							previewDownloadToken = data.token;
-							if (!previewDownloadToken) { globalPass.cleanupFailed = true; return undefined; }
+						previewDownloadToken = data.token;
+						if (globalPass || recoveryBudget) {
+							if (!previewDownloadToken) { if (globalPass) globalPass.cleanupFailed = true; return undefined; }
 							if (previewDownloadToken !== videoStream.token) {
-								if (!(await closeGlobalToken(previewDownloadToken))) { globalPass.cleanupFailed = true; return undefined; }
+								if (!(await closeGlobalToken(previewDownloadToken))) { if (globalPass) globalPass.cleanupFailed = true; return undefined; }
 								previewDownloadToken = undefined;
 							}
 							if (!data.url || !/^https?:\/\//i.test(data.url)) return undefined;
@@ -2348,7 +2784,8 @@ export default class Crunchy implements ServiceClass {
 							hardsub_locale: ''
 						};
 					} else {
-						if (globalPass && (!('status' in videoDLReq) || (videoDLReq.status !== 403 && videoDLReq.status !== 404))) { globalPass.cleanupFailed = true; return undefined; }
+						if (videoDLReq.status === 429) { terminalPlayback429 = true; if (!state.noticeShown) { this.playbackRateNotice(state.resetPerformed, state.permitClear || state.budget.used); state.noticeShown = true; } return undefined; }
+						if ((globalPass || recoveryBudget) && (!('status' in videoDLReq) || (videoDLReq.status !== 403 && videoDLReq.status !== 404) || videoDLReq.transportError)) { if (globalPass) globalPass.cleanupFailed = true; return undefined; }
 						derivedPlaystreams[''] = {
 							url: videoStream.url,
 							hardsub_locale: ''
@@ -2380,14 +2817,16 @@ export default class Crunchy implements ServiceClass {
 				);
 				if (!audioPlaybackReq.ok || !audioPlaybackReq.res) {
 					console.warn('Request Audio Stream URLs FAILED!');
-					if (globalPass) {
-						if (isDLAudioBypass && 'status' in audioPlaybackReq && (audioPlaybackReq.status === 403 || audioPlaybackReq.status === 404)) pbData.apb = pbData.vpb;
-						else { globalPass.noRetry = true; return undefined; }
+					const status = audioPlaybackReq.status;
+					if (status === 429) { terminalPlayback429 = true; if (!state.noticeShown) { this.playbackRateNotice(state.resetPerformed, state.permitClear || state.budget.used); state.noticeShown = true; } return undefined; }
+					if (globalPass || recoveryBudget) {
+						if (isDLAudioBypass && !audioPlaybackReq.transportError && 'status' in audioPlaybackReq && (audioPlaybackReq.status === 403 || audioPlaybackReq.status === 404)) pbData.apb = pbData.vpb;
+						else { if (globalPass) globalPass.noRetry = true; return undefined; }
 					}
 				} else {
 					audioStream = (await audioPlaybackReq.res.json()) as CrunchyPlayStream;
 					previewAudioToken = audioStream.token;
-					if (globalPass && (!audioStream.token || !audioStream.url)) { globalPass.cleanupFailed = true; return undefined; }
+					if ((globalPass || recoveryBudget) && (!audioStream.token || !audioStream.url)) { if (globalPass) globalPass.cleanupFailed = true; return undefined; }
 					const derivedPlaystreams = {} as CrunchyStreams;
 					// Give Audiostream the Videostream hardsubs if undefined or empty array
 					if (!audioStream.hardSubs || Object.values(audioStream.hardSubs).length === 0) audioStream.hardSubs = videoStream.hardSubs;
@@ -2399,8 +2838,8 @@ export default class Crunchy implements ServiceClass {
 						};
 					}
 					if (isDLAudioBypass) {
-						if (globalPass && previewAudioToken && previewAudioToken !== videoStream.token) {
-							if (!(await closeGlobalToken(previewAudioToken))) { globalPass.cleanupFailed = true; return undefined; }
+						if ((globalPass || recoveryBudget) && previewAudioToken && previewAudioToken !== videoStream.token) {
+							if (!(await closeGlobalToken(previewAudioToken))) { if (globalPass) globalPass.cleanupFailed = true; return undefined; }
 							previewAudioToken = undefined;
 						}
 						audioStream.token = videoStream.token;
@@ -2429,6 +2868,29 @@ export default class Crunchy implements ServiceClass {
 				}
 			} else {
 				pbData.apb = pbData.vpb;
+			}
+
+				break;
+			} catch (error) {
+				if (!(error instanceof PlaybackRefusal)) { if (this.debug) console.debug(`[DEBUG] Playback acquisition failed: ${String(error)}`); return undefined; }
+				if (replay >= (state.resetPerformed ? 2 : 3)) { terminalPlayback429 = true; if (!state.noticeShown) { this.playbackRateNotice(state.resetPerformed, state.permitClear || state.budget.used); state.noticeShown = true; } return undefined; }
+				if (!state.noticeShown) { this.playbackRateNotice(state.resetPerformed, state.permitClear || state.budget.used); state.noticeShown = true; }
+				const refusedAt = acquisitionScheduler!.clock.now();
+				const refusedWall = acquisitionScheduler!.clock.wallNow();
+				try { acquisitionScheduler!.reservePlaybackRetry(); } catch { terminalPlayback429 = true; return undefined; }
+				if (!(await releaseGlobalSessions())) { terminalPlayback429 = true; return undefined; }
+				previewVideoToken = undefined; previewAudioToken = undefined; previewDownloadToken = undefined;
+				videoStream = null; audioStream = null; pbData.total = 0; pbData.vpb = {}; pbData.apb = {}; pbData.meta = {} as PlaybackData['meta'];
+				attemptedCloses.clear();
+				acquisitionIndicator!.start();
+				state.ordinal = replay + 1;
+				if (!(await this.resolvePlaybackCapacity(AuthHeaders, acquisitionScheduler!, acquisitionController.signal, state, acquisitionIndicator!, { headers: error.headers, ordinal: replay + 1, at: refusedAt, wall: refusedWall }, replay < 2))) return undefined;
+				replay++;
+			}
+			}
+			} finally {
+				if (initial) { initial.release(); state.initial = undefined; }
+				else { acquisitionIndicator!.stop(); if (acquisitionCli) { process.removeListener('SIGINT', onAcquisitionSignal); process.removeListener('SIGTERM', onAcquisitionSignal); } }
 			}
 
 			variables.push(
@@ -2607,7 +3069,8 @@ export default class Crunchy implements ServiceClass {
 
 			// Delete the stream if it's not needed
 			if (options.novids && options.noaudio && !options.dryRun && !globalPass) {
-				if (videoStream) {
+				if (recoveryBudget && !(await releaseGlobalSessions())) return undefined;
+				if (videoStream && !recoveryBudget) {
 					if (!(await this.refreshToken(true, true))) return undefined;
 					(AuthHeaders.headers as Record<string, string>).Authorization = `Bearer ${this.token.access_token}`;
 					await this.req.getData(
@@ -2618,7 +3081,7 @@ export default class Crunchy implements ServiceClass {
 						}
 					);
 				}
-				if (audioStream && videoStream?.token !== audioStream.token) {
+				if (audioStream && videoStream?.token !== audioStream.token && !recoveryBudget) {
 					await this.req.getData(
 						`https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${currentVersion ? currentVersion.guid : currentMediaId}/${audioStream.token}`,
 						{
@@ -2819,9 +3282,9 @@ export default class Crunchy implements ServiceClass {
 							console.info('Got decryption keys');
 						}
 
-						if (globalPass && !(await releaseGlobalSessions())) return undefined;
+						if ((globalPass || recoveryBudget) && !(await releaseGlobalSessions())) return undefined;
 
-						if (videoStream && !globalPass) {
+						if (videoStream && !globalPass && !recoveryBudget) {
 							if (!(await this.refreshToken(true, true))) return undefined;
 							(AuthHeaders.headers as Record<string, string>).Authorization = `Bearer ${this.token.access_token}`;
 							await this.req.getData(
@@ -2832,7 +3295,7 @@ export default class Crunchy implements ServiceClass {
 								}
 							);
 						}
-						if (audioStream && videoStream?.token !== audioStream.token && !globalPass) {
+						if (audioStream && videoStream?.token !== audioStream.token && !globalPass && !recoveryBudget) {
 							await this.req.getData(
 								`https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${currentVersion ? currentVersion.guid : currentMediaId}/${audioStream.token}`,
 								{
@@ -3194,7 +3657,8 @@ export default class Crunchy implements ServiceClass {
 								dlFailed = true;
 							} else {
 								// We have the stream, so go ahead and delete the active stream
-								if (videoStream) {
+								if (recoveryBudget && !(await releaseGlobalSessions())) return undefined;
+								if (videoStream && !recoveryBudget) {
 									if (!(await this.refreshToken(true, true))) return undefined;
 									(AuthHeaders.headers as Record<string, string>).Authorization = `Bearer ${this.token.access_token}`;
 									await this.req.getData(
@@ -3202,7 +3666,7 @@ export default class Crunchy implements ServiceClass {
 										{ ...{ method: 'DELETE' }, ...AuthHeaders }
 									);
 								}
-								if (audioStream && videoStream?.token !== audioStream.token) {
+								if (audioStream && videoStream?.token !== audioStream.token && !recoveryBudget) {
 									await this.req.getData(
 										`https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${currentVersion ? currentVersion.guid : currentMediaId}/${audioStream.token}`,
 										{ ...{ method: 'DELETE' }, ...AuthHeaders }
@@ -3656,7 +4120,8 @@ export default class Crunchy implements ServiceClass {
 
 			await this.sleep(options.waittime);
 			} finally {
-				if (options.dryRun || globalPass) {
+				if (recoveryBudget && !(await releaseGlobalSessions())) { queueCleanupFailed = true; dlFailed = true; }
+				if (!recoveryBudget && (options.dryRun || globalPass || terminalPlayback429)) {
 					for (const token of new Set([previewVideoToken, previewAudioToken, previewDownloadToken].filter((value): value is string => !!value))) {
 						try {
 							const closeUrl = `https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${currentVersion ? currentVersion.guid : currentMediaId}/${token}`;

@@ -1,3 +1,4 @@
+import { PlaybackRecoveryBudget, PlaybackRecoveryState } from '../modules/module.crunchy-playback-recovery';
 import { HLSCallback } from 'hls-download';
 import { sxItem } from '../crunchy';
 import { LanguageItem } from '../modules/module.langsData';
@@ -12,6 +13,8 @@ export type CrunchyDownloadOptions = {
 	vstream: keyof typeof CrunchyVideoPlayStreams;
 	astream: keyof typeof CrunchyAudioPlayStreams;
 	tsd?: boolean;
+	queueRecovery?: PlaybackRecoveryBudget;
+	recoveryState?: PlaybackRecoveryState;
 	novids?: boolean;
 	noaudio?: boolean;
 	x: number;

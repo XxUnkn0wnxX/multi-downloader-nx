@@ -230,7 +230,7 @@ Select a specific Crunchyroll audio playback endpoint by device. Available rendi
 | --- | --- | --- | --- | --- | --- | ---|
 | Crunchyroll | `--tsd ` | `boolean` | `No`| `—` | `false`| `tsd: ` |
 
-(Total Session Death) Kills all active Crunchyroll Streaming Sessions to prevent getting the "TOO_MANY_ACTIVE_STREAMS" error.
+Before each episode, assess account playback capacity and clear the validated session list only when full and the command clear allowance is available. Explicit standalone --tsd force-clears and verifies listed sessions. Exact qualifying playback refusals can trigger bounded capacity checks, waits and acquisition retries. This does not log out and may not clear a rate limit.
 #### `--hslang`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | --- | ---|

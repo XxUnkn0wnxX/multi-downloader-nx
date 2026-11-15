@@ -1,5 +1,6 @@
 import { console } from './log';
 import { DiscoveryClock, DiscoveryScheduler } from './module.crunchy-discovery-scheduler';
+import { PlaybackRecoveryBudget, PlaybackRefusal } from './module.crunchy-playback-recovery';
 import { FetchParams, Req } from './module.fetch';
 import { legacyUrls } from './module.crunchy-manifests';
 import { CatalogVideo, inspectVideoManifest, rankVideoCandidates, timingCompatible, VideoFamily, VideoSource, VIDEO_SELECTION_DEFAULTS } from './module.crunchy-video-catalog';
@@ -69,8 +70,13 @@ async function requestWithTimeout<T>(
 	}
 }
 
-export async function boundedRequest<T>(operation: (signal: AbortSignal) => Promise<T>, onLate?: (value: T) => Promise<void>): Promise<T> {
-	return requestWithTimeout(operation, VIDEO_SELECTION_DEFAULTS.requestTimeoutMs, onLate);
+export async function boundedRequest<T>(
+	operation: (signal: AbortSignal) => Promise<T>,
+	onLate?: (value: T) => Promise<void>,
+	outerSignal?: AbortSignal,
+	timeoutMs: number = VIDEO_SELECTION_DEFAULTS.requestTimeoutMs
+): Promise<T> {
+	return requestWithTimeout(operation, Math.min(timeoutMs, VIDEO_SELECTION_DEFAULTS.requestTimeoutMs), onLate, outerSignal);
 }
 
 export async function readLimitedManifest(response: Response): Promise<string> {
@@ -119,7 +125,11 @@ type ProbeInput = {
 	debug: boolean;
 	signal?: AbortSignal;
 	clock?: DiscoveryClock;
-	onWaiting?: (retry: number, ms: number) => void;
+	onWaiting?: (retry: number, ms: number, kind: 'manifest' | 'playback', playbackRetry: number) => void;
+	recoveryBudget?: PlaybackRecoveryBudget;
+	scheduler?: DiscoveryScheduler;
+	replayLimit?: () => number;
+	recover?: (attempt: number, scheduler: DiscoveryScheduler, signal: AbortSignal | undefined, headers: Headers, refusedAt: number, refusedWall: number) => Promise<boolean>;
 	fixedPauseMs?: number;
 	acquire: (source: VideoSource, signal: AbortSignal) => Promise<PlaybackLease>;
 	close: (source: VideoSource, token: string, signal: AbortSignal) => Promise<boolean>;
@@ -146,7 +156,16 @@ export async function discoverVideoCandidates(input: ProbeInput): Promise<Discov
 	const sources = [...byGuid.values()];
 	if (!sources.length || sources.length > VIDEO_SELECTION_DEFAULTS.maxVersions || !input.requested.length) return { status: 'fallback', reason: 'version metadata unavailable' };
 
-	const scheduler = new DiscoveryScheduler(sources.length * (input.prepareDownload ? 7 : 5), input.clock, input.signal, input.onWaiting, input.fixedPauseMs);
+	let playbackRetry = 0;
+	const scheduler =
+		input.scheduler ??
+		new DiscoveryScheduler(
+			sources.length * (input.prepareDownload ? 7 : 5),
+			input.clock,
+			input.signal,
+			(retry, ms, kind) => input.onWaiting?.(retry, ms, kind, playbackRetry),
+			input.fixedPauseMs
+		);
 	const entries: CatalogVideo[] = [];
 	const references: CatalogVideo[] = [];
 	const deadline = async <T>(operation: (signal: AbortSignal) => Promise<T>, cleanup = false, onLate?: (value: T) => Promise<void>): Promise<T> => {
@@ -156,139 +175,170 @@ export async function discoverVideoCandidates(input: ProbeInput): Promise<Discov
 		return requestWithTimeout(operation, Math.min(remaining, VIDEO_SELECTION_DEFAULTS.requestTimeoutMs), onLate, cleanup ? undefined : input.signal);
 	};
 
+	let replay = 0;
 	for (const source of sources) {
-		let lease: PlaybackLease | undefined;
-		let failed = false;
-		let terminalRateFailure = false;
-		let unsafe = false;
-		let cleanupFailed = false;
-		let acquireStarted = false;
-		let preparationUncertain = false;
-		let fallbackReason = 'metadata unavailable';
-		try {
-			let downloadUrl: string | undefined;
-			if (input.prepareDownload) {
-				const prepared = await deadline(
+		for (;;) {
+			let refusal: PlaybackRefusal | undefined;
+			let refusedAt = 0;
+			let refusedWall = 0;
+			let lease: PlaybackLease | undefined;
+			let failed = false;
+			let terminalRateFailure = false;
+			let unsafe = false;
+			let cleanupFailed = false;
+			let acquireStarted = false;
+			let preparationUncertain = false;
+			let fallbackReason = 'metadata unavailable';
+			try {
+				let downloadUrl: string | undefined;
+				if (input.prepareDownload) {
+					const prepared = await deadline(
+						(signal) => {
+							preparationUncertain = true;
+							return input.prepareDownload!(source, signal);
+						},
+						false,
+						async (late) => {
+							if (late.status === 'ok' && late.token && !(await deadline((signal) => input.close(source, late.token!, signal), true)))
+								console.warn('Failed to close a late download session');
+						}
+					);
+					if (prepared.status === 'unavailable') preparationUncertain = false;
+					else {
+						if (!prepared.token) throw new Error('unknown download session');
+						if (!(await deadline((signal) => input.close(source, prepared.token!, signal), true))) {
+							cleanupFailed = true;
+							throw new Error('download session cleanup failed');
+						}
+						preparationUncertain = false;
+						if (!prepared.url || !/^https?:\/\//i.test(prepared.url)) throw new Error('invalid download URL');
+						downloadUrl = prepared.url;
+					}
+				}
+
+				lease = await deadline(
 					(signal) => {
-						preparationUncertain = true;
-						return input.prepareDownload!(source, signal);
+						acquireStarted = true;
+						return input.acquire(source, signal);
 					},
 					false,
 					async (late) => {
-						if (late.status === 'ok' && late.token && !(await deadline((signal) => input.close(source, late.token!, signal), true)))
-							console.warn('Failed to close a late download session');
+						if (late.token && !(await deadline((signal) => input.close(source, late.token, signal), true))) console.warn('Failed to close a late playback session');
 					}
 				);
-				if (prepared.status === 'unavailable') preparationUncertain = false;
-				else {
-					if (!prepared.token) throw new Error('unknown download session');
-					if (!(await deadline((signal) => input.close(source, prepared.token!, signal), true))) {
-						cleanupFailed = true;
-						throw new Error('download session cleanup failed');
-					}
-					preparationUncertain = false;
-					if (!prepared.url || !/^https?:\/\//i.test(prepared.url)) throw new Error('invalid download URL');
-					downloadUrl = prepared.url;
-				}
-			}
-
-			lease = await deadline(
-				(signal) => {
-					acquireStarted = true;
-					return input.acquire(source, signal);
-				},
-				false,
-				async (late) => {
-					if (late.token && !(await deadline((signal) => input.close(source, late.token, signal), true))) console.warn('Failed to close a late playback session');
-				}
-			);
-			if (!lease?.token || !lease.url) throw new Error('invalid playback lease');
-			if (downloadUrl && input.resolve) lease = { ...lease, url: input.resolve(source, lease, downloadUrl) };
-			if (!/\.mpd(?:[?#]|$)/i.test(lease.url)) throw new Error('unsupported playback manifest');
-			const candidates: { family: VideoFamily; url: string }[] = [{ family: 'Current', url: lease.url }];
-			for (const url of legacyUrls(lease.url)) candidates.push({ family: /\/0\/clean\/dash\//.test(url.split(/[?#]/, 1)[0]) ? 'Legacy 0' : 'Legacy 1', url });
-			for (const candidate of candidates) {
-				try {
-					if (input.debug) console.debug(`[DEBUG] ${source.guid} ${candidate.family} manifest request: ${candidate.url}`);
-					let body: string;
-					for (;;) {
-						let limited: Response | undefined;
-						try {
-							body = await deadline(async (signal) => {
-								const response = await input.req.getData(candidate.url, {
-									...input.headers,
-									quietErrors: true,
-									signal,
-									skipErrorBody: true,
-									onResponse: (res) => {
-										if (res.status === 429) {
-											limited = res;
-											scheduler.observedRateLimit = true;
+				if (!lease?.token || !lease.url) throw new Error('invalid playback lease');
+				if (downloadUrl && input.resolve) lease = { ...lease, url: input.resolve(source, lease, downloadUrl) };
+				if (!/\.mpd(?:[?#]|$)/i.test(lease.url)) throw new Error('unsupported playback manifest');
+				const candidates: { family: VideoFamily; url: string }[] = [{ family: 'Current', url: lease.url }];
+				for (const url of legacyUrls(lease.url)) candidates.push({ family: /\/0\/clean\/dash\//.test(url.split(/[?#]/, 1)[0]) ? 'Legacy 0' : 'Legacy 1', url });
+				for (const candidate of candidates) {
+					try {
+						if (input.debug) console.debug(`[DEBUG] ${source.guid} ${candidate.family} manifest request: ${candidate.url}`);
+						let body: string;
+						for (;;) {
+							let limited: Response | undefined;
+							try {
+								body = await deadline(async (signal) => {
+									const response = await input.req.getData(candidate.url, {
+										...input.headers,
+										quietErrors: true,
+										signal,
+										skipErrorBody: true,
+										onResponse: (res) => {
+											if (res.status === 429) {
+												limited = res;
+												scheduler.observedRateLimit = true;
+											}
 										}
+									});
+									const status = response.res?.status ?? response.error?.res?.status;
+									if (input.debug) console.debug(`[DEBUG] ${source.guid} ${candidate.family} manifest status: ${status ?? 'request failed'}`);
+									if (status === 429) {
+										limited = response.res ?? response.error?.res;
+										scheduler.observedRateLimit = true;
+										throw new Error('manifest rate limited');
 									}
+									if (!response.ok || !response.res) throw new Error('manifest unavailable');
+									return readLimitedManifest(response.res);
 								});
-								const status = response.res?.status ?? response.error?.res?.status;
-								if (input.debug) console.debug(`[DEBUG] ${source.guid} ${candidate.family} manifest status: ${status ?? 'request failed'}`);
-								if (status === 429) {
-									limited = response.res ?? response.error?.res;
-									scheduler.observedRateLimit = true;
-									throw new Error('manifest rate limited');
-								}
-								if (!response.ok || !response.res) throw new Error('manifest unavailable');
-								return readLimitedManifest(response.res);
-							});
-							break;
-						} catch (error) {
-							if (!limited || !/manifest rate limited/.test(String(error))) throw error;
-							scheduler.retry(limited.headers);
+								break;
+							} catch (error) {
+								if (!limited || !/manifest rate limited/.test(String(error))) throw error;
+								scheduler.retry(limited.headers);
+							}
 						}
+						const tracks = inspectVideoManifest(body, source, candidate.family, candidate.url, input.ordinal);
+						if (input.debug) console.debug(`[DEBUG] ${source.guid} ${candidate.family} parsed ${tracks.length} tracks`);
+						if (!tracks.length && candidate.family === 'Current') throw new Error('unusable current manifest');
+						entries.push(...tracks);
+						if (candidate.family === 'Current' && input.requested.includes(source.guid)) {
+							const ranked = rankVideoCandidates(tracks, input.requested);
+							if (ranked.length) references.push(ranked[ranked.length - 1]);
+						}
+					} catch (error) {
+						if (input.debug) console.debug(`[DEBUG] ${source.guid} ${candidate.family} excluded: ${String(error)}`);
+						if (candidate.family === 'Current' || /rate limited|deadline exceeded|cancelled/.test(String(error))) throw error;
 					}
-					const tracks = inspectVideoManifest(body, source, candidate.family, candidate.url, input.ordinal);
-					if (input.debug) console.debug(`[DEBUG] ${source.guid} ${candidate.family} parsed ${tracks.length} tracks`);
-					if (!tracks.length && candidate.family === 'Current') throw new Error('unusable current manifest');
-					entries.push(...tracks);
-					if (candidate.family === 'Current' && input.requested.includes(source.guid)) {
-						const ranked = rankVideoCandidates(tracks, input.requested);
-						if (ranked.length) references.push(ranked[ranked.length - 1]);
-					}
-				} catch (error) {
-					if (input.debug) console.debug(`[DEBUG] ${source.guid} ${candidate.family} excluded: ${String(error)}`);
-					if (candidate.family === 'Current' || /rate limited|deadline exceeded|cancelled/.test(String(error))) throw error;
 				}
-			}
-		} catch (error) {
-			failed = true;
-			terminalRateFailure = /rate limited|deadline exceeded/.test(String(error));
-			if (/rate limited|HTTP 429/.test(String(error))) fallbackReason = String(error).replace(/^Error: /, '');
-			else if (/deadline exceeded/.test(String(error))) fallbackReason = 'discovery timed out';
-			else if (/unsupported playback manifest|unusable current manifest/.test(String(error))) fallbackReason = 'unsupported manifest';
-			else if (/manifest too large/.test(String(error))) fallbackReason = 'manifest too large';
-			unsafe = preparationUncertain || (!lease?.token && acquireStarted) || /session limit|invalid download URL|download session cleanup failed/.test(String(error));
-			if (input.debug) console.debug(`[DEBUG] ${source.guid} discovery stopped: ${String(error)}`);
-		} finally {
-			if (lease?.token) {
-				try {
-					if (!(await deadline((signal) => input.close(source, lease!.token, signal), true))) {
+			} catch (error) {
+				failed = true;
+				if (error instanceof PlaybackRefusal && input.recoveryBudget && input.recover && replay < (input.replayLimit?.() ?? 3)) {
+					try {
+						refusedAt = scheduler.clock.now();
+						refusedWall = scheduler.clock.wallNow();
+						scheduler.reservePlaybackRetry();
+						refusal = error;
+						playbackRetry = replay + 1;
+						acquireStarted = false;
+						preparationUncertain = false;
+					} catch {
+						/* Exhausted budget or deadline is terminal. */
+					}
+				}
+				terminalRateFailure = /rate limited|deadline exceeded/.test(String(error));
+				if (/rate limited|HTTP 429/.test(String(error))) fallbackReason = String(error).replace(/^Error: /, '');
+				else if (/deadline exceeded/.test(String(error))) fallbackReason = 'discovery timed out';
+				else if (/unsupported playback manifest|unusable current manifest/.test(String(error))) fallbackReason = 'unsupported manifest';
+				else if (/manifest too large/.test(String(error))) fallbackReason = 'manifest too large';
+				unsafe = preparationUncertain || (!lease?.token && acquireStarted) || /session limit|invalid download URL|download session cleanup failed/.test(String(error));
+				if (input.debug) console.debug(`[DEBUG] ${source.guid} discovery stopped: ${String(error)}`);
+			} finally {
+				if (lease?.token) {
+					try {
+						if (!(await deadline((signal) => input.close(source, lease!.token, signal), true))) {
+							failed = true;
+							unsafe = true;
+							cleanupFailed = true;
+						}
+					} catch {
 						failed = true;
 						unsafe = true;
 						cleanupFailed = true;
 					}
-				} catch {
+				} else if (acquireStarted) {
 					failed = true;
 					unsafe = true;
-					cleanupFailed = true;
 				}
-			} else if (acquireStarted) {
-				failed = true;
-				unsafe = true;
 			}
-		}
-		if (failed) {
-			if (cleanupFailed || unsafe) return { status: 'unsafe', reason: cleanupFailed ? 'session cleanup failed' : fallbackReason };
-			if (input.signal?.aborted) return { status: 'cancelled' };
-			const expired = scheduler.remaining() <= 0;
-			if (scheduler.observedRateLimit && (terminalRateFailure || expired)) return { status: 'rate-limited', reason: expired ? 'discovery timed out' : fallbackReason };
-			return { status: 'fallback', reason: fallbackReason };
+			if (failed) {
+				if (refusal && !cleanupFailed && !unsafe) {
+					try {
+						if (await input.recover!(replay + 1, scheduler, input.signal, refusal.headers, refusedAt, refusedWall)) {
+							replay++;
+							continue;
+						}
+					} catch {
+						/* A failed reset/check or deadline is terminal. */
+					}
+					return { status: 'unsafe', reason: 'playback recovery failed' };
+				}
+				if (cleanupFailed || unsafe) return { status: 'unsafe', reason: cleanupFailed ? 'session cleanup failed' : fallbackReason };
+				if (input.signal?.aborted) return { status: 'cancelled' };
+				const expired = scheduler.remaining() <= 0;
+				if (scheduler.observedRateLimit && (terminalRateFailure || expired)) return { status: 'rate-limited', reason: expired ? 'discovery timed out' : fallbackReason };
+				return { status: 'fallback', reason: fallbackReason };
+			}
+			break;
 		}
 	}
 	if (input.signal?.aborted) return { status: 'cancelled' };

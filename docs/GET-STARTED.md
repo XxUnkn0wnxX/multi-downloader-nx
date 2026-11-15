@@ -76,7 +76,7 @@ By default, downloads go to the `videos/` folder beside the application. Use for
 
 ## Crunchyroll streams and quality
 
-The video and audio endpoints are independent choices. Available renditions and access depend on the episode, account, and service response. Endpoint names do not guarantee a fixed bitrate or CBR. Choosing separate video and audio endpoints can require more than one playback session, subject to provider and account limits.
+The video and audio endpoints are independent choices. Available renditions and access depend on the episode, account, and service response. Endpoint names do not guarantee a fixed bitrate or CBR. Choosing separate video and audio endpoints can require more than one playback session, subject to provider and account limits. For capacity checks, explicit session reset, and bounded retry behavior, see [Crunchyroll playback recovery](CRUNCHYROLL-RECOVERY.md).
 
 For raw DASH, the numbered quality list can include compatible video from `[Current M]` and `[Legacy M]` sources, with the video source language shown as `[V:eng]` or `[V:jpn]`. Resolution headings group the list without resetting quality numbers. `-q 0` selects the highest dimensions, then advertised bandwidth. The highest current audio rendition is selected independently for each requested dub.
 
@@ -133,10 +133,12 @@ Episode-window settings apply only to that queue. To pause or resume queued work
 
 ## Preview from the CLI
 
-`--dry-run` is an explicit CLI or programmatic action and cannot be enabled through `cli-defaults.yml`. It prints metadata, available qualities, and selected stream URLs, then stops before licenses, media, subtitle, font, or chapter downloads; decryption, muxing, and completed-download history writes are skipped. Normal authentication, refresh, metadata, and required HEAD requests may still run. `--debug` keeps full request diagnostics.
+`--dry-run` is an explicit CLI or programmatic action and cannot be enabled through `cli-defaults.yml`. It prints metadata, available qualities, and selected stream URLs, then stops before licenses, media, subtitle, font, or chapter downloads; decryption, muxing, and completed-download history writes are skipped. Normal authentication, refresh, metadata, and required HEAD requests may still run. With episode selection, explicit `--tsd` or config `tsd: true` checks Crunchyroll playback capacity before every episode, including previews, and clears other sessions only when the validated assessment is full and the command clear allowance is available. A standalone explicit `--tsd` instead force-clears the validated listed sessions even with `--dry-run` or `--debug`; config alone does not trigger that reset. `--debug` keeps full request diagnostics.
 
 ```sh
 aniDL --service crunchy -s SEASON_ID -e 1 --dry-run
 ```
+
+To clear active Crunchyroll playback sessions without selecting an episode, run `aniDL --service crunchy --tsd`. The standalone command checks once and reports how many sessions were closed and how many remain. `--dry-run` and `--debug` can accompany this command. Episode capacity checks and any required reset finish before playback begins. See [Crunchyroll playback recovery](CRUNCHYROLL-RECOVERY.md) for capacity uncertainty, waiting and retry limits. Resetting does not log out, and a rate limit can persist afterward.
 
 See the [CLI reference](DOCUMENTATION.md) for all flags, and the [README](README.md#build-from-source) for source setup and target commands.

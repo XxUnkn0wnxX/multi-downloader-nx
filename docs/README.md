@@ -60,6 +60,8 @@ Remove `--dry-run` to download. Use the [CLI reference](DOCUMENTATION.md#downloa
 
 Preview mode works across all three services. It stops before license requests, media/subtitle/font downloads, chapter output, decryption, muxing, and completed-download archive writes. Authentication and token refresh, metadata requests, required HEAD checks, logging, and GUI queue progression may still occur. `--debug` adds full request and manifest diagnostics.
 
+For Crunchyroll episodes, `--tsd` or `tsd: true` can clear playback sessions when the account is full, including during a preview. Standalone `aniDL --service crunchy --tsd` force-clears listed sessions even with `--dry-run` or `--debug`; config alone does not trigger that standalone action. See [Crunchyroll playback recovery](CRUNCHYROLL-RECOVERY.md) for capacity checks, waiting and retry limits. Clearing sessions does not log out and may not resolve a rate limit.
+
 ## Build from source
 
 Copy this fork's clone URL from the **Code** menu, then install dependencies. The final command runs the CLI directly from TypeScript using your installed Node:

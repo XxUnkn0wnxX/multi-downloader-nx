@@ -212,3 +212,24 @@ try {
 }
 const generatedServer = generated.split('#### `-x`')[1].split('#### `')[0];
 assert.equal((generatedServer.match(/`server: `/g) ?? []).length, 1, 'matching canonical and alias keys render only once');
+
+assert.equal(parse([], { tsd: true }).tsd, true);
+assert.equal(parse([], { tsd: true }).tsdExplicit, false);
+assert.equal(parse(['--tsd'], { tsd: false }).tsdExplicit, true);
+assert.equal(parse([], { tsd: false }).tsd, false);
+assert.equal(parse(['--tsd'], { tsd: false }).tsd, true);
+assert.equal(parse(['--tsd']).requestedActionOrSelector, false);
+assert.equal(parse([], { tsd: true, all: true }).requestedActionOrSelector, true);
+assert.equal(parse([], { tsd: true, all: false }).requestedActionOrSelector, false);
+for (const argv of [
+	['--search', 'ab'],
+	['--search', ''],
+	['--series', 'bad'],
+	['-s', 'bad'],
+	['--movie-listing', ''],
+	['--show-raw', 'bad'],
+	['--season-raw', 'bad'],
+	['--tsd', 'unexpected']
+]) {
+	assert.equal(parse(argv).requestedActionOrSelector, true, `selector blocks standalone reset: ${argv.join(' ')}`);
+}

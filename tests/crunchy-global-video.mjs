@@ -62,11 +62,13 @@ scheduler.defaultDiscoveryClock.sleep = async (ms, signal) => {
 	fakeNow += ms;
 };
 scheduler.defaultDiscoveryClock.random = () => 0;
+const recoveryModule = compile('modules/module.crunchy-playback-recovery.ts');
 const manifests = compile('modules/module.crunchy-manifests.ts', { './log': { console: log }, './module.transform-mpd': {}, './module.crunchy-video-catalog': catalog });
 const { discoverVideoCandidates } = compile('modules/module.crunchy-video-selection.ts', {
 	'./log': { console: log },
 	'./module.crunchy-video-catalog': catalog,
 	'./module.crunchy-discovery-scheduler': scheduler,
+	'./module.crunchy-playback-recovery': recoveryModule,
 	'./module.crunchy-manifests': manifests
 });
 const sources = [
@@ -198,7 +200,13 @@ assert.equal(declaredCancel, 1);
 assert.equal(oversizedRequests, 1);
 const timed = compile(
 	'modules/module.crunchy-video-selection.ts',
-	{ './log': { console: log }, './module.crunchy-video-catalog': catalog, './module.crunchy-discovery-scheduler': scheduler, './module.crunchy-manifests': manifests },
+	{
+		'./log': { console: log },
+		'./module.crunchy-video-catalog': catalog,
+		'./module.crunchy-discovery-scheduler': scheduler,
+		'./module.crunchy-playback-recovery': recoveryModule,
+		'./module.crunchy-manifests': manifests
+	},
 	{ setTimeout: (fn) => setTimeout(fn, 0) }
 );
 let abortSignal;
@@ -233,7 +241,13 @@ class ExpiredClock extends Date {
 }
 const expiredBefore = compile(
 	'modules/module.crunchy-video-selection.ts',
-	{ './log': { console: log }, './module.crunchy-video-catalog': catalog, './module.crunchy-discovery-scheduler': scheduler, './module.crunchy-manifests': manifests },
+	{
+		'./log': { console: log },
+		'./module.crunchy-video-catalog': catalog,
+		'./module.crunchy-discovery-scheduler': scheduler,
+		'./module.crunchy-playback-recovery': recoveryModule,
+		'./module.crunchy-manifests': manifests
+	},
 	{ Date: ExpiredClock }
 );
 let began = false;
@@ -712,6 +726,12 @@ async function retryProbe({ failClose = false, stallObserved = false, unsupporte
 	indicatorNow += 1000;
 	callback();
 	assert(writes.at(-1).includes('Retrying video manifest (2/3 in 1s)'));
+	indicator.waiting(1, 5000, 'playback', 1, 2);
+	callback();
+	assert(writes.at(-1).includes('Retrying playback (1/2 in 5s)'));
+	indicatorNow += 1000;
+	callback();
+	assert(writes.at(-1).includes('Retrying playback (1/2 in 4s)'));
 	indicator.waiting(0, 0);
 	callback();
 	assert(writes.at(-1).endsWith('Discovering video qualities'));
@@ -720,6 +740,14 @@ async function retryProbe({ failClose = false, stallObserved = false, unsupporte
 	indicator.stop();
 	indicator.stop();
 	assert.equal(cleared, 1);
+	assert.equal(hook, undefined);
+	const resetWrites = [];
+	const resetIndicator = new indicatorModule.WorkingIndicator(true, { write: (s) => resetWrites.push(s) }, 'Clearing playback sessions…');
+	resetIndicator.start();
+	callback();
+	assert(resetWrites.join('').includes('Clearing playback sessions…'));
+	resetIndicator.stop();
+	assert(resetWrites.join('').includes('\x1b[?25h'));
 	assert.equal(hook, undefined);
 	const disabled = new indicatorModule.WorkingIndicator(false, { write: () => assert.fail('disabled spinner wrote output') });
 	disabled.start();
@@ -914,6 +942,22 @@ const control = {
 	lateMismatch: false,
 	audioClear: false,
 	videoClear: false,
+	playbackReject: undefined,
+	playbackRefusals: undefined,
+	refusalAfter: 0,
+	refusalBody: undefined,
+	refusalTransportError: false,
+	downloadUnknown: false,
+	downloadErrorStatus: false,
+	refusalRetryAfter: undefined,
+	nonzeroVerification: false,
+	failRecoveryClose: false,
+	downloadRefusals: 0,
+	audioRefusals: 0,
+	benefitDelayMs: 0,
+	capacityLimit: 1,
+	benefitsPayload: undefined,
+	sessionSequence: undefined,
 	rateFresh: false,
 	rateDiscovery: false,
 	failLicense: false,
@@ -938,8 +982,10 @@ const control = {
 	allUnknown: false,
 	fpsMismatch: false
 };
+let oldSessionActive = true;
 let tokenCounter = 0;
 let fastTimers = false;
+let boundedTimers = 0;
 let releaseExecutionDownload;
 let notifyLateClose;
 const mediaMpd = (source, family) => {
@@ -1013,11 +1059,20 @@ const realSelection = compile(
 		'./log': { console: mediaLogger },
 		'./module.crunchy-video-catalog': catalog,
 		'./module.crunchy-discovery-scheduler': scheduler,
+		'./module.crunchy-playback-recovery': recoveryModule,
 		'./module.crunchy-manifests': realManifests
 	},
-	{ setTimeout: (fn, ms) => setTimeout(fn, fastTimers ? 0 : ms) }
+	{
+		setTimeout: (fn, ms) => {
+			boundedTimers++;
+			return setTimeout(fn, fastTimers ? 0 : ms);
+		}
+	}
 );
+let cliArgs = {};
 const mediaDeps = {
+	'./modules/module.app-args': { appArgv: () => cliArgs },
+	'./modules/module.crunchy-device-auth': { validateCrunchyAuthModes: () => undefined },
 	'./package.json': {},
 	fs: {
 		existsSync: () => true,
@@ -1033,15 +1088,22 @@ const mediaDeps = {
 	'./modules/module.crunchy-manifests': realManifests,
 	'./modules/module.crunchy-video-catalog': catalog,
 	'./modules/module.crunchy-video-selection': realSelection,
+	'./modules/module.crunchy-playback-recovery': recoveryModule,
+	'./modules/module.crunchy-discovery-scheduler': scheduler,
 	'./modules/module.working-indicator': {
 		WorkingIndicator: class {
 			start() {}
 			stop() {}
+			phase() {}
+			slot() {}
 			waiting() {}
 		}
 	},
 	'./modules/module.cfg-loader': { loadBinCfg: async () => ({ ffmpeg: 'fake', mp4decrypt: 'fake' }) },
-	'./modules/module.api-urls': { api: { crunchyDefHeader: {}, drm_widevine: 'https://license.invalid/', me: 'https://api.example.test/me' }, domain: {} },
+	'./modules/module.api-urls': {
+		api: { crunchyDefHeader: {}, drm_widevine: 'https://license.invalid/', me: 'https://api.example.test/me', streaming_sessions: 'https://api.example.test/sessions' },
+		domain: {}
+	},
 	'./@types/enums': {
 		CrunchyVideoPlayStreams: { androidtv: 'video', chrome: 'video', android: 'phone', androidtab: 'tablet' },
 		CrunchyAudioPlayStreams: { androidtv: 'audio', chrome: 'audio', android: 'phone', androidtab: 'tablet' }
@@ -1101,7 +1163,24 @@ service.req = {
 	argv: { debug: false },
 	async getData(target, options = {}) {
 		mediaRequests.push({ target, method: options.method });
+		if (target === 'https://api.example.test/sessions')
+			return {
+				ok: true,
+				res: new Response(
+					JSON.stringify({
+						items: control.sessionSequence?.length
+							? control.sessionSequence.shift()
+							: oldSessionActive
+								? [{ contentId: 'old', token: 'old-token' }]
+								: control.nonzeroVerification
+									? [{ contentId: 'linger', token: 'linger' }]
+									: []
+					})
+				)
+			};
 		if (options.method === 'DELETE') {
+			if (target.endsWith('/old/old-token')) oldSessionActive = false;
+			if (control.failRecoveryClose && /token-EN-1$/.test(target)) return { ok: false, res: new Response('', { status: 503 }) };
 			if (control.failFirstDubClose && target.endsWith('/EN/token-EN-4')) return { ok: false, res: new Response('', { status: 503 }) };
 			if (target.endsWith('/late-D')) notifyLateClose?.();
 			if (
@@ -1113,10 +1192,25 @@ service.req = {
 			return { ok: !(control.failClose && target.includes('/JA/token-JA-3')), res: new Response('', { status: 200 }) };
 		}
 		if (options.method === 'PATCH') return { ok: true, res: new Response('', { status: 200 }) };
-		if (target === 'https://api.example.test/me') return { ok: true, res: new Response(JSON.stringify({ external_id: 'synthetic' })) };
-		if (target.includes('/subs/v1/subscriptions/')) return { ok: true, res: new Response(JSON.stringify({ items: [{ benefit: 'offline_viewing' }] })) };
+		if (target === 'https://api.example.test/me') {
+			fakeNow += control.benefitDelayMs;
+			return { ok: true, res: new Response(JSON.stringify({ external_id: 'synthetic' })) };
+		}
+		if (target.includes('/subs/v1/subscriptions/'))
+			return {
+				ok: true,
+				res: new Response(
+					JSON.stringify(control.benefitsPayload ?? { items: [{ benefit: 'offline_viewing' }, { benefit: `concurrent_streams.${control.capacityLimit}` }] })
+				)
+			};
 		const download = /\/v3\/(EN|JA2|JA)\/(phone|tablet)\/download$/.exec(target);
 		if (download) {
+			if (control.downloadRefusals) {
+				control.downloadRefusals--;
+				return { ok: false, res: new Response(JSON.stringify({ error: 4294, reason: 'Too many requests' }), { status: 429 }) };
+			}
+			if (control.downloadUnknown) return { ok: false };
+			if (control.downloadErrorStatus) return { ok: false, error: Error('truncated body'), res: new Response('', { status: 403 }) };
 			if (control.downloadReject) return { ok: false, res: new Response('', { status: 404 }) };
 			if (control.downloadRate) return { ok: false, res: new Response('', { status: 429 }) };
 			const source = download[1];
@@ -1144,6 +1238,18 @@ service.req = {
 		const playback = /\/v3\/(EN|JA2|JA)\/video\/play\?queue=0$/.exec(target);
 		if (playback) {
 			const source = playback[1];
+			if (control.playbackRefusals?.[source] && tokenCounter >= control.refusalAfter) {
+				control.playbackRefusals[source]--;
+				return {
+					ok: false,
+					error: control.refusalTransportError ? Error('synthetic transport error') : undefined,
+					res: new Response(control.refusalBody ?? JSON.stringify({ error: 4294, reason: 'Too many requests' }), {
+						status: 429,
+						headers: control.refusalRetryAfter ? { 'Retry-After': control.refusalRetryAfter } : {}
+					})
+				};
+			}
+			if (control.playbackReject) return control.playbackReject === '429' ? { ok: false, res: new Response('', { status: 429 }) } : { ok: false };
 			if (control.videoReject && source === 'EN' && tokenCounter >= 3) return { ok: false };
 			const playbackToken = own(`token-${source}-${++tokenCounter}`);
 			if ((control.deferExecDownload || control.stallHead) && source === 'JA' && tokenCounter >= 3) fastTimers = true;
@@ -1171,6 +1277,10 @@ service.req = {
 					})
 				)
 			};
+		}
+		if (control.audioRefusals && /\/v3\/EN\/audio\/play\?queue=1$/.test(target)) {
+			control.audioRefusals--;
+			return { ok: false, res: new Response(JSON.stringify({ error: 4294, reason: 'Too many requests' }), { status: 429 }) };
 		}
 		if (control.audioReject && /\/v3\/EN\/audio\/play\?queue=1$/.test(target))
 			return control.audioReject === '429' ? { ok: false, res: new Response('', { status: 429 }) } : { ok: false };
@@ -1309,6 +1419,7 @@ function resetGlobal(overrides = {}) {
 	archiveWrites.length = 0;
 	muxCalls.length = 0;
 	tokenCounter = 0;
+	oldSessionActive = true;
 	downloadCounter = 0;
 	fastTimers = false;
 	releaseExecutionDownload = undefined;
@@ -1329,6 +1440,22 @@ function resetGlobal(overrides = {}) {
 			lateMismatch: false,
 			audioClear: false,
 			videoClear: false,
+			playbackReject: undefined,
+			playbackRefusals: undefined,
+			refusalAfter: 0,
+			refusalBody: undefined,
+			refusalTransportError: false,
+			downloadUnknown: false,
+			downloadErrorStatus: false,
+			refusalRetryAfter: undefined,
+			nonzeroVerification: false,
+			failRecoveryClose: false,
+			downloadRefusals: 0,
+			audioRefusals: 0,
+			benefitDelayMs: 0,
+			capacityLimit: 1,
+			benefitsPayload: undefined,
+			sessionSequence: undefined,
 			rateFresh: false,
 			rateDiscovery: false,
 			failLicense: false,
@@ -1646,6 +1773,15 @@ resetGlobal({ hard: true });
 assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, hslang: 'en', dryRun: true }), true);
 assert(!mediaLogs.some((entry) => String(entry[0]).includes('[Notice: falling back')));
 assert.equal(tokenCounter, 1);
+resetGlobal({ audioReject: '429' });
+assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, keepAllVideos: true, vstream: 'android', astream: 'chrome' }), false);
+const playback429Close = mediaRequests.filter((request) => request.method === 'DELETE');
+assert.equal(playback429Close.filter((request) => request.target.endsWith('/EN/token-EN-1')).length, 1);
+assert.equal(playback429Close.filter((request) => request.target.endsWith('/EN/download-EN-1')).length, 1);
+assert.equal(mediaRequests.filter((request) => request.target.includes('/video/play?queue=0')).length, 1);
+assert.equal(downloads.length, 0);
+assert.equal(muxCalls.length, 0);
+assert.equal(archiveWrites.length, 0);
 resetGlobal();
 const noVersionData = { ...mediaData, data: [{ ...mediaData.data[0], versions: null }] };
 assert.equal(await service.downloadEpisode(noVersionData, { ...mediaOptions, dryRun: true }), true);
@@ -1769,4 +1905,711 @@ assert.equal(activeTokens.size, 0);
 assert.equal(tokenCounter, 3);
 assert.equal(downloads.length, 0);
 fastTimers = false;
+// Reset is explicit, precedes discovery, and is consumed once per episode.
+resetGlobal();
+const sharedOptions = { ...mediaOptions, tsd: true, dryRun: true };
+assert.equal(await service.downloadEpisode(mediaData, sharedOptions), true);
+assert.equal(sharedOptions.tsd, true);
+assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/sessions').length, 2);
+assert(mediaRequests.findIndex((r) => r.target.endsWith('/old/old-token')) < mediaRequests.findIndex((r) => r.target.includes('/v3/')));
+assert.equal(downloads.length, 0);
+assert.equal(licenseCalls.length, 0);
+assert.equal(archiveWrites.length, 0);
+assert(!mediaLogs.some((line) => String(line[0]).includes('Closed ')));
+assert.equal(await service.downloadEpisode(mediaData, sharedOptions), true);
+assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/sessions').length, 3);
+resetGlobal();
+assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, dryRun: true }), true);
+assert(!mediaRequests.some((r) => r.target === 'https://api.example.test/sessions'));
+for (const [reason, tsd] of [
+	['429', false],
+	['network', false],
+	['429', true]
+]) {
+	resetGlobal({ playbackReject: reason });
+	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd }), false);
+	assert.equal(mediaRequests.filter((r) => r.target.includes('/video/play?queue=0')).length, 1);
+	const notices = mediaLogs.filter((r) => /Rate limit/.test(String(r[0])));
+	assert.equal(notices.length, reason === '429' ? 1 : 0);
+	if (reason === '429') assert.equal(String(notices[0][0]).includes('--tsd'), !tsd);
+}
+{
+	const savedReq = service.req;
+	const headers = { headers: { Authorization: 'synthetic' } };
+	const pair = (id, token = id) => ({ contentId: id, token });
+	async function checkReset(items, deleteStatuses = [], verifyLists) {
+		let gets = 0,
+			deletes = 0;
+		service.req = {
+			argv: {},
+			getData: async (_target, options = {}) => {
+				if (options.method === 'DELETE') {
+					const status = deleteStatuses[deletes++] ?? 204;
+					return { ok: status === 200 || status === 204, res: { status } };
+				}
+				const body = verifyLists ? verifyLists[gets++] : gets++ === 0 ? items : [];
+				if (body === null) return { ok: false };
+				return { ok: true, res: { json: async () => (Array.isArray(body) ? { items: body } : body) } };
+			}
+		};
+		const result = await service.resetPlaybackSessions(headers);
+		return { result, gets, deletes };
+	}
+	let r = await checkReset([]);
+	assert.equal(r.result.ok, true);
+	assert.equal(r.result.closed, 0);
+	assert.equal(r.deletes, 0);
+	r = await checkReset([pair('A'), pair('A'), pair('B')]);
+	assert.equal(r.result.ok, true);
+	assert.equal(r.result.closed, 2);
+	assert.equal(r.deletes, 2);
+	for (const bad of [[pair('A'), { contentId: 'B' }], Array.from({ length: 33 }, (_, i) => pair(String(i)))]) {
+		r = await checkReset(bad);
+		assert.equal(r.result.ok, false);
+		assert.equal(r.deletes, 0);
+	}
+	r = await checkReset([], [], [{ items: [], total: 1 }]);
+	assert.equal(r.result.ok, false);
+	assert.equal(r.deletes, 0);
+	r = await checkReset([], [], [[pair('A')], { items: [], pagination: { next: 'more' } }]);
+	assert.equal(r.result.ok, false);
+	assert.equal(r.result.remaining, undefined);
+	r = await checkReset([pair('A'), pair('B')], [204, 500]);
+	assert.equal(r.result.ok, false);
+	assert.equal(r.result.closed, 1);
+	assert.equal(r.deletes, 2);
+	r = await checkReset([], [], [[pair('A')], []]);
+	assert.equal(r.result.ok, true);
+	assert.equal(r.result.closed, 1);
+	assert.equal(r.result.remaining, 0);
+	assert.equal(r.gets, 2);
+	r = await checkReset([], [], [[pair('A')], [pair('B')]]);
+	assert.equal(r.result.ok, false);
+	assert.equal(r.result.remaining, 1);
+	assert.equal(r.deletes, 1);
+	r = await checkReset([], [], [[pair('A')], null]);
+	assert.equal(r.result.ok, false);
+	assert.equal(r.result.closed, 1);
+	assert.equal(r.result.remaining, undefined);
+	service.req = {
+		argv: {},
+		getData: async () => ({
+			ok: true,
+			res: {
+				json: async () => {
+					throw Error('private parser details');
+				}
+			}
+		})
+	};
+	assert.equal((await service.resetPlaybackSessions(headers)).reason, 'invalid session list');
+	let verificationLists = 0;
+	service.req = {
+		argv: {},
+		getData: async (_target, options = {}) => {
+			if (options.method === 'DELETE') return { ok: true, res: { status: 204 } };
+			if (++verificationLists === 1) return { ok: true, res: { json: async () => ({ items: [pair('A')] }) } };
+			return new Promise(() => {});
+		}
+	};
+	const timerCount = boundedTimers;
+	fastTimers = true;
+	const verifyTimeout = await service.resetPlaybackSessions(headers);
+	fastTimers = false;
+	assert.equal(verifyTimeout.ok, false);
+	assert.equal(verifyTimeout.reason, 'session reset timed out');
+	assert.equal(verifyTimeout.closed, 1);
+	assert.equal(verifyTimeout.remaining, undefined);
+	assert.equal(verificationLists, 2);
+	assert.equal(boundedTimers - timerCount, 1, 'one timer bounds list, deletes and verification');
+
+	let resolveLate,
+		lateDeletes = 0;
+	service.req = {
+		argv: {},
+		getData: async (_target, options = {}) => {
+			if (options.method === 'DELETE') {
+				lateDeletes++;
+				return { ok: true, res: { status: 204 } };
+			}
+			return new Promise((resolve) => {
+				resolveLate = resolve;
+			});
+		}
+	};
+	fastTimers = true;
+	const timedReset = await service.resetPlaybackSessions(headers);
+	assert.equal(timedReset.ok, false);
+	resolveLate({ ok: true, res: { json: async () => ({ items: [pair('late')] }) } });
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(lateDeletes, 0, 'late list cannot dispatch a delete after timeout');
+	fastTimers = false;
+	let resolveDelete,
+		deleteCalls = 0,
+		listCalls = 0;
+	service.req = {
+		argv: {},
+		getData: async (_target, options = {}) => {
+			if (options.method !== 'DELETE') {
+				listCalls++;
+				return { ok: true, res: { json: async () => ({ items: [pair('A'), pair('B')] }) } };
+			}
+			deleteCalls++;
+			return new Promise((resolve) => {
+				resolveDelete = resolve;
+			});
+		}
+	};
+	fastTimers = true;
+	const timedDelete = await service.resetPlaybackSessions(headers);
+	assert.equal(timedDelete.ok, false);
+	assert.equal(timedDelete.closed, 0);
+	resolveDelete({ ok: true, res: { status: 204 } });
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(deleteCalls, 1);
+	assert.equal(listCalls, 1, 'timeout forbids further deletions and verification');
+	fastTimers = false;
+	let begun;
+	const started = new Promise((resolve) => {
+		begun = resolve;
+	});
+	service.req = {
+		argv: {},
+		getData: async () => {
+			begun();
+			return new Promise(() => {});
+		}
+	};
+	const cancelled = service.resetPlaybackSessions(headers);
+	await started;
+	process.emit('SIGINT');
+	const cancelResult = await cancelled;
+	assert.equal(cancelResult.ok, false);
+	assert.equal(cancelResult.reason, 'session reset cancelled');
+	service.req = savedReq;
+}
+
+{
+	// The next stage cannot begin while session enumeration remains pending.
+	resetGlobal();
+	const saved = service.req;
+	let finishList,
+		began,
+		resetListCount = 0;
+	const started = new Promise((resolve) => {
+		began = resolve;
+	});
+	service.req = {
+		...saved,
+		getData: async (target, options) => {
+			if (target === 'https://api.example.test/sessions') {
+				if (++resetListCount > 1) return { ok: true, res: new Response(JSON.stringify({ items: [] })) };
+				began();
+				return new Promise((resolve) => {
+					finishList = resolve;
+				});
+			}
+			return saved.getData(target, options);
+		}
+	};
+	const pending = service.downloadEpisode(mediaData, { ...mediaOptions, tsd: true, dryRun: true });
+	await started;
+	assert(!mediaRequests.some((r) => r.target.includes('/v3/')));
+	finishList({ ok: true, res: new Response(JSON.stringify({ items: [] })) });
+	assert.equal(await pending, true);
+	service.req = saved;
+}
+{
+	// Standalone summaries follow one verification list and set CLI failure status.
+	const saved = service.req;
+	service.cfg.cli = {};
+	let refreshCalled = 0,
+		requestCalled = 0;
+	const savedRefresh = service.refreshToken;
+	service.refreshToken = async () => {
+		refreshCalled++;
+		return true;
+	};
+	service.req = {
+		argv: {},
+		getData: async () => {
+			requestCalled++;
+			throw Error('unexpected');
+		}
+	};
+	service.token = { access_token: 'synthetic' };
+	cliArgs = { tsd: true, tsdExplicit: true, dubLang: [], locale: 'en-US' };
+	process.exitCode = undefined;
+	mediaLogs.length = 0;
+	assert.equal(await service.cli(), false);
+	assert.equal(process.exitCode, 1);
+	assert.equal(refreshCalled, 0);
+	assert.equal(requestCalled, 0);
+	assert(mediaLogs.some((line) => String(line[0]).includes('Login required')));
+	assert(!mediaLogs.some((line) => String(line[0]).startsWith('Closed ')));
+	service.refreshToken = savedRefresh;
+	service.token = { access_token: 'synthetic', refresh_token: 'synthetic-refresh' };
+	for (const [remaining, failure, expected] of [
+		[0, false, true],
+		[1, false, false],
+		[0, true, false]
+	]) {
+		resetGlobal();
+		let lists = 0,
+			deletes = 0;
+		service.req = {
+			argv: {},
+			getData: async (_target, options = {}) => {
+				if (options.method === 'DELETE') {
+					deletes++;
+					return { ok: true, res: { status: 204 } };
+				}
+				lists++;
+				if (lists === 2 && failure) return { ok: false };
+				const items = lists === 1 ? [{ contentId: 'A', token: 'A' }] : Array.from({ length: remaining }, () => ({ contentId: 'B', token: 'B' }));
+				return { ok: true, res: { json: async () => ({ items }) } };
+			}
+		};
+		cliArgs = { tsd: true, tsdExplicit: true, dryRun: true, debug: true, dubLang: [], locale: 'en-US' };
+		process.exitCode = undefined;
+		assert.equal(await service.cli(), expected);
+		assert.equal(lists, 2);
+		assert.equal(deletes, 1);
+		const summary = mediaLogs.find((line) => String(line[0]).startsWith('Closed 1 playback sessions.'));
+		assert(summary && String(summary[0]).includes(`remaining: ${failure ? 'unknown' : remaining}`));
+		assert.equal(process.exitCode, expected ? undefined : 1);
+	}
+	process.exitCode = undefined;
+	for (const extra of [{ tsdExplicit: false }, { search: 'ab' }, { series: 'bad' }, { s: '' }, { _: ['unexpected'] }, { requestedActionOrSelector: true }, { all: true }]) {
+		let called = false;
+		service.req = {
+			argv: {},
+			getData: async () => {
+				called = true;
+				throw Error('unexpected reset');
+			}
+		};
+		cliArgs = { tsd: true, tsdExplicit: true, dubLang: [], locale: 'en-US', ...extra };
+		await service.cli();
+		assert.equal(called, false);
+	}
+	service.req = saved;
+	service.debug = false;
+	process.exitCode = undefined;
+}
+
+{
+	// The real serial series loop finishes muxing before the next episode reset.
+	resetGlobal();
+	const originalMux = service.muxStreams;
+	let releaseMux,
+		reachedMux,
+		muxCount = 0;
+	const firstMux = new Promise((resolve) => {
+		reachedMux = resolve;
+	});
+	service.muxStreams = async () => {
+		muxCount++;
+		if (muxCount === 1) {
+			reachedMux();
+			await new Promise((resolve) => {
+				releaseMux = resolve;
+			});
+		}
+	};
+	service.logSeriesById = async () => {};
+	service.downloadFromSeriesID = async () => ({ isOk: true, value: [mediaData, mediaData] });
+	cliArgs = { ...mediaOptions, tsd: true, series: 'ABCDEFGHI', locale: 'en-US', requestedActionOrSelector: true };
+	const batch = service.cli();
+	await firstMux;
+	assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/sessions').length, 2);
+	releaseMux();
+	assert.equal(await batch, true);
+	assert.equal(muxCount, 2);
+	assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/sessions').length, 3);
+	assert.equal(cliArgs.tsd, true);
+	service.muxStreams = originalMux;
+	delete service.logSeriesById;
+	delete service.downloadFromSeriesID;
+}
+
+for (const [status, body, expected] of [
+	[429, '{"error":4294,"reason":"Too many requests"}', true],
+	[429, '{"error":4294,"reason":"Too many requests","token":"x"}', false],
+	[429, '{"error":"4294","reason":"Too many requests"}', false],
+	[429, '{"error":4294,"reason":"other"}', false],
+	[429, '{', false],
+	[503, '{"error":4294,"reason":"Too many requests"}', false]
+])
+	assert.equal(recoveryModule.isPlaybackRefusal(status, body), expected);
+for (const body of ['{', '{"error":4294,"reason":"Too many requests","token":"x"}']) {
+	resetGlobal({ playbackRefusals: { EN: 1 }, refusalBody: body });
+	const budget = { used: false };
+	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: false, queueRecovery: budget, dryRun: true }), false);
+	assert.equal(budget.used, false);
+	assert(!mediaRequests.some((r) => r.target === 'https://api.example.test/sessions'));
+}
+resetGlobal({ playbackRefusals: { EN: 1 }, refusalRetryAfter: '61', capacityLimit: 2 });
+assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: false, queueRecovery: { used: false }, dryRun: true }), false);
+assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/sessions').length, 1);
+resetGlobal({ playbackRefusals: { EN: 1 }, nonzeroVerification: true });
+assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: true, queueRecovery: { used: false }, dryRun: true }), false);
+assert.equal(mediaRequests.filter((r) => r.target.includes('/video/play?queue=0')).length, 0);
+resetGlobal({ downloadRefusals: 1, failRecoveryClose: true });
+assert.equal(
+	await service.downloadEpisode(mediaData, { ...mediaOptions, keepAllVideos: true, vstream: 'android', astream: 'chrome', tsd: false, queueRecovery: { used: false } }),
+	false
+);
+assert(!mediaRequests.some((r) => r.target === 'https://api.example.test/sessions'));
+
+{
+	// Both known tokens get one close attempt even when the first fails; the finalizer must not replay either DELETE.
+	resetGlobal({ audioRefusals: 1, failRecoveryClose: true });
+	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, keepAllVideos: true, vstream: 'android', astream: 'chrome', tsd: false }), false);
+	assert.equal(mediaRequests.filter((r) => r.method === 'DELETE' && r.target.endsWith('/EN/token-EN-1')).length, 1);
+	assert.equal(mediaRequests.filter((r) => r.method === 'DELETE' && r.target.endsWith('/EN/download-EN-1')).length, 1);
+	assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/sessions').length, 0);
+	assert.equal(mediaRequests.filter((r) => r.target.includes('/EN/audio/play?queue=1')).length, 1);
+}
+{
+	// Both playback tokens remain live until finalization. A failed video close must not skip the audio close.
+	resetGlobal({ distinctAudio: true, failRecoveryClose: true });
+	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, keepAllVideos: true, vstream: 'androidtv', astream: 'chrome', dryRun: true }), false);
+	assert.equal(peakTokens, 2);
+	assert(mediaRequests.findIndex((r) => r.target.includes('/EN/audio/play?queue=1')) < mediaRequests.findIndex((r) => r.method === 'DELETE'));
+	assert.equal(mediaRequests.filter((r) => r.method === 'DELETE' && r.target.endsWith('/EN/token-EN-1')).length, 1);
+	assert.equal(mediaRequests.filter((r) => r.method === 'DELETE' && r.target.endsWith('/EN/token-EN-audio')).length, 1);
+	assert.equal(downloads.length, 0);
+	assert.equal(muxCalls.length, 0);
+	assert.equal(archiveWrites.length, 0);
+}
+{
+	// Direct requested-version preflight reuses the existing validated Android benefits response.
+	resetGlobal({ capacityLimit: 2 });
+	await service.downloadMediaList(mediaData, { ...mediaOptions, keepAllVideos: true, vstream: 'android', astream: 'chrome', tsd: true, dryRun: true });
+	assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/me').length, 1);
+	assert.equal(mediaRequests.filter((r) => r.target.includes('/subs/v1/subscriptions/')).length, 1);
+	assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/sessions').length, 1);
+	assert(mediaRequests.some((r) => r.target.includes('/EN/video/play?queue=0')));
+}
+
+{
+	const originalEpisode = service.downloadEpisode;
+	const budget = { used: false };
+	service.commandRecovery = budget;
+	service.logSeriesById = async () => {};
+	for (const [count, enabled] of [
+		[4, true],
+		[5, true],
+		[5, false]
+	]) {
+		const seen = [];
+		service.downloadFromSeriesID = async () => ({ isOk: true, value: Array.from({ length: count }, () => mediaData) });
+		service.downloadEpisode = async (_item, options) => {
+			seen.push(options.queueRecovery);
+			return true;
+		};
+		cliArgs = { ...mediaOptions, tsd: enabled, series: 'ABCDEFGHI', locale: 'en-US', requestedActionOrSelector: true };
+		assert.equal(await service.cli(), true);
+		assert.equal(seen.length, count);
+		assert(seen.every((entry) => entry === budget));
+	}
+	service.downloadEpisode = originalEpisode;
+	delete service.downloadFromSeriesID;
+	delete service.logSeriesById;
+	delete service.commandRecovery;
+}
+
+{
+	// Manifest and acquisition retries consume the same three-stage budget.
+	const f = testClock();
+	let enManifest = 0,
+		jaAcquire = 0,
+		closes = 0;
+	const stages = [];
+	const result = await discoverVideoCandidates({
+		sources,
+		requested: ['EN'],
+		ordinal: 1,
+		ignoreTiming: false,
+		debug: false,
+		headers: {},
+		clock: f.clock,
+		recoveryBudget: { used: false },
+		onWaiting: (retry, _ms, kind, playbackRetry) => {
+			if (retry) stages.push([retry, kind, playbackRetry]);
+		},
+		recover: async (attempt, pace, _signal, headers, refusedAt) => {
+			await pace.waitPlayback(headers, attempt, refusedAt);
+			return true;
+		},
+		acquire: async (source) => {
+			if (source.guid === 'JA' && jaAcquire++ < 2) throw new recoveryModule.PlaybackRefusal(new Headers());
+			return { token: source.guid, url: `https://example.test/static/${source.guid}/clean/dash/manifest.mpd` };
+		},
+		close: async () => {
+			closes++;
+			return true;
+		},
+		req: {
+			getData: async (url) => {
+				if (url.includes('/EN/') && !url.includes('/0/clean/') && !url.includes('/1/clean/') && enManifest++ === 0)
+					return { ok: false, res: new Response('', { status: 429 }) };
+				if (url.includes('/0/clean/') || url.includes('/1/clean/')) return { ok: false, res: new Response('', { status: 404 }) };
+				return { ok: true, res: new Response(xml(url.includes('/JA/') ? 'JA' : 'EN')) };
+			}
+		}
+	});
+	assert.equal(result.status, 'ok');
+	assert.equal(result.entries.length, 2);
+	assert.equal(jaAcquire, 3);
+	assert.equal(closes, 2);
+	assert.deepEqual(
+		stages.map((x) => [x[0], x[1], x[2]]),
+		[
+			[1, 'manifest', 0],
+			[2, 'playback', 1],
+			[3, 'playback', 2]
+		]
+	);
+	assert(f.waits.includes(1000) && f.waits.includes(10000) && f.waits.includes(30000));
+}
+{
+	const f = testClock();
+	const abort = new AbortController();
+	f.clock.sleep = async () => {
+		abort.abort();
+		throw Error('discovery cancelled');
+	};
+	let acquires = 0,
+		resets = 0;
+	const result = await discoverVideoCandidates({
+		sources: [sources[0]],
+		requested: ['EN'],
+		ordinal: 1,
+		ignoreTiming: false,
+		debug: false,
+		headers: {},
+		clock: f.clock,
+		signal: abort.signal,
+		recoveryBudget: { used: false },
+		recover: async (attempt, pace, _signal, headers, refusedAt) => {
+			await pace.waitPlayback(headers, attempt, refusedAt);
+			resets++;
+			return true;
+		},
+		acquire: async () => {
+			acquires++;
+			throw new recoveryModule.PlaybackRefusal(new Headers());
+		},
+		close: async () => true,
+		req: {}
+	});
+	assert.equal(result.status, 'unsafe');
+	assert.equal(acquires, 1);
+	assert.equal(resets, 0);
+}
+
+{
+	resetGlobal({ playbackRefusals: { JA: 3 }, capacityLimit: 2 });
+	const before = fakeNow;
+	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: false, dryRun: true }), true);
+	assert(fakeNow - before >= 100000 && fakeNow - before <= 104000, `three waits with pacing credit: ${fakeNow - before}`);
+	assert.equal(mediaRequests.filter((r) => r.target.endsWith('/old/old-token')).length, 0);
+}
+{
+	resetGlobal({ playbackRefusals: { EN: 1 }, refusalTransportError: true, capacityLimit: 2 });
+	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: false, dryRun: true }), false);
+	assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/sessions').length, 0, 'transport error with a 429 body is not replayed');
+	resetGlobal({ downloadUnknown: true });
+	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, keepAllVideos: true, vstream: 'android', astream: 'chrome' }), false);
+	assert.equal(downloads.length, 0);
+	assert.equal(muxCalls.length, 0);
+	resetGlobal({ downloadErrorStatus: true });
+	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, keepAllVideos: true, vstream: 'android', astream: 'chrome' }), false);
+	assert.equal(downloads.length, 0);
+}
+
+{
+	// Playback ordinal belongs to discovery, even when separate sources refuse.
+	resetGlobal({ playbackRefusals: { EN: 1, JA: 1 }, capacityLimit: 2 });
+	const before = fakeNow;
+	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: false, dryRun: true }), true);
+	assert(fakeNow - before >= 40000 && fakeNow - before < 43000);
+}
+{
+	// A late full result cannot spend the one clear on the third discovery replay.
+	resetGlobal({ playbackRefusals: { JA: 3 } });
+	control.sessionSequence = [[], [], [], [{ contentId: 'old', token: 'old-token' }]];
+	const budget = { used: false };
+	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: true, queueRecovery: budget, dryRun: true }), false);
+	assert.equal(budget.used, false);
+	assert.equal(mediaRequests.filter((r) => r.target.endsWith('/old/old-token')).length, 0);
+}
+{
+	// Unknown during polling does not restart its deadline on a later refusal.
+	resetGlobal({ playbackRefusals: { EN: 2 } });
+	control.sessionSequence = [[{ contentId: 'old', token: 'old-token' }], null, [{ contentId: 'old', token: 'old-token' }]];
+	const before = fakeNow;
+	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: false, dryRun: true }), false);
+	assert(fakeNow - before >= 60000 && fakeNow - before < 62000, `slot interval restarted: ${fakeNow - before}`);
+}
+// Exact 4294 permits one incident and resumes the failing discovery source only.
+for (const failures of [1, 2, 3]) {
+	resetGlobal({ playbackRefusals: { JA: failures } });
+	const budget = { used: false };
+	const result = await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: true, queueRecovery: budget, dryRun: true });
+	assert.equal(result, failures < 3);
+	assert.equal(budget.used, true);
+	assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/sessions').length, failures === 1 ? 3 : 4);
+	assert.equal(mediaRequests.filter((r) => r.target.endsWith('/old/old-token')).length, 1);
+	const playbackEvents = mediaRequests.filter((r) => r.target.includes('/video/play?queue=0'));
+	assert.equal(playbackEvents.filter((r) => r.target.includes('/EN/')).length, failures === 3 ? 1 : 2);
+	assert.equal(playbackEvents.filter((r) => r.target.includes('/JA/')).length, failures === 3 ? 3 : failures + 2);
+}
+resetGlobal({ benefitDelayMs: 120000, distinctAudio: true });
+const freshWindowResult = await service.downloadEpisode(mediaData, {
+	...mediaOptions,
+	tsd: false,
+	queueRecovery: { used: false },
+	vstream: 'android',
+	astream: 'chrome',
+	dryRun: true
+});
+assert.equal(freshWindowResult, true, 'execution deadline starts after unrelated pre-acquisition metadata');
+resetGlobal({ playbackRefusals: { JA: 1 }, refusalAfter: 2 });
+const executionBudget = { used: false };
+assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: true, queueRecovery: executionBudget }), true);
+assert.equal(executionBudget.used, true);
+assert.equal(downloads.length, 2);
+assert.equal(muxCalls.length, 1);
+assert.equal(archiveWrites.length, 1);
+assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/sessions').length, 3);
+
+for (const failures of [2, 3]) {
+	resetGlobal({ playbackRefusals: { JA: failures }, refusalAfter: 2 });
+	const budget = { used: false };
+	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: true, queueRecovery: budget }), failures === 2);
+	assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/sessions').length, 4);
+	assert.equal(mediaRequests.filter((r) => r.target.endsWith('/old/old-token')).length, 1);
+	assert.equal(mediaRequests.filter((r) => r.target.includes('/JA/video/play?queue=0')).length, 4);
+	assert.equal(muxCalls.length, failures === 2 ? 1 : 0);
+}
+resetGlobal({ audioRefusals: 1, distinctAudio: true });
+const audioBudget = { used: false };
+assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, vstream: 'androidtv', astream: 'chrome', tsd: true, queueRecovery: audioBudget }), true);
+assert.equal(audioBudget.used, true);
+assert.equal(downloads.length, 2);
+assert.equal(muxCalls.length, 1);
+assert.equal(archiveWrites.length, 1);
+const ownCloseIndex = mediaRequests.findIndex((r) => r.target.endsWith('/EN/token-EN-4'));
+const resetIndex = mediaRequests.findLastIndex((r) => r.target === 'https://api.example.test/sessions');
+assert(ownCloseIndex >= 0 && ownCloseIndex < resetIndex);
+assert.equal(mediaRequests.filter((r) => r.target.includes('/EN/audio/play?queue=1')).length, 2);
+resetGlobal({ playbackRefusals: { JA: 1 }, refusalAfter: 1 });
+const laterDubBudget = { used: false };
+assert.equal(await service.downloadEpisode(multiDubData, { ...mediaOptions, keepAllVideos: true, tsd: true, queueRecovery: laterDubBudget }), true);
+assert.equal(laterDubBudget.used, true);
+assert.equal(muxCalls.length, 1);
+assert.equal(archiveWrites.length, 1);
+assert.equal(mediaRequests.filter((r) => r.target.includes('/EN/video/play?queue=0')).length, 1);
+assert.equal(mediaRequests.filter((r) => r.target.includes('/JA/video/play?queue=0')).length, 2);
+assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/sessions').length, 3);
+
+{
+	const entitlement = recoveryModule.concurrentStreamLimit;
+	assert.equal(entitlement({ items: [{ benefit: 'concurrent_streams.4' }, { benefit: 'concurrent_streams.4' }] }), 4);
+	for (const items of [
+		[],
+		[{ benefit: 'concurrent_streams.0' }],
+		[{ benefit: 'concurrent_streams.x' }],
+		[{ benefit: 'concurrent_streams.1' }, { benefit: 'concurrent_streams.2' }]
+	])
+		assert.equal(entitlement({ items }), undefined);
+	assert.equal(
+		recoveryModule.playbackSessions({
+			items: [
+				{ contentId: 'a', token: 'b' },
+				{ contentId: 'a', token: 'b' }
+			]
+		}).length,
+		1
+	);
+	assert.equal(recoveryModule.playbackSessions({ items: [{ contentId: 'a' }] }), undefined);
+	assert.equal(recoveryModule.playbackSessions({ items: [], total: 1 }), undefined);
+	assert.equal(recoveryModule.playbackSessions({ items: [], next: 'more' }), undefined);
+	assert.equal(recoveryModule.playbackSessions({ items: [], has_more: true }), undefined);
+	assert.equal(recoveryModule.playbackSessions({ items: [], pagination: { next: 'more' } }), undefined);
+}
+{
+	// One-episode free capacity is checked without deleting; the same applies to multiple dubs.
+	resetGlobal({ capacityLimit: 2 });
+	const budget = { used: false };
+	assert.equal(await service.downloadEpisode(multiDubData, { ...mediaOptions, keepAllVideos: true, tsd: true, queueRecovery: budget, dryRun: true }), true);
+	assert.equal(budget.used, false);
+	assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/sessions').length, 1);
+	assert.equal(mediaRequests.filter((r) => r.target.endsWith('/old/old-token')).length, 0);
+}
+{
+	// A spent command budget waits for a free slot without a second account-wide clear.
+	resetGlobal();
+	const full = [{ contentId: 'old', token: 'old-token' }];
+	control.sessionSequence = [full, []];
+	const budget = { used: true };
+	const before = fakeNow;
+	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: true, queueRecovery: budget, dryRun: true }), true);
+	assert(fakeNow - before >= 5000);
+	assert.equal(mediaRequests.filter((r) => r.target.endsWith('/old/old-token')).length, 0);
+}
+{
+	// No-TSD success has no proactive capacity request; an exact refusal polls a full account.
+	resetGlobal({ playbackRefusals: { EN: 1 } });
+	const full = [{ contentId: 'old', token: 'old-token' }];
+	control.sessionSequence = [full, []];
+	const before = fakeNow;
+	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: false, queueRecovery: { used: false }, dryRun: true }), true);
+	assert(fakeNow - before >= 5000);
+	assert.equal(mediaRequests.filter((r) => r.target.endsWith('/old/old-token')).length, 0);
+	assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/sessions').length, 2);
+	resetGlobal({ playbackRefusals: { EN: 1 } });
+	const expiredAt = fakeNow;
+	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: false, queueRecovery: { used: false }, dryRun: true }), false);
+	assert(fakeNow - expiredAt >= 60000 && fakeNow - expiredAt < 61000);
+	assert.equal(mediaRequests.filter((r) => r.target.includes('/EN/video/play?queue=0')).length, 1);
+	assert.equal(mediaRequests.filter((r) => r.target.endsWith('/old/old-token')).length, 0);
+}
+{
+	// Missing or conflicting entitlement is unknown; no account reset is authorized.
+	for (const benefitsPayload of [{ items: [] }, { items: [{ benefit: 'concurrent_streams.1' }, { benefit: 'concurrent_streams.2' }] }]) {
+		resetGlobal({ benefitsPayload });
+		const budget = { used: false };
+		assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: true, queueRecovery: budget, dryRun: true }), true);
+		assert.equal(budget.used, false);
+		assert.equal(mediaRequests.filter((r) => r.target.endsWith('/old/old-token')).length, 0);
+	}
+}
+{
+	const f = testClock();
+	const pace = new scheduler.DiscoveryScheduler(8, f.clock, undefined, undefined, 0);
+	f.advance(89999);
+	await pace.playbackSleep(60000);
+	assert.equal(pace.remaining(), 1);
+	f.advance(2);
+	await assert.rejects(pace.playbackSleep(1), /deadline/, 'expired work cannot be revived by a later sleep');
+	const g = testClock();
+	const ordinary = new scheduler.DiscoveryScheduler(8, g.clock, undefined, undefined, 0);
+	for (let i = 1; i <= 3; i++) {
+		ordinary.reservePlaybackRetry();
+		await ordinary.waitPlayback(new Headers(), i);
+	}
+	assert.deepEqual(g.waits, [10000, 30000, 60000]);
+	assert.equal(ordinary.remaining(), 90000);
+	await assert.rejects(ordinary.playbackSleep(21000), /budget/);
+	const h = testClock();
+	const paced = new scheduler.DiscoveryScheduler(16, h.clock, undefined, undefined, 70000);
+	for (let i = 0; i < 8; i++) await paced.dispatch();
+	await assert.rejects(paced.dispatch(false, 60000), /slot wait timed out/);
+	assert.equal(h.clock.now(), 60000);
+}
+
 output.log('Crunchy global two-pass consumer contract passed');

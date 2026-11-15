@@ -28,6 +28,8 @@ export let argvC: {
 	token: string | undefined;
 	device: boolean | undefined;
 	silentAuth: boolean;
+	requestedActionOrSelector?: boolean;
+	tsdExplicit?: boolean;
 	skipSubMux: boolean;
 	downloadArchive: boolean;
 	addArchive: boolean;
@@ -150,6 +152,47 @@ const processArgv = () => {
 	return argv;
 };
 
+// Preserve explicit empty selectors and positional arguments for standalone actions.
+const actionSelectors = new Set([
+	'auth',
+	'device',
+	'token',
+	'silentAuth',
+	'dlFonts',
+	'cmsindex',
+	'new',
+	'search',
+	'search-type',
+	'page',
+	'series',
+	'movie-listing',
+	'show-raw',
+	'season-raw',
+	'show-list-raw',
+	's',
+	'e',
+	'extid',
+	'all',
+	'but',
+	'update',
+	'downloadArchive',
+	'addArchive'
+]);
+const markActionSelection = (program: Command, parsed: ArgvType) => {
+	parsed.tsdExplicit = program.getOptionValueSource('tsd') === 'cli' && parsed.tsd === true;
+	parsed.requestedActionOrSelector =
+		program.args.length > 0 ||
+		args.some((item) => {
+			if (!actionSelectors.has(item.name)) return false;
+			const option = program.options.find((candidate) => (item.name.length === 1 ? candidate.short === `-${item.name}` : candidate.long === `--${item.name}`));
+			if (!option) return false;
+			const native = option.attributeName();
+			return item.type === 'boolean'
+				? parsed[native] === true
+				: program.getOptionValueSource(native) === 'cli' || (item.default === undefined && parsed[native] !== undefined);
+		});
+};
+
 const normalizeParsed = (program: Command, parsed: ArgvType) => {
 	for (const item of args) {
 		const native = program.options.find((option) => (item.name.length === 1 ? option.short === `-${item.name}` : option.long === `--${item.name}`))?.attributeName();
@@ -170,6 +213,7 @@ const appArgv = (
 	const parsed = argv.opts() as ArgvType;
 
 	normalizeParsed(argv, parsed);
+	markActionSelection(argv, parsed);
 
 	if (!isGUI && (process.argv.length <= 2 || parsed.help)) {
 		argv.outputHelp();
@@ -205,6 +249,7 @@ const overrideArguments = (cfg: { [key: string]: unknown }, override: Partial<ty
 	const parsed = data.opts() as ArgvType;
 
 	normalizeParsed(data, parsed);
+	markActionSelection(data, parsed);
 
 	if (!isGUI && (process.argv.length <= 2 || parsed.help)) {
 		argv.outputHelp();

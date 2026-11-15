@@ -1,5 +1,7 @@
 import { VIDEO_SELECTION_DEFAULTS as limits } from './module.crunchy-video-catalog';
 
+export type PlaybackWindow = { started: number; creditedSleep: number; admittedSleep: number; slotDeadline?: number };
+
 /** Episode-local request pacing. Cleanup is counted but never delayed. */
 export type DiscoveryClock = {
 	now: () => number;
@@ -71,29 +73,71 @@ export class DiscoveryScheduler {
 	private retries = 0;
 	private cooldownUntil = 0;
 	private cooldownTotal = 0;
-	private readonly start: number;
+	private retryKind: 'manifest' | 'playback' = 'manifest';
+	private readonly window: PlaybackWindow;
 	private readonly scale: number;
 	observedRateLimit = false;
 	constructor(
 		maxCalls: number,
 		readonly clock: DiscoveryClock = defaultDiscoveryClock,
 		private readonly signal?: AbortSignal,
-		private readonly waiting?: (retry: number, ms: number) => void,
-		private readonly fixedPauseMs?: number
+		private readonly waiting?: (retry: number, ms: number, kind: 'manifest' | 'playback') => void,
+		private readonly fixedPauseMs?: number,
+		window?: PlaybackWindow
 	) {
 		if (fixedPauseMs !== undefined && (!Number.isSafeInteger(fixedPauseMs) || fixedPauseMs < 0)) throw new Error('discovery timer must be a nonnegative safe integer');
-		this.start = clock.now();
+		this.window = window ?? { started: clock.now(), creditedSleep: 0, admittedSleep: 0 };
 		const boundaries = Math.max(0, Math.ceil(maxCalls / limits.discoveryBatchSize) - 1);
 		this.scale = boundaries ? Math.min(1, limits.discoveryNormalWaitBudgetMs / (limits.discoveryGapMaxMs * boundaries)) : 1;
 	}
 	remaining(): number {
-		return limits.discoveryTimeoutMs - (this.clock.now() - this.start);
+		return limits.discoveryTimeoutMs - (this.clock.now() - this.window.started - this.window.creditedSleep);
 	}
 	check(): void {
 		if (this.signal?.aborted) throw new Error('discovery cancelled');
 		if (this.remaining() <= 0) throw new Error('discovery deadline exceeded');
 	}
-	async dispatch(cleanup = false): Promise<void> {
+	getWindow(): PlaybackWindow {
+		return this.window;
+	}
+	async playbackSleep(ms: number): Promise<void> {
+		this.check();
+		if (!Number.isFinite(ms) || ms < 0 || ms > 60000 || this.window.admittedSleep + ms > 120000) throw new Error('playback wait exceeds budget');
+		this.window.admittedSleep += ms;
+		const before = this.clock.now();
+		await this.clock.sleep(ms, this.signal);
+		this.window.creditedSleep += Math.min(ms, Math.max(0, this.clock.now() - before));
+		this.check();
+	}
+	reservePlaybackRetry(): void {
+		this.check();
+		if (this.retries >= limits.discoveryRetryCooldownMs.length) throw new Error('playback retries exhausted');
+		this.retryKind = 'playback';
+		this.observedRateLimit = true;
+		this.retries++;
+		this.gap = undefined;
+	}
+	async waitPlayback(headers: Headers, ordinal: number, refusedAt = this.clock.now(), refusedWall = this.clock.wallNow()): Promise<void> {
+		this.check();
+		const delay = Math.max([10000, 30000, 60000][ordinal - 1], retryAfterMs(headers.get('retry-after'), headers.get('date'), refusedWall) ?? 0);
+		if (!Number.isFinite(delay) || delay > 60000) throw new Error('playback wait exceeds budget');
+		const remaining = Math.max(0, refusedAt + delay - this.clock.now());
+		if (this.window.admittedSleep + remaining > 120000) throw new Error('playback wait exceeds budget');
+		this.waiting?.(this.retries, remaining, 'playback');
+		if (remaining) await this.playbackSleep(remaining);
+		this.waiting?.(0, 0, 'playback');
+	}
+	async waitServerDelay(headers: Headers, refusedAt: number, refusedWall = this.clock.wallNow()): Promise<void> {
+		const delay = retryAfterMs(headers.get('retry-after'), headers.get('date'), refusedWall) ?? 0;
+		if (!Number.isFinite(delay) || delay > 60000) throw new Error('playback wait exceeds budget');
+		const remaining = Math.max(0, refusedAt + delay - this.clock.now());
+		if (remaining) {
+			this.waiting?.(this.retries, remaining, 'playback');
+			await this.playbackSleep(remaining);
+			this.waiting?.(0, 0, 'playback');
+		}
+	}
+	async dispatch(cleanup = false, slotDeadline?: number): Promise<void> {
 		if (!cleanup) {
 			this.check();
 			const allowance = this.retries ? limits.discoveryRetryBatchSizes[this.retries - 1] : limits.discoveryBatchSize;
@@ -108,10 +152,15 @@ export class DiscoveryScheduler {
 			const cooldown = Math.max(0, this.cooldownUntil - this.clock.now());
 			const wait = Math.max(normal, cooldown);
 			if (wait >= this.remaining()) throw new Error('discovery deadline exceeded');
+			if (slotDeadline !== undefined && wait >= slotDeadline - this.clock.now()) {
+				const left = Math.max(0, slotDeadline - this.clock.now());
+				if (left) await this.playbackSleep(left);
+				throw new Error('playback slot wait timed out');
+			}
 			if (wait > 0) {
-				if (cooldown) this.waiting?.(this.retries, cooldown);
+				if (cooldown) this.waiting?.(this.retries, cooldown, this.retryKind);
 				await this.clock.sleep(wait, this.signal);
-				if (cooldown) this.waiting?.(0, 0);
+				if (cooldown) this.waiting?.(0, 0, this.retryKind);
 				if (!this.retries) this.normalWait += Math.min(normal, wait);
 			}
 			this.check();
@@ -124,7 +173,8 @@ export class DiscoveryScheduler {
 		this.lastStart = this.clock.now();
 		this.count++;
 	}
-	retry(headers: Headers): void {
+	retry(headers: Headers, kind: 'manifest' | 'playback' = 'manifest'): void {
+		this.retryKind = kind;
 		this.observedRateLimit = true;
 		if (this.retries >= limits.discoveryRetryCooldownMs.length) throw new Error('manifest rate limited: retries exhausted');
 		const delay = Math.max(limits.discoveryRetryCooldownMs[this.retries], retryAfterMs(headers.get('retry-after'), headers.get('date'), this.clock.wallNow()) ?? 0);

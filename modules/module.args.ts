@@ -371,8 +371,9 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	{
 		name: 'tsd',
 		group: 'dl',
-		describe: '(Total Session Death) Kills all active Crunchyroll Streaming Sessions to prevent getting the "TOO_MANY_ACTIVE_STREAMS" error.',
-		docDescribe: true,
+		describe: 'Check playback capacity before episodes; explicitly reset sessions with standalone --tsd.',
+		docDescribe:
+			'Before each episode, assess account playback capacity and clear the validated session list only when full and the command clear allowance is available. Explicit standalone --tsd force-clears and verifies listed sessions. Exact qualifying playback refusals can trigger bounded capacity checks, waits and acquisition retries. This does not log out and may not clear a rate limit.',
 		service: ['crunchy'],
 		type: 'boolean',
 		usage: '',
