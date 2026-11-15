@@ -6,7 +6,7 @@ import path from 'node:path';
 import console from 'node:console';
 import {
 	assetNames,
-	documentOnlyDescendant,
+	reusableProofDescendant,
 	eligibleEvent,
 	latestApplicableProof,
 	publish,
@@ -79,35 +79,53 @@ const otherSha = 'b'.repeat(40);
 const validComparison = { status: 'ahead', merge_base_commit: { sha }, behind_by: 0, files: [{ status: 'modified', filename: 'docs/CHANGELOG.md' }] };
 const compare = async () => validComparison;
 assert.equal(
-	await documentOnlyDescendant(repo, sha, sha, async () => {
+	await reusableProofDescendant(repo, sha, sha, async () => {
 		throw new Error('unneeded comparison');
 	}),
 	true
 );
-assert.equal(await documentOnlyDescendant(repo, sha, otherSha, compare), true);
+assert.equal(await reusableProofDescendant(repo, sha, otherSha, compare), true);
+for (const filename of ['.github/scripts/fork-release.mjs', 'tests/fork-release.mjs']) {
+	assert.equal(await reusableProofDescendant(repo, sha, otherSha, async () => ({ ...validComparison, files: [{ status: 'modified', filename }] })), true);
+	assert.equal(await reusableProofDescendant(repo, sha, otherSha, async () => ({ ...validComparison, files: [{ status: 'added', filename }] })), false);
+	assert.equal(
+		await reusableProofDescendant(repo, sha, otherSha, async () => ({ ...validComparison, files: [{ status: 'renamed', filename, previous_filename: 'docs/old.md' }] })),
+		false
+	);
+}
+assert.equal(
+	await reusableProofDescendant(repo, sha, otherSha, async () => ({
+		...validComparison,
+		files: [
+			{ status: 'modified', filename: '.github/scripts/fork-release.mjs' },
+			{ status: 'modified', filename: 'package.json' }
+		]
+	})),
+	false
+);
 for (const filename of ['package.json', 'pnpm-lock.yaml', '.github/workflows/test.yml']) {
-	assert.equal(await documentOnlyDescendant(repo, sha, otherSha, async () => ({ ...validComparison, files: [{ status: 'modified', filename }] })), false);
+	assert.equal(await reusableProofDescendant(repo, sha, otherSha, async () => ({ ...validComparison, files: [{ status: 'modified', filename }] })), false);
 }
 for (const [filename, previous_filename] of [
 	['docs/readme.md', 'src/index.ts'],
 	['src/index.ts', 'docs/readme.md']
 ]) {
-	assert.equal(await documentOnlyDescendant(repo, sha, otherSha, async () => ({ ...validComparison, files: [{ status: 'renamed', filename, previous_filename }] })), false);
+	assert.equal(await reusableProofDescendant(repo, sha, otherSha, async () => ({ ...validComparison, files: [{ status: 'renamed', filename, previous_filename }] })), false);
 }
 await assert.rejects(
-	documentOnlyDescendant(repo, sha, otherSha, async () => ({ ...validComparison, files: Array(300).fill(validComparison.files[0]) })),
+	reusableProofDescendant(repo, sha, otherSha, async () => ({ ...validComparison, files: Array(300).fill(validComparison.files[0]) })),
 	/300-file/
 );
 await assert.rejects(
-	documentOnlyDescendant(repo, sha, otherSha, async () => ({ ...validComparison, files: [{ status: 'renamed', filename: 'docs/a.md' }] })),
+	reusableProofDescendant(repo, sha, otherSha, async () => ({ ...validComparison, files: [{ status: 'renamed', filename: 'docs/a.md' }] })),
 	/malformed/
 );
 await assert.rejects(
-	documentOnlyDescendant(repo, sha, otherSha, async () => ({ ...validComparison, files: null })),
+	reusableProofDescendant(repo, sha, otherSha, async () => ({ ...validComparison, files: null })),
 	/malformed/
 );
-assert.equal(await documentOnlyDescendant(repo, sha, otherSha, async () => ({ ...validComparison, status: 'diverged' })), false);
-assert.equal(await documentOnlyDescendant(repo, sha, otherSha, async () => ({ ...validComparison, merge_base_commit: { sha: otherSha } })), false);
+assert.equal(await reusableProofDescendant(repo, sha, otherSha, async () => ({ ...validComparison, status: 'diverged' })), false);
+assert.equal(await reusableProofDescendant(repo, sha, otherSha, async () => ({ ...validComparison, merge_base_commit: { sha: otherSha } })), false);
 
 const run = { ...base.workflow_run, run_started_at: '2026-01-01T00:00:00Z', created_at: '2026-01-01T00:00:00Z' };
 const proofApi =
@@ -223,7 +241,8 @@ try {
 			if (endpoint.endsWith('/releases/tags/nightly-fork')) return { id: 44 };
 			if (endpoint.endsWith('/git/ref/heads/main')) return { object: { sha: otherSha } };
 			if (endpoint.endsWith('/git/ref/tags/nightly-fork')) return { object: { sha } };
-			if (endpoint.endsWith('/releases/44')) releaseBody = body.body;
+			if (method === 'POST' && endpoint.endsWith('/releases')) return { id: 45 };
+			if (method === 'PATCH' && endpoint.endsWith('/releases/45')) releaseBody = body.body;
 			return {};
 		},
 		async () => {},
@@ -250,6 +269,7 @@ try {
 		if (endpoint.endsWith('/releases/tags/nightly-fork')) return { id: 44 };
 		if (endpoint.endsWith('/git/ref/tags/nightly-fork')) return { object: { sha: 'b'.repeat(40) } };
 		if (endpoint.endsWith('/git/ref/heads/main')) return { object: { sha } };
+		if (method === 'POST' && endpoint.endsWith('/releases')) return { id: 55 };
 		return {};
 	};
 	const upload = async (files, repository) => {
@@ -258,17 +278,41 @@ try {
 	await publish(path.join(root, 'bundles'), provenance, repo, rest, upload, 'https://github.com', proof);
 	assert.deepEqual(
 		requests.map((call) => call.method),
-		['GET', 'GET', 'GET', 'GET', 'PATCH', 'PATCH']
+		['GET', 'GET', 'DELETE', 'POST', 'GET', 'GET', 'PATCH', 'PATCH']
 	);
-	assert.equal(uploadCalls[0].requestsBeforeUpload, 2);
-	assert.equal(requests[4].body.sha, sha);
-	assert.equal(requests[5].endpoint, '/repos/owner/repository/releases/44');
-	assert.equal(requests[5].body.prerelease, false);
-	assert.equal(requests[5].body.make_latest, 'true');
-	assert.equal(requests[5].body.tag_name, 'nightly-fork');
-	assert.match(requests[5].body.body, /tests|Tests/);
+	assert.equal(requests[2].endpoint, '/repos/owner/repository/releases/44');
+	assert.equal(requests[3].body.draft, true);
+	assert.equal(uploadCalls[0].requestsBeforeUpload, 4);
+	assert.equal(requests[6].body.sha, sha);
+	assert.equal(requests[7].endpoint, '/repos/owner/repository/releases/55');
+	assert.equal(requests[7].body.prerelease, false);
+	assert.equal(requests[7].body.make_latest, 'true');
+	assert.equal(requests[7].body.tag_name, 'nightly-fork');
+	assert.match(requests[7].body.body, /tests|Tests/);
 	assert.equal(uploadCalls[0].files.length, 16);
-	assert.match(requests[5].body.body, new RegExp(sha));
+	assert.match(requests[7].body.body, new RegExp(sha));
+	requests.length = 0;
+	await assert.rejects(
+		publish(
+			path.join(root, 'bundles'),
+			provenance,
+			repo,
+			async (method, endpoint, body) => {
+				if (method === 'DELETE') throw new Error('delete denied');
+				return rest(method, endpoint, body);
+			},
+			async () => {
+				throw new Error('unexpected upload');
+			},
+			'https://github.com',
+			proof
+		),
+		/delete denied/
+	);
+	assert.deepEqual(
+		requests.map((call) => call.method),
+		['GET', 'GET']
+	);
 	requests.length = 0;
 	await assert.rejects(
 		publish(
@@ -305,14 +349,20 @@ try {
 		),
 		/new failed test/
 	);
-	assert.ok(requests.every((call) => call.method === 'GET'));
+	assert.deepEqual(
+		requests.map((call) => call.method),
+		['GET', 'GET', 'DELETE', 'POST', 'GET']
+	);
 
 	requests.length = 0;
 	const failedUpload = async () => {
 		throw new Error('upload failed');
 	};
 	await assert.rejects(publish(path.join(root, 'bundles'), provenance, repo, rest, failedUpload, 'https://github.com', proof), /upload failed/);
-	assert.ok(requests.every((call) => call.method === 'GET'));
+	assert.deepEqual(
+		requests.map((call) => call.method),
+		['GET', 'GET', 'DELETE', 'POST']
+	);
 	requests.length = 0;
 	let headChecks = 0;
 	const movedAfterUpload = async (method, endpoint, body) => {
@@ -323,9 +373,13 @@ try {
 		publish(path.join(root, 'bundles'), provenance, repo, movedAfterUpload, async () => {}, 'https://github.com', proof),
 		/no longer/
 	);
-	assert.ok(requests.every((call) => call.method === 'GET'));
+	assert.deepEqual(
+		requests.map((call) => call.method),
+		['GET', 'GET', 'DELETE', 'POST', 'GET']
+	);
 
 	let draft;
+	let nextDraftId = 55;
 	const draftCalls = [];
 	const draftApi = async (method, endpoint, body) => {
 		draftCalls.push({ method, endpoint, body });
@@ -333,8 +387,12 @@ try {
 		if (endpoint.includes('/releases?')) return draft ? [draft] : [];
 		if (endpoint.endsWith('/git/ref/heads/main')) return { object: { sha } };
 		if (endpoint.endsWith('/git/ref/tags/nightly-fork')) return null;
+		if (method === 'DELETE' && endpoint.endsWith(`/releases/${draft?.id}`)) {
+			draft = null;
+			return null;
+		}
 		if (method === 'POST' && endpoint.endsWith('/releases')) {
-			draft = { id: 55, ...body };
+			draft = { id: nextDraftId++, ...body };
 			return draft;
 		}
 		return {};
@@ -351,16 +409,16 @@ try {
 		repo,
 		draftApi,
 		async () => {
-			assert.equal(
-				draftCalls.some((call) => call.method !== 'GET'),
-				false
+			assert.deepEqual(
+				draftCalls.filter((call) => call.method !== 'GET').map((call) => call.method),
+				['DELETE', 'POST']
 			);
 		},
 		'https://github.com',
 		proof
 	);
-	assert.equal(draftCalls.filter((call) => call.method === 'POST' && call.endpoint.endsWith('/releases')).length, 0);
-	assert.equal(draftCalls.at(-1).endpoint, '/repos/owner/repository/releases/55');
+	assert.equal(draftCalls.filter((call) => call.method === 'POST' && call.endpoint.endsWith('/releases')).length, 1);
+	assert.equal(draftCalls.at(-1).endpoint, '/repos/owner/repository/releases/56');
 	assert.equal(draftCalls.at(-1).body.draft, false);
 	assert.equal(draftCalls.at(-1).body.prerelease, false);
 	assert.equal(draftCalls.at(-1).body.make_latest, 'true');

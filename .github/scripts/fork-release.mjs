@@ -51,14 +51,16 @@ export async function requireCurrentMain(repository, sha, api) {
 const HISTORY_PAGE_SIZE = 100;
 const HISTORY_LIMIT = 500;
 const isDocument = (name) => typeof name === 'string' && name.length > 0 && (name.startsWith('docs/') || name.endsWith('.md'));
+const releaseOnlyFiles = new Set(['.github/scripts/fork-release.mjs', 'tests/fork-release.mjs']);
+const isReusableChange = (name) => isDocument(name) || releaseOnlyFiles.has(name);
 
-export async function documentOnlyDescendant(repository, testedSha, targetSha, api) {
+export async function reusableProofDescendant(repository, testedSha, targetSha, api) {
 	if (testedSha === targetSha) return true;
 	const comparison = await api('GET', `/repos/${repository}/compare/${testedSha}...${targetSha}?per_page=1&page=1`);
 	if (!comparison || typeof comparison.status !== 'string' || !comparison.merge_base_commit || !Number.isSafeInteger(comparison.behind_by) || !Array.isArray(comparison.files)) {
-		throw new Error('Cannot prove documentation-only comparison: malformed response');
+		throw new Error('Cannot prove reusable Tests comparison: malformed response');
 	}
-	if (comparison.files.length >= 300) throw new Error('Cannot prove documentation-only comparison: 300-file limit reached');
+	if (comparison.files.length >= 300) throw new Error('Cannot prove reusable Tests comparison: 300-file limit reached');
 	if (comparison.status !== 'ahead' || comparison.merge_base_commit.sha !== testedSha || comparison.behind_by !== 0) return false;
 	for (const file of comparison.files) {
 		if (
@@ -69,9 +71,10 @@ export async function documentOnlyDescendant(repository, testedSha, targetSha, a
 			(file.status === 'renamed' && (typeof file.previous_filename !== 'string' || !file.previous_filename)) ||
 			(file.previous_filename !== undefined && (typeof file.previous_filename !== 'string' || !file.previous_filename))
 		) {
-			throw new Error('Cannot prove documentation-only comparison: malformed file');
+			throw new Error('Cannot prove reusable Tests comparison: malformed file');
 		}
-		if (!isDocument(file.filename) || (file.previous_filename !== undefined && !isDocument(file.previous_filename))) return false;
+		if (!isReusableChange(file.filename) || (file.previous_filename !== undefined && !isReusableChange(file.previous_filename))) return false;
+		if ((releaseOnlyFiles.has(file.filename) || releaseOnlyFiles.has(file.previous_filename)) && file.status !== 'modified') return false;
 	}
 	return true;
 }
@@ -137,7 +140,7 @@ export async function latestApplicableProof(repository, targetSha, api) {
 	for (const run of runs.filter((entry) => relevantRun(entry, workflow.id, repository))) {
 		const time = run.run_started_at ?? (run.run_attempt === 1 && run.status !== 'completed' ? run.created_at : null);
 		if (typeof time !== 'string' || !Number.isFinite(Date.parse(time))) {
-			if (await documentOnlyDescendant(repository, run.head_sha, targetSha, api)) throw new Error('Cannot order applicable Tests attempt: missing activity time');
+			if (await reusableProofDescendant(repository, run.head_sha, targetSha, api)) throw new Error('Cannot order applicable Tests attempt: missing activity time');
 			continue;
 		}
 		candidates.push({ run, time: Date.parse(time) });
@@ -148,7 +151,7 @@ export async function latestApplicableProof(repository, targetSha, api) {
 		const applicable = [];
 		while (i < candidates.length && candidates[i].time === time) {
 			const run = candidates[i++].run;
-			if (await documentOnlyDescendant(repository, run.head_sha, targetSha, api)) applicable.push(run);
+			if (await reusableProofDescendant(repository, run.head_sha, targetSha, api)) applicable.push(run);
 		}
 		if (!applicable.length) continue;
 		for (const run of applicable) {
@@ -274,6 +277,7 @@ async function githubApi(method, endpoint, body, allowMissing = false) {
 	});
 	if (allowMissing && response.status === 404) return null;
 	if (!response.ok) throw new Error(`GitHub API ${method} ${endpoint} failed: ${response.status} ${await response.text()}`);
+	if (response.status === 204) return null;
 	return response.json();
 }
 
@@ -305,19 +309,21 @@ export async function publish(
 ) {
 	const files = await verifyBundles(directory, provenance);
 	const base = `/repos/${repository}`;
-	let release = await findRelease(base, api);
+	const oldRelease = await findRelease(base, api);
 	await proof(repository, provenance.sha, api);
 	await requireCurrentMain(repository, provenance.sha, api);
-	if (!release) {
-		release = await api('POST', `${base}/releases`, {
-			tag_name: 'nightly-fork',
-			target_commitish: provenance.sha,
-			name: 'Nightly Fork',
-			body: 'Asset upload in progress.',
-			draft: true,
-			prerelease: false
-		});
+	if (oldRelease) {
+		if (!positiveInteger(oldRelease.id)) throw new Error('Invalid existing release ID');
+		await api('DELETE', `${base}/releases/${oldRelease.id}`);
 	}
+	const release = await api('POST', `${base}/releases`, {
+		tag_name: 'nightly-fork',
+		target_commitish: provenance.sha,
+		name: 'Nightly Fork',
+		body: 'Asset upload in progress.',
+		draft: true,
+		prerelease: false
+	});
 	if (!positiveInteger(release.id)) throw new Error('Invalid release ID');
 	await uploadAssets(files, repository);
 	const tag = await api('GET', `${base}/git/ref/tags/nightly-fork`, undefined, true);
@@ -332,8 +338,8 @@ export async function publish(
 }
 
 function uploadReleaseAssets(files, repository) {
-	const upload = spawnSync('gh', ['release', 'upload', 'nightly-fork', ...files, '--clobber', '--repo', repository], { stdio: 'inherit' });
-	if (upload.error || upload.status !== 0) throw new Error('Release asset replacement failed; workflow artifacts remain available');
+	const upload = spawnSync('gh', ['release', 'upload', 'nightly-fork', ...files, '--repo', repository], { stdio: 'inherit' });
+	if (upload.error || upload.status !== 0) throw new Error('Release asset upload failed; workflow artifacts remain available');
 }
 
 async function main() {
