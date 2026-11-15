@@ -2710,7 +2710,19 @@ export default class Crunchy implements ServiceClass {
 								);
 							}
 						}
-						if (globalPass?.kind !== 'video') console.info(`Available Audio Qualities:\n\t${audios.map((a, ind) => `[${ind + 1}] ${a.resolutionText}`).join('\n\t')}`);
+						if (globalPass?.kind !== 'video') {
+							const audioQualityLines: string[] = [];
+							for (const [index, audio] of audios.entries()) {
+								const audioLanguage =
+									langsData.languages.find((item) => item.code === audio.language?.code && item.code !== 'und')?.code ||
+									langsData.languages.find((item) => item.code === acurStream.audio_lang && item.code !== 'und')?.code ||
+									'und';
+								const selected = index === chosenAudioQuality && !options.noaudio;
+								audioQualityLines.push(`    [${index + 1}] ${audio.resolutionText} [A:${audioLanguage}]${selected ? ' <-- Selected' : ''}`);
+								if (selected && aselectedServer) audioQualityLines.push(`        Audio Server: ${aselectedServer}`);
+							}
+							console.info(`Available Audio Qualities:\n${audioQualityLines.join('\n')}`);
+						}
 
 						variables.push(
 							{
@@ -2731,8 +2743,7 @@ export default class Crunchy implements ServiceClass {
 							return;
 						}
 						if (globalPass?.kind === 'video') console.info(`Selected video: ${formatVideoCandidate(globalPass.selected)}\n\tVideo Server: ${chosenVideoSegments.server}`);
-						else if (globalPass?.kind === 'audio') console.info(`Selected audio: ${chosenAudioSegments.resolutionText}\n\tAudio Server: ${aselectedServer}`);
-						else console.info(`Selected quality: \n\tVideo: ${chosenVideoSegments.resolutionText}\n\tAudio: ${chosenAudioSegments.resolutionText}\n\tVideo Server: ${chosenVideoSegments.server}\n\tAudio Server: ${aselectedServer}`);
+						else if (globalPass?.kind !== 'audio') console.info(`Selected quality: \n\tVideo: ${chosenVideoSegments.resolutionText}\n\tVideo Server: ${chosenVideoSegments.server}`);
 						if (options.dryRun) {
 							if (globalPass?.kind !== 'audio') {
 								console.info('Video initialization URL:', chosenVideoSegments.segments[0].map.uri);

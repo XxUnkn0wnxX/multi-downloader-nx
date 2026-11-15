@@ -80,6 +80,8 @@ The video and audio endpoints are independent choices. Available renditions and 
 
 For raw DASH, the numbered quality list can include compatible video from `[Current M]` and `[Legacy M]` sources, with the video source language shown as `[V:eng]` or `[V:jpn]`. Resolution headings group the list without resetting quality numbers. `-q 0` selects the highest dimensions, then advertised bandwidth. The highest current audio rendition is selected independently for each requested dub.
 
+The audio quality list uses `[A:eng]` or `[A:jpn]` for the audio language, marks its selected row, and shows the audio server below it. These display changes apply to Crunchyroll.
+
 Quality-list rates use decimal `kb/s` (1 kb/s = 1,000 bits/s). `KiB/s` measures 1,024 bytes/s.
 
 Cross-language selection compares declared video timing; that check does not prove decoded synchronization or identical edits. If a check fails or timing is unknown, selection falls back to the requested version. `--forcevideo` (alias `--forcevid`) bypasses timing eligibility and may cause audio/video desynchronization. `--noaudio` skips the check. Subtitle cue times are not used as a timing reference. No automatic trimming, stretching, or offset is applied.

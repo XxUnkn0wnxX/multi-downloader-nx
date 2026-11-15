@@ -227,7 +227,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 			default: 0
 		},
 		docDescribe:
-			'Use the listed quality number; 0 selects the maximum quality. Crunchyroll ranks by dimensions, then advertised bitrate, and compares compatible current and legacy video across languages while keeping the highest current audio for the requested dubs. Crunchyroll reports a short reason when checks force video fallback. Its quality list uses resolution groups with continuous numbers and short manifest and video-source language tags such as [V:jpn], marking the selected row. A fallback prints only the discarded and re-selected rows, when applicable.',
+			'Use the listed quality number; 0 selects the maximum quality. Crunchyroll ranks by dimensions, then advertised bitrate, and compares compatible current and legacy video across languages while keeping the highest current audio for the requested dubs. Crunchyroll reports a short reason when checks force video fallback. Its quality list uses resolution groups with continuous numbers and short manifest and video-source language tags such as [V:jpn], marking the selected row. Its audio quality list uses independent [A:eng] language tags and shows the selected audio server below the row. A fallback prints only the discarded and re-selected rows, when applicable.',
 		service: ['all'],
 		type: 'number',
 		usage: '${qualityLevel}'

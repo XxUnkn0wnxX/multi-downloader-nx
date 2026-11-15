@@ -33,6 +33,8 @@ For raw DASH streams, the numbered quality list can include compatible video fro
 
 The chosen row ends with `<-- Selected`. If it is replaced during fallback, only the old row marked `<-- Discarded` and the replacement marked `<-- Re-selected` are printed, alongside the short reason. The full list is not repeated.
 
+Audio quality rows show their own language, such as `[A:eng]` or `[A:jpn]`, with the chosen row marked `<-- Selected` and its audio server directly underneath. The audio language is independent of the video's `[V:…]` source tag.
+
 Quality-list rates use decimal `kb/s` (1 kb/s = 1,000 bits/s). `KiB/s` measures 1,024 bytes/s.
 
 Cross-language choices are checked against declared video timing. A failed or incomplete check falls back to the requested version. The check does not prove decoded synchronization or identical edits. A short notice names the fallback video language and reason; `--debug` keeps the full check details. Legacy discovery relies on older manifest families that Crunchyroll may stop serving. Availability varies by episode, dub, and stream, and advertised bandwidth is not a file's average bitrate.
