@@ -2604,7 +2604,17 @@ assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/
 	}
 	assert.deepEqual(g.waits, [10000, 30000, 60000]);
 	assert.equal(ordinary.remaining(), 90000);
-	await assert.rejects(ordinary.playbackSleep(21000), /budget/);
+	await assert.rejects(ordinary.playbackSleep(21000), /required 21s; 20s remaining of the 120s allowance/);
+	const diagnostic = testClock();
+	const bounded = new scheduler.DiscoveryScheduler(8, diagnostic.clock);
+	await assert.rejects(bounded.waitPlayback(new Headers({ 'Retry-After': '61' }), 1), /server Retry-After requested 61s; maximum 60s per wait/);
+	await assert.rejects(bounded.waitServerDelay(new Headers({ 'Retry-After': '70' }), 0), /server Retry-After requested 70s; maximum 60s per wait/);
+	await assert.rejects(bounded.waitPlayback(new Headers({ 'Retry-After': '9'.repeat(400) }), 1), /more than 60s \(too large to represent\)/);
+	await assert.rejects(bounded.waitPlayback(new Headers(), 4), /invalid retry ordinal/);
+	assert.deepEqual(diagnostic.waits, [], 'invalid waits never sleep');
+	const exhausted = new scheduler.DiscoveryScheduler(8, diagnostic.clock, undefined, undefined, 0, { started: 0, creditedSleep: 0, admittedSleep: 115000 });
+	await assert.rejects(exhausted.waitPlayback(new Headers(), 1), /required 10s; 5s remaining of the 120s allowance/);
+	assert.deepEqual(diagnostic.waits, [], 'exhausted allowance never sleeps');
 	const h = testClock();
 	const paced = new scheduler.DiscoveryScheduler(16, h.clock, undefined, undefined, 70000);
 	for (let i = 0; i < 8; i++) await paced.dispatch();

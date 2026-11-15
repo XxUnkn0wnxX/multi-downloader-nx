@@ -65,6 +65,14 @@ export function retryAfterMs(value: string | null, serverDate: string | null, wa
 	return Math.max(0, date - reference);
 }
 
+const waitSeconds = (ms: number): string => String(ms / 1000);
+const singlePlaybackWaitError = (ms: number, server = false): Error =>
+	new Error(
+		`playback wait exceeds budget: ${server ? 'server Retry-After ' : ''}requested ${Number.isFinite(ms) ? `${waitSeconds(ms)}s` : 'more than 60s (too large to represent)'}; maximum 60s per wait`
+	);
+const totalPlaybackWaitError = (ms: number, admitted: number): Error =>
+	new Error(`playback wait exceeds budget: required ${waitSeconds(ms)}s; ${waitSeconds(Math.max(0, 120000 - admitted))}s remaining of the 120s allowance`);
+
 export class DiscoveryScheduler {
 	private count = 0;
 	private lastStart = 0;
@@ -102,7 +110,9 @@ export class DiscoveryScheduler {
 	}
 	async playbackSleep(ms: number): Promise<void> {
 		this.check();
-		if (!Number.isFinite(ms) || ms < 0 || ms > 60000 || this.window.admittedSleep + ms > 120000) throw new Error('playback wait exceeds budget');
+		if (!Number.isFinite(ms) || ms < 0) throw new Error('playback wait exceeds budget: invalid wait duration');
+		if (ms > 60000) throw singlePlaybackWaitError(ms);
+		if (this.window.admittedSleep + ms > 120000) throw totalPlaybackWaitError(ms, this.window.admittedSleep);
 		this.window.admittedSleep += ms;
 		const before = this.clock.now();
 		await this.clock.sleep(ms, this.signal);
@@ -119,17 +129,18 @@ export class DiscoveryScheduler {
 	}
 	async waitPlayback(headers: Headers, ordinal: number, refusedAt = this.clock.now(), refusedWall = this.clock.wallNow()): Promise<void> {
 		this.check();
+		if (!Number.isInteger(ordinal) || ordinal < 1 || ordinal > 3) throw new Error('playback wait exceeds budget: invalid retry ordinal');
 		const delay = Math.max([10000, 30000, 60000][ordinal - 1], retryAfterMs(headers.get('retry-after'), headers.get('date'), refusedWall) ?? 0);
-		if (!Number.isFinite(delay) || delay > 60000) throw new Error('playback wait exceeds budget');
+		if (!Number.isFinite(delay) || delay > 60000) throw singlePlaybackWaitError(delay, true);
 		const remaining = Math.max(0, refusedAt + delay - this.clock.now());
-		if (this.window.admittedSleep + remaining > 120000) throw new Error('playback wait exceeds budget');
+		if (this.window.admittedSleep + remaining > 120000) throw totalPlaybackWaitError(remaining, this.window.admittedSleep);
 		this.waiting?.(this.retries, remaining, 'playback');
 		if (remaining) await this.playbackSleep(remaining);
 		this.waiting?.(0, 0, 'playback');
 	}
 	async waitServerDelay(headers: Headers, refusedAt: number, refusedWall = this.clock.wallNow()): Promise<void> {
 		const delay = retryAfterMs(headers.get('retry-after'), headers.get('date'), refusedWall) ?? 0;
-		if (!Number.isFinite(delay) || delay > 60000) throw new Error('playback wait exceeds budget');
+		if (!Number.isFinite(delay) || delay > 60000) throw singlePlaybackWaitError(delay, true);
 		const remaining = Math.max(0, refusedAt + delay - this.clock.now());
 		if (remaining) {
 			this.waiting?.(this.retries, remaining, 'playback');
