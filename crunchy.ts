@@ -69,7 +69,7 @@ import {
 } from './modules/module.crunchy-playback-recovery';
 import { DiscoveryScheduler, retryAfterMs } from './modules/module.crunchy-discovery-scheduler';
 import { WorkingIndicator } from './modules/module.working-indicator';
-import { accountBinding, observePlaybackWait, readPlaybackWait } from './modules/module.crunchy-playback-status';
+import { accountBinding, formatLocalRetryTime, formatPlaybackDuration, observePlaybackWait, readPlaybackWait } from './modules/module.crunchy-playback-status';
 import { AndroidObject, CrunchyAndroidObject, CrunchyMVObject } from './@types/crunchyAndroidObject';
 import { CrunchyChapters, CrunchyChapter, CrunchyOldChapter } from './@types/crunchyChapters';
 import vtt2ass from './modules/module.vtt2ass';
@@ -457,11 +457,11 @@ export default class Crunchy implements ServiceClass {
 		for (const stage of stages) {
 			if (debug)
 				console.debug(
-					`[DEBUG] Status ${stage.name}: HTTP ${stage.status ?? 'unknown'}${stage.wait !== undefined ? `, Retry-After ${Number.isFinite(stage.wait) ? `${stage.wait / 1000}s` : 'too large to represent'}` : ''}`
+					`[DEBUG] Status ${stage.name}: HTTP ${stage.status ?? 'unknown'}${stage.wait !== undefined ? `, Retry-After ${Number.isFinite(stage.wait) ? formatPlaybackDuration(stage.wait) : 'too large to represent'}` : ''}`
 				);
 			if (stage.status === 429)
 				console.warn(
-					`Status ${stage.name} request was rate limited (HTTP 429); ${stage.wait !== undefined ? `Retry-After ${Number.isFinite(stage.wait) ? `${stage.wait / 1000}s` : 'too large to represent'}` : 'Retry-After unknown'}.`
+					`Status ${stage.name} request was rate limited (HTTP 429); ${stage.wait !== undefined ? `Retry-After ${Number.isFinite(stage.wait) ? formatPlaybackDuration(stage.wait) : 'too large to represent'}` : 'Retry-After unknown'}.`
 				);
 		}
 		const record = readPlaybackWait(yamlCfg.workingDir ? path.join(yamlCfg.workingDir, 'config') : (this.cfg.dir.config ?? ''), binding);
@@ -469,8 +469,8 @@ export default class Crunchy implements ServiceClass {
 			const remaining = Math.max(0, record.deadline - Date.now());
 			console.info(
 				remaining
-					? `Last observed playback wait: ${new Date(record.observed).toISOString()}; ${Math.ceil(remaining / 1000)}s remaining, earliest suggested retry ${new Date(record.deadline).toISOString()}. Current playback is unverified.`
-					: `Last observed playback wait elapsed (observed ${new Date(record.observed).toISOString()}); current playback is unverified.`
+					? `Last observed playback wait: ${formatPlaybackDuration(remaining)} remaining. Earliest suggested retry (local time): ${formatLocalRetryTime(record.deadline)}. Current playback is unverified.`
+					: 'Last observed playback wait elapsed; current playback is unverified.'
 			);
 		} else console.info('No recorded playback wait; current playback is unverified.');
 		return !failed;

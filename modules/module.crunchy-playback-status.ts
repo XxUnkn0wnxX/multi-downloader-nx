@@ -4,6 +4,21 @@ import { createHash, randomUUID } from 'node:crypto';
 import { retryAfterMs } from './module.crunchy-discovery-scheduler';
 
 export type PlaybackWaitRecord = { version: 1; binding: string; observed: number; deadline: number };
+const pad = (value: number) => String(value).padStart(2, '0');
+export function formatPlaybackDuration(milliseconds: number): string {
+	const totalSeconds = Math.ceil(Math.max(0, milliseconds) / 1000);
+	const seconds = totalSeconds % 60;
+	const totalMinutes = Math.floor(totalSeconds / 60);
+	const minutes = totalMinutes % 60;
+	const hours = Math.floor(totalMinutes / 60);
+	if (hours > 0) return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+	if (totalMinutes > 0) return `${pad(totalMinutes)}:${pad(seconds)}`;
+	return `${totalSeconds}s`;
+}
+export function formatLocalRetryTime(milliseconds: number): string {
+	const date = new Date(Math.ceil(milliseconds / 1000) * 1000);
+	return `${pad(date.getDate())}:${pad(date.getMonth() + 1)}:${date.getFullYear()} - ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
 export function accountBinding(account: unknown): string | undefined {
 	return typeof account === 'string' && account.trim() ? createHash('sha256').update(account).digest('hex') : undefined;
 }

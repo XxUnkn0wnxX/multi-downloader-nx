@@ -20,13 +20,14 @@ const quiet = { info() {}, warn() {}, error() {}, debug() {}, log() {} };
 
 async function run(args) {
 	const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'anidl-status-import-'));
+	const originalExitCode = process.exitCode;
 	try {
 		fs.mkdirSync(path.join(directory, 'config'));
 		fs.writeFileSync(path.join(directory, 'config', 'dir-path.yml'), 'content: ${wdir}/must-not-create\n');
 		const fakeProcess = Object.create(process);
+		Object.defineProperty(fakeProcess, 'exitCode', { value: undefined, writable: true, enumerable: true, configurable: true });
 		fakeProcess.env = { ...process.env, contentDirectory: directory, isGUI: 'false' };
 		fakeProcess.argv = ['node', 'aniDL', ...args];
-		fakeProcess.exitCode = undefined;
 		const cache = new Map();
 		let requests = 0;
 		function load(filename) {
@@ -91,6 +92,7 @@ async function run(args) {
 		load(path.join(root, 'index.ts'));
 		await new Promise((resolve) => setImmediate(resolve));
 		assert.equal(fakeProcess.exitCode, 1);
+		assert.equal(process.exitCode, originalExitCode, 'the fixture must not mutate the real process exit code');
 		assert.equal(requests, 0);
 		assert.equal(fs.existsSync(path.join(directory, 'must-not-create')), false);
 		assert.equal(fs.existsSync(path.join(directory, 'config', 'updates.json')), false);

@@ -12,6 +12,17 @@ import ts from 'typescript';
 
 const { AbortController, Response, Headers, queueMicrotask } = globalThis;
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+let statusNow;
+class StatusDate extends Date {
+	static now() {
+		return statusNow ?? Date.now();
+	}
+}
+function statusFixtureDir(prefix) {
+	const parent = path.join(root, '.tmp');
+	fs.mkdirSync(parent, { recursive: true });
+	return fs.mkdtempSync(path.join(parent, prefix));
+}
 async function within(promise) {
 	let timer;
 	try {
@@ -63,6 +74,23 @@ scheduler.defaultDiscoveryClock.sleep = async (ms, signal) => {
 };
 scheduler.defaultDiscoveryClock.random = () => 0;
 const statusModule = compile('modules/module.crunchy-playback-status.ts', { './module.crunchy-discovery-scheduler': scheduler });
+for (const [milliseconds, expected] of [
+	[0, '0s'],
+	[1, '1s'],
+	[59000, '59s'],
+	[60000, '01:00'],
+	[476000, '07:56'],
+	[3600000, '01:00:00'],
+	[36476000, '10:07:56'],
+	[90061000, '25:01:01']
+])
+	assert.equal(statusModule.formatPlaybackDuration(milliseconds), expected);
+const localRetryBoundary = new Date(2026, 10, 16, 23, 59, 59, 1);
+const roundedLocalRetry = localRetryBoundary.getTime();
+const localRetryText = statusModule.formatLocalRetryTime(roundedLocalRetry);
+assert.equal(localRetryText, '17:11:2026 - 00:00:00');
+assert.match(localRetryText, /^\d{2}:\d{2}:\d{4} - \d{2}:\d{2}:\d{2}$/);
+assert(!localRetryText.includes('T') && !localRetryText.includes('Z'));
 const recoveryModule = compile('modules/module.crunchy-playback-recovery.ts');
 const manifests = compile('modules/module.crunchy-manifests.ts', { './log': { console: log }, './module.transform-mpd': {}, './module.crunchy-video-catalog': catalog });
 const { discoverVideoCandidates } = compile('modules/module.crunchy-video-selection.ts', {
@@ -1162,7 +1190,9 @@ const ignored = new Set([
 	'./modules/module.crunchy-device-auth',
 	'm3u8-parser'
 ]);
-const { default: Crunchy } = compile('crunchy.ts', new Proxy(mediaDeps, { get: (target, key) => (key in target ? target[key] : ignored.has(key) ? {} : undefined) }));
+const { default: Crunchy } = compile('crunchy.ts', new Proxy(mediaDeps, { get: (target, key) => (key in target ? target[key] : ignored.has(key) ? {} : undefined) }), {
+	Date: StatusDate
+});
 const service = Object.create(Crunchy.prototype);
 service.cfg = { bin: { ffmpeg: 'fake', mp4decrypt: 'fake' }, dir: { content: '/synthetic' } };
 service.token = { access_token: 'synthetic' };
@@ -2696,7 +2726,7 @@ assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/
 
 {
 	// An observed header is informational even when the refusal body is ineligible.
-	const dir = fs.mkdtempSync(path.join(root, '.tmp', 'status-fixture-'));
+	const dir = statusFixtureDir('status-fixture-');
 	try {
 		fs.mkdirSync(path.join(dir, 'config'));
 		mediaDeps['./modules/module.cfg-loader'].workingDir = dir;
@@ -2739,7 +2769,9 @@ assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/
 		originalToken = service.token,
 		originalArgs = cliArgs;
 	const originalRefresh = service.refreshToken;
-	const dir = fs.mkdtempSync(path.join(root, '.tmp', 'status-output-'));
+	const originalStatusNow = statusNow;
+	statusNow = new Date(2026, 10, 16, 12, 0, 0, 250).getTime();
+	const dir = statusFixtureDir('status-output-');
 	try {
 		fs.mkdirSync(path.join(dir, 'config'));
 		mediaDeps['./modules/module.cfg-loader'].workingDir = dir;
@@ -2747,7 +2779,7 @@ assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/
 			path.join(dir, 'config'),
 			statusModule.accountBinding('status-account'),
 			new Response('', { status: 429, headers: { 'Retry-After': '1' } }),
-			Date.now() - 5000
+			statusNow - 5000
 		);
 		resetGlobal();
 		service.token = { access_token: 'synthetic', refresh_token: 'synthetic', account_id: 'status-account' };
@@ -2760,7 +2792,7 @@ assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/
 				let res;
 				if (target === 'https://api.example.test/me') res = new Response(JSON.stringify({ external_id: 'synthetic' }));
 				else if (target.includes('/benefits')) res = new Response(JSON.stringify({ items: [{ benefit: 'concurrent_streams.4' }] }));
-				else res = new Response('', { status: 429, headers: { 'Retry-After': '12' } });
+				else res = new Response('', { status: 429, headers: { 'Retry-After': '476' } });
 				options.onResponse?.(res);
 				return { ok: res.ok, res };
 			}
@@ -2772,10 +2804,26 @@ assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/
 		assert.equal(indicatorStops - stops, 1);
 		assert(mediaLogs.some((entry) => String(entry[0]).includes('allowance: 4')));
 		assert(mediaLogs.some((entry) => String(entry[0]).includes('sessions: unknown')));
-		assert(mediaLogs.some((entry) => String(entry[0]).includes('Retry-After 12s')));
-		assert(mediaLogs.some((entry) => String(entry[0]).includes('playback wait elapsed') && String(entry[0]).includes('unverified')));
+		assert(mediaLogs.some((entry) => String(entry[0]).includes('Retry-After 07:56')));
+		const elapsedStatus = mediaLogs.find((entry) => String(entry[0]).includes('playback wait elapsed'));
+		assert.equal(String(elapsedStatus?.[0]), 'Last observed playback wait elapsed; current playback is unverified.');
+		assert(!String(elapsedStatus?.[0]).includes('T') && !String(elapsedStatus?.[0]).includes('Z'));
 		assert(calls.every((call) => !call.method && !call.target.includes('/play')));
 		assert.equal(calls.length, 3);
+		const observed = statusNow;
+		const binding = statusModule.accountBinding('status-account');
+		statusModule.observePlaybackWait(path.join(dir, 'config'), binding, new Response('', { status: 429, headers: { 'Retry-After': '61' } }), observed);
+		const activeWait = statusModule.readPlaybackWait(path.join(dir, 'config'), binding);
+		assert(activeWait);
+		mediaLogs.length = 0;
+		cliArgs = { checkStatus: true, debug: true };
+		assert.equal(await service.cli(), false);
+		const activeStatus = mediaLogs.map((entry) => String(entry[0])).find((line) => line.includes('Earliest suggested retry'));
+		assert(activeStatus);
+		assert(activeStatus.includes(`Earliest suggested retry (local time): ${statusModule.formatLocalRetryTime(activeWait.deadline)}`));
+		assert(activeStatus.includes('Last observed playback wait: 01:01 remaining.'));
+		assert(mediaLogs.some((entry) => String(entry[0]).includes('[DEBUG] Status sessions: HTTP 429, Retry-After 07:56')));
+		assert(!activeStatus.includes('T') && !activeStatus.includes('Z'));
 		service.req.getData = async (target, options) => {
 			if (target === 'https://api.example.test/me') return { ok: false };
 			assert.equal(target, 'https://api.example.test/sessions');
@@ -2820,6 +2868,7 @@ assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/
 		service.req = originalReq;
 		service.token = originalToken;
 		service.refreshToken = originalRefresh;
+		statusNow = originalStatusNow;
 		cliArgs = originalArgs;
 		delete mediaDeps['./modules/module.cfg-loader'].workingDir;
 		fs.rmSync(dir, { recursive: true, force: true });
