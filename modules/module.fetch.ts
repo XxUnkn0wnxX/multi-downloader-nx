@@ -29,6 +29,7 @@ type CustomParams = {
 	onResponse?: (response: Response) => void;
 	skipErrorBody?: boolean;
 	deferErrorBody?: boolean;
+	quietDebug?: boolean;
 };
 
 type GetDataResponse = {
@@ -55,8 +56,8 @@ export class Req {
 	private debug: boolean;
 	public argv: typeof argvC;
 
-	constructor() {
-		const cfg = yamlCfg.loadCfg();
+	constructor(readOnly = false) {
+		const cfg = yamlCfg.loadCfg(readOnly);
 		this.argv = yargs.appArgv(cfg.cli, process.env.isGUI ? true : false);
 		this.debug = this.argv.debug ?? false;
 	}
@@ -90,14 +91,14 @@ export class Req {
 		}
 
 		// Debug
-		if (this.debug) {
+		if (this.debug && !params.quietDebug) {
 			if (params.allowH2) console.debug(`[DEBUG] HTTP/2 preferred for ${durl}`);
 			console.debug('[DEBUG] FETCH OPTIONS:');
 			console.debug(options);
 		}
 
 		let receivedResponse: Awaited<ReturnType<typeof fetch>> | undefined;
-		const logRequestErrors = !params.quietErrors || this.debug;
+		const logRequestErrors = !params.quietDebug && (!params.quietErrors || this.debug);
 		try {
 			const res = await fetch(durl, { ...options, dispatcher });
 			receivedResponse = res;

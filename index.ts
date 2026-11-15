@@ -1,5 +1,5 @@
 import { console } from './modules/log';
-import { appArgv, overrideArguments } from './modules/module.app-args';
+import { appArgv, overrideArguments, statusInvocation } from './modules/module.app-args';
 import * as yamlCfg from './modules/module.cfg-loader';
 import { makeCommand, addToArchive } from './modules/module.downloadArchive';
 import Crunchy from './crunchy';
@@ -18,8 +18,19 @@ const SERVICES: Record<string, any> = {
 
 (async () => {
 	const recoveryBudget: PlaybackRecoveryBudget = { used: false };
-	const cfg = yamlCfg.loadCfg();
+	const status = statusInvocation(process.argv.slice(2));
+	if (status === 'invalid') {
+		console.error('--check-status requires only --service crunchy and optional --debug');
+		process.exitCode = 1;
+		return;
+	}
+	const cfg = yamlCfg.loadCfg(status === 'valid');
 	const argv = appArgv(cfg.cli);
+	if (status === 'valid') {
+		const service = new Crunchy(false, recoveryBudget, true);
+		if (!(await service.cli())) process.exitCode = 1;
+		return;
+	}
 	const authError = validateCrunchyAuthModes(argv);
 	if (authError) {
 		if (authError === CRUNCHY_CLI_AUTH_WARNING) console.warn(authError);

@@ -22,6 +22,7 @@ assert.deepEqual(JSON.parse(JSON.stringify(catalog.VIDEO_SELECTION_DEFAULTS)), {
 	requestTimeoutMs: 15000,
 	discoveryTimeoutMs: 90000,
 	discoveryBatchSize: 8,
+	qallDiscoveryPauseMs: 750,
 	discoveryGapMinMs: 250,
 	discoveryGapMaxMs: 400,
 	discoveryNormalWaitBudgetMs: 6000,

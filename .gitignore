@@ -72,3 +72,7 @@ playready/*
 .DS_Store
 .vscode
 .idea
+
+# Informational playback wait cache
+/config/cr_playback_status.json
+/config/cr_playback_status.json.*.tmp

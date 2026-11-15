@@ -95,7 +95,7 @@ export type ConfigObject = {
 	gui: GUIConfig;
 };
 
-const loadCfg = (): ConfigObject => {
+const loadCfg = (readOnly = false): ConfigObject => {
 	// load cfgs
 	const defaultCfg: ConfigObject = {
 		bin: {},
@@ -129,7 +129,7 @@ const loadCfg = (): ConfigObject => {
 			defaultCfg.dir[key] = path.join(workingDir, defaultCfg.dir[key].replace(/^\${wdir}/, ''));
 		}
 	}
-	if (!fs.existsSync(defaultCfg.dir.content)) {
+	if (!readOnly && !fs.existsSync(defaultCfg.dir.content)) {
 		try {
 			fs.mkdirSync(defaultCfg.dir.content, { recursive: true });
 		} catch (e) {

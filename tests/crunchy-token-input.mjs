@@ -145,6 +145,7 @@ try {
 			}
 		},
 		'./modules/module.crunchy-playback-recovery': { PlaybackRefusal: class extends Error {} },
+		'./modules/module.crunchy-playback-status': { accountBinding: () => undefined, observePlaybackWait() {}, readPlaybackWait() {} },
 		'./modules/module.crunchy-video-selection': { boundedRequest: async (operation) => operation(new AbortController().signal) },
 		'./@types/enums': { CrunchyVideoPlayStreams: { androidtv: 'androidtv', chrome: 'chrome' } },
 		'node:crypto': { randomUUID: () => generatedDeviceId }
@@ -1378,6 +1379,9 @@ try {
 	});
 	await test('actual entry point propagates Crunchy failures, stops archive, and rejects other-provider device before update', async () => {
 		for (const scenario of [
+			{ status: 'invalid', argv: {}, result: false, expectedCalls: 0, exit: 1, updates: 0, cfgReads: 0 },
+			{ status: 'valid', argv: { service: 'crunchy', checkStatus: true }, result: true, expectedCalls: 1, exit: undefined, updates: 0, readOnly: true },
+			{ status: 'valid', argv: { service: 'crunchy', checkStatus: true }, result: false, expectedCalls: 1, exit: 1, updates: 0, readOnly: true },
 			{ argv: { service: 'crunchy' }, result: false, expectedCalls: 1, exit: 1, updates: 1 },
 			{ argv: { service: 'crunchy', dryRun: true, debug: true }, result: true, expectedCalls: 1, exit: undefined, updates: 0 },
 			{ argv: { service: 'hidive', dryRun: true, downloadArchive: true }, result: true, expectedCalls: 2, exit: undefined, updates: 0 },
@@ -1422,15 +1426,19 @@ try {
 			const budgets = [];
 			let calls = 0,
 				updates = 0,
-				archives = 0;
+				archives = 0,
+				cfgReads = 0,
+				cfgReadOnly;
 			const fakeProcess = {
+				argv: ['node', 'index'],
 				exitCode: undefined,
 				exit: () => {
 					throw new Error('unexpected exit');
 				}
 			};
 			class Provider {
-				constructor(_debug, budget) {
+				constructor(_debug, budget, readOnly) {
+					if (scenario.readOnly) assert.equal(readOnly, true);
 					if (budget) budgets.push(budget);
 				}
 				async cli() {
@@ -1442,8 +1450,15 @@ try {
 				path.join(root, 'index.ts'),
 				(id) => {
 					if (id === './modules/log') return { console: fakeConsole };
-					if (id === './modules/module.app-args') return { appArgv: () => scenario.argv, overrideArguments: () => {} };
-					if (id === './modules/module.cfg-loader') return { loadCfg: () => ({ cli: {} }) };
+					if (id === './modules/module.app-args') return { appArgv: () => scenario.argv, overrideArguments: () => {}, statusInvocation: () => scenario.status ?? 'none' };
+					if (id === './modules/module.cfg-loader')
+						return {
+							loadCfg: (readOnly) => {
+								cfgReads++;
+								cfgReadOnly = readOnly;
+								return { cli: {} };
+							}
+						};
 					if (id === './modules/module.downloadArchive') return { makeCommand: () => ['first', 'second'], addToArchive: () => archives++ };
 					if (['./crunchy', './hidive', './adn'].includes(id)) return { default: Provider, __esModule: true };
 					if (id === './modules/module.updater')
@@ -1460,6 +1475,8 @@ try {
 			);
 			await new Promise((resolve) => setTimeout(resolve, 0));
 			assert.equal(calls, scenario.expectedCalls);
+			if (scenario.cfgReads !== undefined) assert.equal(cfgReads, scenario.cfgReads);
+			if (scenario.readOnly) assert.equal(cfgReadOnly, true);
 			if (scenario.argv.service === 'crunchy' && calls === 2) {
 				assert.equal(budgets.length, 2);
 				assert.equal(budgets[0], budgets[1]);

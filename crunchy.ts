@@ -54,7 +54,8 @@ import {
 	inspectVideoManifest,
 	rankVideoCandidates,
 	timingCompatible,
-	VideoSource
+	VideoSource,
+	VIDEO_SELECTION_DEFAULTS
 } from './modules/module.crunchy-video-catalog';
 import { boundedRequest, discoverVideoCandidates, readLimitedManifest } from './modules/module.crunchy-video-selection';
 import {
@@ -66,8 +67,9 @@ import {
 	PlaybackSession,
 	PlaybackRecoveryState
 } from './modules/module.crunchy-playback-recovery';
-import { DiscoveryScheduler } from './modules/module.crunchy-discovery-scheduler';
+import { DiscoveryScheduler, retryAfterMs } from './modules/module.crunchy-discovery-scheduler';
 import { WorkingIndicator } from './modules/module.working-indicator';
+import { accountBinding, observePlaybackWait, readPlaybackWait } from './modules/module.crunchy-playback-status';
 import { AndroidObject, CrunchyAndroidObject, CrunchyMVObject } from './@types/crunchyAndroidObject';
 import { CrunchyChapters, CrunchyChapter, CrunchyOldChapter } from './@types/crunchyChapters';
 import vtt2ass from './modules/module.vtt2ass';
@@ -99,7 +101,7 @@ type GlobalVideoPass = {
 	selectionLost?: boolean;
 	cleanupFailed?: boolean;
 	noRetry?: boolean;
-	forceVideo?: boolean;
+	bypassSync?: boolean;
 	forceWarning?: boolean;
 	onSelectionConfirmed?: (entry: CatalogVideo) => void;
 };
@@ -126,11 +128,12 @@ export default class Crunchy implements ServiceClass {
 
 	constructor(
 		private debug = false,
-		private readonly commandRecovery?: PlaybackRecoveryBudget
+		private readonly commandRecovery?: PlaybackRecoveryBudget,
+		readOnly = false
 	) {
-		this.cfg = yamlCfg.loadCfg();
+		this.cfg = yamlCfg.loadCfg(readOnly);
 		this.token = yamlCfg.loadCRToken();
-		this.req = new reqModule.Req();
+		this.req = new reqModule.Req(readOnly);
 		this.locale = 'en-US';
 	}
 
@@ -362,9 +365,121 @@ export default class Crunchy implements ServiceClass {
 		);
 	}
 
+	private async playbackStatus(debug: boolean): Promise<boolean> {
+		if (!this.token.refresh_token) {
+			console.error('Login required to check Crunchyroll playback status.');
+			return false;
+		}
+		if (!(await this.refreshToken(true, true))) return false;
+		const headers: FetchParams = {
+			headers: {
+				Authorization: `Bearer ${this.token.access_token}`,
+				...(this.token.auth_type === 'web' ? { ...api.crunchyDefHeader, 'User-Agent': api.crunchyWebUserAgent } : this.deviceHeaders())
+			}
+		};
+		const binding = accountBinding(this.token.account_id);
+		const controller = new AbortController();
+		const onSignal = () => controller.abort();
+		const cli = process.env.isGUI !== 'true';
+		const indicator = new WorkingIndicator(
+			cli && !debug && !!process.stdout.isTTY && !!process.env.TERM && process.env.TERM !== 'dumb',
+			undefined,
+			'Checking Crunchyroll playback status'
+		);
+		if (cli) {
+			process.on('SIGINT', onSignal);
+			process.on('SIGTERM', onSignal);
+		}
+		indicator.start();
+		let limit: number | undefined,
+			active: number | undefined,
+			failed = false;
+		const stages: { name: string; status?: number; wait?: number }[] = [];
+		try {
+			await boundedRequest(
+				async (signal) => {
+					const get = async (name: string, url: string): Promise<any> => {
+						if (signal.aborted) throw new Error('status cancelled');
+						const stage: { name: string; status?: number; wait?: number } = { name };
+						stages.push(stage);
+						try {
+							const response = await this.req.getData(url, {
+								...headers,
+								signal,
+								quietErrors: true,
+								quietDebug: true,
+								skipErrorBody: true,
+								onResponse: (res) => {
+									stage.status = res.status;
+									stage.wait = retryAfterMs(res.headers.get('retry-after'), res.headers.get('date'), Date.now());
+								}
+							});
+							if (signal.aborted) throw new Error('status cancelled');
+							stage.status ??= response.res?.status ?? response.error?.res?.status;
+							if (!response.ok || !response.res || response.error) {
+								failed = true;
+								return undefined;
+							}
+							const body = await response.res.json();
+							if (signal.aborted) throw new Error('status cancelled');
+							return body;
+						} catch (error) {
+							if (signal.aborted) throw error;
+							failed = true;
+							return undefined;
+						}
+					};
+					const me = await get('account', api.me);
+					if (typeof me?.external_id === 'string' && me.external_id.trim()) {
+						limit = concurrentStreamLimit(await get('benefits', `https://beta-api.crunchyroll.com/subs/v1/subscriptions/${me.external_id}/benefits`));
+					}
+					if (limit === undefined) failed = true;
+					const sessions = playbackSessions(await get('sessions', api.streaming_sessions));
+					if (sessions) active = sessions.length;
+					else failed = true;
+				},
+				undefined,
+				controller.signal,
+				15000
+			);
+		} catch {
+			failed = true;
+		} finally {
+			indicator.stop();
+			if (cli) {
+				process.removeListener('SIGINT', onSignal);
+				process.removeListener('SIGTERM', onSignal);
+			}
+		}
+		console.info(`Concurrent-stream allowance: ${limit ?? 'unknown'}`);
+		console.info(`Active playback sessions: ${active ?? 'unknown'}`);
+		console.info(`Available slots (calculated): ${limit !== undefined && active !== undefined ? Math.max(0, limit - active) : 'unknown'}`);
+		for (const stage of stages) {
+			if (debug)
+				console.debug(
+					`[DEBUG] Status ${stage.name}: HTTP ${stage.status ?? 'unknown'}${stage.wait !== undefined ? `, Retry-After ${Number.isFinite(stage.wait) ? `${stage.wait / 1000}s` : 'too large to represent'}` : ''}`
+				);
+			if (stage.status === 429)
+				console.warn(
+					`Status ${stage.name} request was rate limited (HTTP 429); ${stage.wait !== undefined ? `Retry-After ${Number.isFinite(stage.wait) ? `${stage.wait / 1000}s` : 'too large to represent'}` : 'Retry-After unknown'}.`
+				);
+		}
+		const record = readPlaybackWait(yamlCfg.workingDir ? path.join(yamlCfg.workingDir, 'config') : (this.cfg.dir.config ?? ''), binding);
+		if (record) {
+			const remaining = Math.max(0, record.deadline - Date.now());
+			console.info(
+				remaining
+					? `Last observed playback wait: ${new Date(record.observed).toISOString()}; ${Math.ceil(remaining / 1000)}s remaining, earliest suggested retry ${new Date(record.deadline).toISOString()}. Current playback is unverified.`
+					: `Last observed playback wait elapsed (observed ${new Date(record.observed).toISOString()}); current playback is unverified.`
+			);
+		} else console.info('No recorded playback wait; current playback is unverified.');
+		return !failed;
+	}
+
 	public async cli() {
 		console.info(`\n=== Multi Downloader NX ${packageJson.version} ===\n`);
 		const argv = yargs.appArgv(this.cfg.cli);
+		if (argv.checkStatus) return this.playbackStatus(!!argv.debug);
 		const authError = validateCrunchyAuthModes({ ...argv, service: 'crunchy' });
 		if (authError) {
 			if (authError === CRUNCHY_CLI_AUTH_WARNING) console.warn(authError);
@@ -1802,6 +1917,22 @@ export default class Crunchy implements ServiceClass {
 		};
 		options.queueRecovery = state.budget;
 		options.recoveryState = state;
+		const versions = data.data?.[0]?.versions;
+		const requested = (data.data ?? []).map(
+			(item) =>
+				item.versions?.find((version) => version.audio_locale === item.lang?.cr_locale) ||
+				(options.dubLang?.length === 1
+					? item.versions?.find((version) => version.audio_locale === langsData.languages.find((lang) => lang.code === options.dubLang[0])?.cr_locale)
+					: undefined) ||
+				(item.versions?.length === 1 ? item.versions[0] : undefined)
+		);
+		const selectedLocales = new Set(requested.filter((version): version is NonNullable<typeof version> => !!version).map((version) => version.audio_locale));
+		const activeVersions = options.qall ? versions : requested.every(Boolean) ? versions?.filter((version) => selectedLocales.has(version.audio_locale)) : [];
+		const discoveryPause = options.discoveryTimmer ?? (options.qall ? VIDEO_SELECTION_DEFAULTS.qallDiscoveryPauseMs : undefined);
+		if (options.qall && !state.budget.qallWarned) {
+			console.warn('Full language discovery scans more sources, is slower, and can trigger rate limits affecting normal viewing.');
+			state.budget.qallWarned = true;
+		}
 		if (state.permitClear) {
 			if (!(await this.refreshToken(true, true))) return false;
 			const headers: FetchParams = {
@@ -1829,13 +1960,13 @@ export default class Crunchy implements ServiceClass {
 					process.removeListener('SIGTERM', onSignal);
 				}
 			};
-			const sourceCount = Math.max(1, new Set((data.data?.[0]?.versions ?? []).map((version) => version.guid)).size);
+			const sourceCount = Math.max(1, new Set((activeVersions ?? []).map((version) => version.guid)).size);
 			const scheduler = new DiscoveryScheduler(
 				sourceCount * (options.vstream === 'android' || options.vstream === 'androidtab' ? 7 : 5),
 				undefined,
 				controller.signal,
 				(retry, ms, kind) => indicator.waiting(retry, ms, kind, state.ordinal, state.resetPerformed ? 2 : 3),
-				options.discoveryTimmer
+				discoveryPause
 			);
 			state.initial = { scheduler, controller, indicator, release };
 			state.preflightChecked = true;
@@ -1849,7 +1980,6 @@ export default class Crunchy implements ServiceClass {
 			let res: Awaited<ReturnType<Crunchy['downloadMediaList']>>;
 			let muxOptions = options;
 			let fallbackCause: string | undefined;
-			const versions = data.data?.[0]?.versions;
 			const requestedCode = data.data?.[0]?.lang?.code || (options.dubLang?.length === 1 ? options.dubLang[0] : undefined);
 			const fallbackLanguage =
 				langsData.languages.find((lang) => lang.code === requestedCode)?.code ||
@@ -1862,25 +1992,19 @@ export default class Crunchy implements ServiceClass {
 				!!versions?.length &&
 				data.data.every((item) => item.versions?.length);
 			if (eligible && versions) {
-				const requested = data.data.map(
-					(item) =>
-						item.versions?.find((version) => version.audio_locale === item.lang?.cr_locale) ||
-						(options.dubLang.length === 1
-							? item.versions?.find((version) => version.audio_locale === langsData.languages.find((lang) => lang.code === options.dubLang[0])?.cr_locale)
-							: undefined) ||
-						(item.versions?.length === 1 ? item.versions[0] : undefined)
-				);
 				const unique = [...new Map(versions.filter((version) => version.guid && version.media_guid).map((version) => [version.guid, version])).values()];
 				const conflicting = versions.some((version) =>
 					unique.some((item) => item.guid === version.guid && (item.audio_locale !== version.audio_locale || item.media_guid !== version.media_guid))
 				);
 				const sameEpisode =
 					!conflicting && requested.every((version) => version && unique.some((item) => item.guid === version.guid && item.media_guid === version.media_guid));
-				const sources: VideoSource[] = unique.map((version) => ({
-					guid: version.guid,
-					locale: version.audio_locale,
-					languageCode: langsData.languages.find((lang) => lang.cr_locale === version.audio_locale)?.code || ''
-				}));
+				const sources: VideoSource[] = unique
+					.filter((version) => activeVersions?.some((active) => active.guid === version.guid))
+					.map((version) => ({
+						guid: version.guid,
+						locale: version.audio_locale,
+						languageCode: langsData.languages.find((lang) => lang.cr_locale === version.audio_locale)?.code || ''
+					}));
 				if (!sameEpisode || !sources.every((source) => source.guid && source.locale && source.languageCode)) fallbackCause = 'version metadata unavailable';
 				if (sameEpisode && sources.every((source) => source.guid && source.locale && source.languageCode)) {
 					if (!(await this.refreshToken(true, true))) return false;
@@ -1892,6 +2016,9 @@ export default class Crunchy implements ServiceClass {
 					};
 					const preferred = [...new Set(requested.map((version) => version!.guid))];
 					const headersForPlayback = headers;
+					const playbackBinding = accountBinding(this.token.account_id);
+					const observePlayback = (response: Response) =>
+						observePlaybackWait(yamlCfg.workingDir ? path.join(yamlCfg.workingDir, 'config') : (this.cfg.dir.config ?? ''), playbackBinding, response);
 					const initial = state.initial;
 					const controller = initial?.controller ?? new AbortController();
 					const onSignal = () => controller.abort();
@@ -1934,18 +2061,18 @@ export default class Crunchy implements ServiceClass {
 								);
 								return ok;
 							},
-							fixedPauseMs: options.discoveryTimmer,
+							fixedPauseMs: discoveryPause,
 							req: this.req,
 							headers,
 							sources,
 							requested: preferred,
 							ordinal: options.x,
-							ignoreTiming: !!options.noaudio || !!options.forcevideo,
+							ignoreTiming: !!options.noaudio || !!options.bypasssync,
 							debug: this.debug || !!this.req.argv?.debug,
 							acquire: async (source, signal) => {
 								const response = await this.req.getData(
 									`https://cr-play-service.prd.crunchyrollsvc.com/v3/${source.guid}/${CrunchyVideoPlayStreams[this.token.auth_type === 'web' ? 'chrome' : 'androidtv']}/play?queue=0`,
-									{ ...headers, signal, ...(options.queueRecovery ? { quietErrors: true, deferErrorBody: true } : {}) }
+									{ ...headers, signal, onResponse: observePlayback, ...(options.queueRecovery ? { quietErrors: true, deferErrorBody: true } : {}) }
 								);
 								if (!response.ok || !response.res) {
 									if (options.queueRecovery && !response.error && response.res?.status === 429 && isPlaybackRefusal(429, await readLimitedManifest(response.res)))
@@ -1960,7 +2087,7 @@ export default class Crunchy implements ServiceClass {
 									? async (source, signal) => {
 											const response = await this.req.getData(
 												`https://cr-play-service.prd.crunchyrollsvc.com/v3/${source.guid}/${CrunchyVideoPlayStreams[options.vstream]}/download`,
-												{ ...headers, signal, ...(options.queueRecovery ? { quietErrors: true, deferErrorBody: true } : {}) }
+												{ ...headers, signal, onResponse: observePlayback, ...(options.queueRecovery ? { quietErrors: true, deferErrorBody: true } : {}) }
 											);
 											const status = response.res?.status ?? response.error?.res?.status;
 											if (!response.ok || !response.res) {
@@ -2042,7 +2169,7 @@ export default class Crunchy implements ServiceClass {
 								kind: 'video',
 								selected: choice,
 								references: discovery.references,
-								ignoreTiming: !!options.noaudio || !!options.forcevideo,
+								ignoreTiming: !!options.noaudio || !!options.bypasssync,
 								requestedName,
 								onSelectionConfirmed
 							};
@@ -2082,14 +2209,14 @@ export default class Crunchy implements ServiceClass {
 						}
 						if (!video.videoResult || video.videoResult.error || (!options.dryRun && !video.videoResult.data.some((item) => item.type === 'Video'))) return false;
 						selected = video.pass.selected;
-						const forceWarning = !!options.forcevideo && !options.noaudio && !timingCompatible(selected, discovery.references).compatible;
+						const forceWarning = !!options.bypasssync && !options.noaudio && !timingCompatible(selected, discovery.references).compatible;
 						if (forceWarning) console.warn('Forced video timing differs or is unknown; audio and video may be out of sync.');
 						const audioPass: GlobalVideoPass = {
 							kind: 'audio',
 							selected,
 							references: discovery.references,
-							ignoreTiming: !!options.noaudio || !!options.forcevideo,
-							forceVideo: !!options.forcevideo,
+							ignoreTiming: !!options.noaudio || !!options.bypasssync,
+							bypassSync: !!options.bypasssync,
 							forceWarning,
 							requestedName
 						};
@@ -2480,6 +2607,9 @@ export default class Crunchy implements ServiceClass {
 					...clientHeaders
 				}
 			};
+			const playbackBinding = accountBinding(this.token.account_id);
+			const observePlayback = (response: Response) =>
+				observePlaybackWait(yamlCfg.workingDir ? path.join(yamlCfg.workingDir, 'config') : (this.cfg.dir.config ?? ''), playbackBinding, response);
 
 			//Get Media GUID
 			if (mMeta.versions) {
@@ -2715,11 +2845,11 @@ export default class Crunchy implements ServiceClass {
 				if (!ready) { if (initial) { initial.release(); state.initial = undefined; } else acquisitionIndicator.stop(); return undefined; }
 			}
 			const fetchPlayback = async (url: string): Promise<{ ok: boolean; status?: number; transportError?: boolean; res?: { json: () => Promise<any> } }> => {
-				if (!globalPass && !recoveryBudget) { const response = await this.req.getData(url, AuthHeaders); return { ...response, status: response.res?.status ?? response.error?.res?.status }; }
+				if (!globalPass && !recoveryBudget) { const response = await this.req.getData(url, { ...AuthHeaders, onResponse: observePlayback }); return { ...response, status: response.res?.status ?? response.error?.res?.status }; }
 				try {
 					if (recoveryBudget) await acquisitionScheduler!.dispatch();
 					return await boundedRequest(async (signal) => {
-						const response = await this.req.getData(url, { ...AuthHeaders, signal, ...(recoveryBudget ? { quietErrors: true, deferErrorBody: true } : {}) });
+						const response = await this.req.getData(url, { ...AuthHeaders, signal, onResponse: observePlayback, ...(recoveryBudget ? { quietErrors: true, deferErrorBody: true } : {}) });
 						if (!response.ok || !response.res) {
 							if (recoveryBudget && !response.error && response.res?.status === 429 && isPlaybackRefusal(429, await readLimitedManifest(response.res))) throw new PlaybackRefusal(response.res.headers);
 							return { ok: false, status: response.res?.status ?? response.error?.res?.status, transportError: !!response.error };
@@ -3139,7 +3269,7 @@ export default class Crunchy implements ServiceClass {
 							if (!anchors.length) { console.error('Requested current manifest has no usable video anchor'); return undefined; }
 							const compatible = timingCompatible(globalPass.selected, [anchors[anchors.length - 1]]).compatible;
 							if (!compatible && !globalPass.ignoreTiming) { console.error('Requested audio timing is no longer compatible with selected video'); return undefined; }
-							if (!compatible && globalPass.forceVideo && !globalPass.forceWarning) { console.warn('Forced video timing differs or is unknown; audio and video may be out of sync.'); globalPass.forceWarning = true; }
+							if (!compatible && globalPass.bypassSync && !globalPass.forceWarning) { console.warn('Forced video timing differs or is unknown; audio and video may be out of sync.'); globalPass.forceWarning = true; }
 						}
 						const parseLanguage = langsData.findLang(langsData.fixLanguageTag(pbData.meta.audio_locale as string) || '');
 						const vstreamPlaylists = globalPass?.kind === 'audio' ? {} : fresh

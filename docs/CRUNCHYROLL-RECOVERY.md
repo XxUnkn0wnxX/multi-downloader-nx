@@ -4,7 +4,7 @@ Crunchyroll playback can be refused even when an earlier session appears to have
 
 ## Episode capacity checks
 
-Enable `--tsd` or set `tsd: true` in `config/cli-defaults.yml` to check capacity before every episode, including a single episode and a preview. Without `tsd`, normal downloads do not make proactive session-list or capacity requests.
+Enable `--tsd` or set `tsd: true` in `config/cli-defaults.yml` to check capacity before every episode, including a single episode and a preview. Without `tsd`, normal downloads do not make proactive session-list or capacity requests, though an exact qualifying playback refusal still triggers a read-only capacity assessment as part of bounded recovery.
 
 AniDL compares a validated active-session count with the account's `concurrent_streams.N` benefit. This is a client-side capacity assessment, not a free-slot value reported by Crunchyroll. Missing, malformed, conflicting, or incomplete information is unknown and never authorizes an account-wide clear.
 
@@ -14,6 +14,20 @@ AniDL compares a validated active-session count with the account's `concurrent_s
 - **Capacity unknown:** never clear sessions. A normal preflight continues without clearing; after a qualifying refusal, use only the remaining ordinary retry allowance.
 
 Slot checks poll about every five seconds for up to 60 seconds. A newly available slot resumes the operation early, subject to any still-applicable `Retry-After`. If all slots remain full at the deadline, the operation stops without starting another retry cycle. If a slot-list poll fails or returns unknown data, treat capacity as unknown and use only the remaining ordinary retry allowance; do not restart the 60-second polling interval. Failed session cleanup or a failed zero-verification after clearing is terminal.
+
+## Read-only playback status
+
+Use `--check-status` to inspect current capacity and the latest recorded wait without starting playback or clearing sessions:
+
+```sh
+aniDL --service crunchy --check-status
+```
+
+This is a CLI-only action; only `--service crunchy` and optional `--debug` may accompany it. Config cannot enable it. It requires an existing saved login and performs the normal token refresh first, which may take additional time. The single status snapshot is bounded to 15 seconds after refresh. It does not acquire playback/download sessions, run recovery, or delete sessions.
+
+The result reports the concurrent-stream allowance, active session count and calculated available slots when known. Partial known values remain visible if another lookup fails; missing or incomplete fields are unknown, never zero. An incomplete snapshot returns failure after partial output. Status lookup HTTP results and any valid `Retry-After` are reported separately from the historical playback wait. Missing current rate-limit metadata does not prove there is no limit.
+
+The recorded playback wait comes from an earlier playback refusal and is local, account-bound, informational data. When active, status reports its observation time, remaining wait and earliest suggested retry. An expired or absent record is reported as elapsed or not recorded, with current playback unverified. The command does not verify whether playback is currently allowed because it does not start playback. Concurrent local updates are best effort. The record does not authorize resets or change automatic recovery. A historical cooldown alone does not make a successful capacity snapshot fail.
 
 ## Explicit standalone reset
 

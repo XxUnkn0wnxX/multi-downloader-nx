@@ -228,7 +228,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 			default: 0
 		},
 		docDescribe:
-			'Use the listed quality number; 0 selects the maximum quality. Crunchyroll ranks by dimensions, then advertised bitrate, and compares compatible current and legacy video across languages while keeping the highest current audio for the requested dubs. Crunchyroll reports a short reason when checks force video fallback. Its compact quality list shows up to four Current and four Legacy entries in each of the top three resolution groups, with stable full-catalogue numbers; compact view may have gaps where rows are hidden. Use --qall to show every eligible video quality. Short manifest and video-source language tags such as [V:jpn] identify each row, which marks the selected entry. Its audio quality list uses independent [A:eng] language tags and shows the selected audio server below the row. A fallback prints only the discarded and re-selected rows, when applicable.',
+			'Use the listed quality number; 0 selects the maximum quality. Crunchyroll ranks by dimensions, then advertised bitrate, and compares compatible current and legacy video within the selected audio languages while keeping the highest current audio for the requested dubs. Use --qall to include all languages. Crunchyroll reports a short reason when checks force video fallback. Its compact quality list shows up to four Current and four Legacy entries in each of the top three resolution groups, with stable full-catalogue numbers; compact view may have gaps where rows are hidden. Use --qall to show every eligible video quality. Short manifest and video-source language tags such as [V:jpn] identify each row, which marks the selected entry. Its audio quality list uses independent [A:eng] language tags and shows the selected audio server below the row. A fallback prints only the discarded and re-selected rows, when applicable.',
 		service: ['all'],
 		type: 'number',
 		usage: '${qualityLevel}'
@@ -236,9 +236,9 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	{
 		name: 'qall',
 		group: 'dl',
-		describe: 'Show the full Crunchyroll video quality list',
+		describe: 'Scan all Crunchyroll languages and show all video qualities (slower; may cause rate limits)',
 		docDescribe:
-			'Show every eligible Crunchyroll video quality. Quality numbers remain stable when the compact display hides rows; use the same -q number to select them. This changes display only and does not reduce manifest discovery requests.',
+			'Scan all languages and show every eligible Crunchyroll video quality. This sends more requests and may trigger rate limits affecting normal viewing. Quality numbers remain stable within the active catalogue; switching --qall can change them.',
 		default: { default: false },
 		service: ['crunchy'],
 		type: 'boolean',
@@ -250,10 +250,10 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		group: 'dl',
 		service: ['crunchy'],
 		type: 'number',
-		describe: 'Discovery pause in ms: unset uses automatic 250–400 ms; set a fixed pause or 0 for none.',
+		describe: 'Discovery pause in ms: unset uses automatic 250–400 ms or 750 ms with --qall; set a fixed pause or 0 for none.',
 		defaultLabel: 'automatic',
 		docDescribe:
-			'Set an exact additional pause in milliseconds between normal eight-request discovery batches. Unset uses automatic 250–400 ms gaps with response-time credit and a six-second added-wait budget. Zero disables normal pauses. Fixed pauses are not capped at six seconds; discovery and request deadlines and 429 recovery still apply.',
+			'Set an exact additional pause in milliseconds between normal eight-request discovery batches. Unset uses automatic 250–400 ms gaps with response-time credit and a six-second added-wait budget, or a fixed 750 ms pause with --qall. Zero disables normal pauses. Fixed pauses are not capped at six seconds; discovery and request deadlines and 429 recovery still apply.',
 		default: { default: undefined },
 		usage: '${milliseconds}',
 		transformer: (value) => {
@@ -523,13 +523,13 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		}
 	},
 	{
-		name: 'forcevideo',
-		alias: 'forcevid',
+		name: 'bypasssync',
 		group: 'dl',
 		service: ['crunchy'],
 		type: 'boolean',
-		describe: 'Bypass cross-language video timing checks. May cause audio/video desync.',
-		docDescribe: 'Bypass cross-language video timing checks. May cause audio/video desync. Not needed with --noaudio; subtitle timings are never used.',
+		describe: 'Bypass video/audio timing checks. May cause audio/video desync.',
+		docDescribe:
+			'Bypass video/audio timing checks for selected dubs and all-language --qall discovery. May cause audio/video desync. Not needed with --noaudio; subtitle timings are never used.',
 		default: { default: false },
 		usage: ''
 	},
@@ -791,6 +791,16 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		docDescribe: true,
 		group: 'help',
 		service: ['all'],
+		type: 'boolean',
+		usage: ''
+	},
+	{
+		name: 'check-status',
+		describe: 'Check Crunchyroll playback status alone (optional --debug)',
+		docDescribe:
+			'CLI-only action: use --service crunchy and optional --debug; configuration cannot activate it. After normal login refresh, one read-only snapshot has a 15-second deadline. It reports capacity and any current status-request HTTP 429/Retry-After separately from the last observed playback wait; it does not start playback.',
+		group: 'util',
+		service: ['crunchy'],
 		type: 'boolean',
 		usage: ''
 	},

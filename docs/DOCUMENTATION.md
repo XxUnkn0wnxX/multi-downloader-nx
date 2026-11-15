@@ -163,19 +163,19 @@ Allows you to download or view legacy Crunchyroll Ids
 | --- | --- | --- | --- | --- | --- | ---|
 | All | `-q ${qualityLevel}` | `number` | `No`| `—` | `0`| `q: ` |
 
-Use the listed quality number; 0 selects the maximum quality. Crunchyroll ranks by dimensions, then advertised bitrate, and compares compatible current and legacy video across languages while keeping the highest current audio for the requested dubs. Crunchyroll reports a short reason when checks force video fallback. Its compact quality list shows up to four Current and four Legacy entries in each of the top three resolution groups, with stable full-catalogue numbers; compact view may have gaps where rows are hidden. Use --qall to show every eligible video quality. Short manifest and video-source language tags such as [V:jpn] identify each row, which marks the selected entry. Its audio quality list uses independent [A:eng] language tags and shows the selected audio server below the row. A fallback prints only the discarded and re-selected rows, when applicable.
+Use the listed quality number; 0 selects the maximum quality. Crunchyroll ranks by dimensions, then advertised bitrate, and compares compatible current and legacy video within the selected audio languages while keeping the highest current audio for the requested dubs. Use --qall to include all languages. Crunchyroll reports a short reason when checks force video fallback. Its compact quality list shows up to four Current and four Legacy entries in each of the top three resolution groups, with stable full-catalogue numbers; compact view may have gaps where rows are hidden. Use --qall to show every eligible video quality. Short manifest and video-source language tags such as [V:jpn] identify each row, which marks the selected entry. Its audio quality list uses independent [A:eng] language tags and shows the selected audio server below the row. A fallback prints only the discarded and re-selected rows, when applicable.
 #### `--qall`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
 | Crunchyroll | `--qall ` | `boolean` | `No`| `—` | `false`| `qall: ` |
 
-Show every eligible Crunchyroll video quality. Quality numbers remain stable when the compact display hides rows; use the same -q number to select them. This changes display only and does not reduce manifest discovery requests.
+Scan all languages and show every eligible Crunchyroll video quality. This sends more requests and may trigger rate limits affecting normal viewing. Quality numbers remain stable within the active catalogue; switching --qall can change them.
 #### `--discovery-timmer`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
 | Crunchyroll | `--discovery-timmer ${milliseconds}` | `number` | `No`| `--disctmr` | `automatic`| `discovery-timmer: ` or `disctmr: ` |
 
-Set an exact additional pause in milliseconds between normal eight-request discovery batches. Unset uses automatic 250–400 ms gaps with response-time credit and a six-second added-wait budget. Zero disables normal pauses. Fixed pauses are not capped at six seconds; discovery and request deadlines and 429 recovery still apply.
+Set an exact additional pause in milliseconds between normal eight-request discovery batches. Unset uses automatic 250–400 ms gaps with response-time credit and a six-second added-wait budget, or a fixed 750 ms pause with --qall. Zero disables normal pauses. Fixed pauses are not capped at six seconds; discovery and request deadlines and 429 recovery still apply.
 #### `--dlVideoOnce`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
@@ -298,12 +298,12 @@ Removes the URL in the Original Script line of the ASS subtitles, it prevents fr
 | Crunchyroll | `--subtitleTimestampFix ` | `boolean` | `No`| `—` | `false`| `subtitleTimestampFix: ` |
 
 Fixes subtitle dialogues that go over the video length (deletes dialogues where start is over video length and updates the end timestamp when end is over video length).
-#### `--forcevideo`
+#### `--bypasssync`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--forcevideo ` | `boolean` | `No`| `--forcevid` | `false`| `forcevideo: ` or `forcevid: ` |
+| Crunchyroll | `--bypasssync ` | `boolean` | `No`| `—` | `false`| `bypasssync: ` |
 
-Bypass cross-language video timing checks. May cause audio/video desync. Not needed with --noaudio; subtitle timings are never used.
+Bypass video/audio timing checks for selected dubs and all-language --qall discovery. May cause audio/video desync. Not needed with --noaudio; subtitle timings are never used.
 #### `--dry-run`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
@@ -536,6 +536,12 @@ Reset session cookie for testing purposes
 
 Debug mode (tokens may be revealed in the console output)
 ### Utilities
+#### `--check-status`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
+| --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--check-status ` | `boolean` | `No`| `—` | `—` |
+
+CLI-only action: use --service crunchy and optional --debug; configuration cannot activate it. After normal login refresh, one read-only snapshot has a 15-second deadline. It reports capacity and any current status-request HTTP 429/Retry-After separately from the last observed playback wait; it does not start playback.
 #### `--service`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | --- | ---|

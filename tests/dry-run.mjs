@@ -100,7 +100,7 @@ function loadHidive(mpd = hidiveManifest, canDecrypt = false) {
 function hidiveOptions(overrides = {}) {
 	return {
 		dryRun: true,
-		forcevideo: true, // Crunchyroll-only settings must not affect this provider.
+		bypasssync: true, // Crunchyroll-only settings must not affect this provider.
 		q: 0,
 		x: 1,
 		dubLang: ['fra', 'deu'],
@@ -224,7 +224,7 @@ function loadAdn(allowOutputPath = false) {
 function adnOptions(overrides = {}) {
 	return {
 		dryRun: true,
-		forcevideo: true, // Crunchyroll-only settings must not affect this provider.
+		bypasssync: true, // Crunchyroll-only settings must not affect this provider.
 		dubLang: ['fra', 'deu'],
 		q: 0,
 		x: 1,

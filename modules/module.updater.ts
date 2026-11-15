@@ -11,7 +11,8 @@ import Helper from './module.helper';
 import * as reqModule from './module.fetch';
 const updateFilePlace = path.join(workingDir, 'config', 'updates.json');
 
-const req = new reqModule.Req();
+let req: reqModule.Req | undefined;
+const getReq = (): reqModule.Req => (req ??= new reqModule.Req());
 
 const updateIgnore = [
 	'*.d.ts',
@@ -60,7 +61,7 @@ export default async (force = false) => {
 		}
 	}
 	console.info('Checking for updates...');
-	const tagRequest = await req.getData('https://api.github.com/repos/anidl/multi-downloader-nx/tags');
+	const tagRequest = await getReq().getData('https://api.github.com/repos/anidl/multi-downloader-nx/tags');
 	if (!tagRequest.res || !tagRequest.ok) {
 		console.info('No new tags found');
 		return done();
@@ -79,7 +80,7 @@ export default async (force = false) => {
 			return done();
 		}
 		const newest = newer.sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0))[0];
-		const compareRequest = await req.getData(`https://api.github.com/repos/anidl/multi-downloader-nx/compare/${packageJson.version}...${newest.name}`);
+		const compareRequest = await getReq().getData(`https://api.github.com/repos/anidl/multi-downloader-nx/compare/${packageJson.version}...${newest.name}`);
 		if (!compareRequest.res || !compareRequest.ok) {
 			console.info('No new tags found');
 			return done();
@@ -120,7 +121,7 @@ export default async (force = false) => {
 						const isTSX = a.filename.endsWith('tsx');
 						const ret = {
 							path: a.filename.slice(0, isTSX ? -3 : -2) + `js${isTSX ? 'x' : ''}`,
-							content: transpileModule((await (await req.getData(a.raw_url)).res?.text()) ?? '', {
+							content: transpileModule((await (await getReq().getData(a.raw_url)).res?.text()) ?? '', {
 								compilerOptions: tsConfig.compilerOptions as unknown as CompilerOptions
 							}).outputText,
 							type: a.status === 'modified' ? ApplyType.UPDATE : a.status === 'added' ? ApplyType.ADD : ApplyType.DELETE
@@ -130,7 +131,7 @@ export default async (force = false) => {
 					} else {
 						const ret = {
 							path: a.filename,
-							content: (await (await req.getData(a.raw_url)).res?.text()) ?? '',
+							content: (await (await getReq().getData(a.raw_url)).res?.text()) ?? '',
 							type: a.status === 'modified' ? ApplyType.UPDATE : a.status === 'added' ? ApplyType.ADD : ApplyType.DELETE
 						};
 						console.info('✓ Got %s', ret.path);

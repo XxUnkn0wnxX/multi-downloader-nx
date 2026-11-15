@@ -20,6 +20,7 @@ export const VIDEO_SELECTION_DEFAULTS = {
 	discoveryTimeoutMs: 90000,
 	// Discovery request batching and shared manifest rate-limit recovery.
 	discoveryBatchSize: 8,
+	qallDiscoveryPauseMs: 750,
 	discoveryGapMinMs: 250,
 	discoveryGapMaxMs: 400,
 	discoveryNormalWaitBudgetMs: 6000,

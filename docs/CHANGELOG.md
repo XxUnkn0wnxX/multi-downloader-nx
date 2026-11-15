@@ -33,7 +33,7 @@ Commit: [26657a9](../../../commit/26657a9ee8e24d160fadbf3118d949c4ff0e08e1).
 Commit: [1f915c4](../../../commit/1f915c446ed74b5e7681aa61012350bb7a369bf8).
 
 - Discover available legacy video renditions alongside current manifests, including compatible same-episode language versions. Keep requested current audio, subtitles, and signs independent of the video choice.
-- Check declared video timing before cross-language selection, with concise fallback notices and a timing-only `--forcevideo` override. Matching manifest timing does not guarantee identical edits or decoded synchronization.
+- Check declared video timing before cross-language selection, with concise fallback notices and a timing-only override (now named `--bypasssync`). Matching manifest timing does not guarantee identical edits or decoded synchronization.
 - Add `--dry-run` previews for Crunchyroll, HIDIVE, and ADN, stopping before licenses, downloaded output, decryption, muxing, and completed-download history writes.
 - Preserve bounded playback-session ownership and cleanup, full debug diagnostics, generated CLI documentation, and focused offline coverage. Legacy availability remains dependent on provider manifest families; this is not a guaranteed higher-bitrate fix.
 

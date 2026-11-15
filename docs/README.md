@@ -31,9 +31,9 @@ The commands below assume `aniDL` is on your `PATH`. After a source build, use `
 
 **Log in:** `aniDL --service crunchy --device`, then approve the displayed code in your browser. Existing browser-cookie workflows remain documented under [`--token`](DOCUMENTATION.md#--token).
 
-Search for a series, list its seasons, and select episodes with the dubs and subtitles you want. For raw DASH streams, this fork can compare compatible current and legacy video across language versions while selecting the requested audio separately.
+Search for a series, list its seasons, and select episodes with the dubs and subtitles you want. For raw DASH streams, discovery defaults to the selected audio languages and keeps their available video variants. `--qall` expands discovery to all available languages and shows the full quality list. It adds a default 750 ms after each normal batch, making the scan slower; its additional requests can trigger rate limits that affect normal viewing.
 
-Legacy availability varies by episode and dub; advertised bandwidth is not measured file-average bitrate. Timing checks cannot prove identical edits or decoded synchronization, and `--forcevideo` bypasses those checks with a risk of desynchronization. See [Crunchyroll streams and quality](GET-STARTED.md#crunchyroll-streams-and-quality) for the quality labels, selection rules, and timing limits.
+Legacy availability varies by episode and dub; advertised bandwidth is not measured file-average bitrate. Timing checks cannot prove identical edits or decoded synchronization, and `--bypasssync` skips video/audio timing checks with a risk of desynchronization. See [Crunchyroll streams and quality](GET-STARTED.md#crunchyroll-streams-and-quality) for quality labels, selection scope, and timing limits.
 
 ### HIDIVE
 
@@ -60,7 +60,7 @@ Remove `--dry-run` to download. Use the [CLI reference](DOCUMENTATION.md#downloa
 
 Preview mode works across all three services. It stops before license requests, media/subtitle/font downloads, chapter output, decryption, muxing, and completed-download archive writes. Authentication and token refresh, metadata requests, required HEAD checks, logging, and GUI queue progression may still occur. `--debug` adds full request and manifest diagnostics.
 
-For Crunchyroll episodes, `--tsd` or `tsd: true` can clear playback sessions when the account is full, including during a preview. Standalone `aniDL --service crunchy --tsd` force-clears listed sessions even with `--dry-run` or `--debug`; config alone does not trigger that standalone action. See [Crunchyroll playback recovery](CRUNCHYROLL-RECOVERY.md) for capacity checks, waiting and retry limits. Clearing sessions does not log out and may not resolve a rate limit.
+For Crunchyroll episodes, `--tsd` or `tsd: true` can clear playback sessions when the account is full, including during a preview. Standalone `aniDL --service crunchy --tsd` force-clears listed sessions even with `--dry-run` or `--debug`; config alone does not trigger that standalone action. Use `aniDL --service crunchy --check-status` for a read-only status snapshot without playback or session clearing. See [Crunchyroll playback recovery](CRUNCHYROLL-RECOVERY.md) for capacity checks, status, waiting and retry limits. Clearing sessions does not log out and may not resolve a rate limit.
 
 ## Build from source
 

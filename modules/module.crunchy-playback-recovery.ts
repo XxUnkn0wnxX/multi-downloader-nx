@@ -2,7 +2,7 @@ import type { DiscoveryScheduler } from './module.crunchy-discovery-scheduler';
 import type { WorkingIndicator } from './module.working-indicator';
 
 /** One account-wide clear per command, shared by all archive entries. */
-export type PlaybackRecoveryBudget = { used: boolean };
+export type PlaybackRecoveryBudget = { used: boolean; qallWarned?: boolean };
 
 /** A fully read provider refusal; this does not establish session nonallocation. */
 export class PlaybackRefusal extends Error {

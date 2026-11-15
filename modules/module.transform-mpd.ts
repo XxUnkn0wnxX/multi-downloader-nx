@@ -5,7 +5,8 @@ import { console } from './log';
 import * as reqModule from './module.fetch';
 import { FetchParams } from './module.fetch';
 
-const req = new reqModule.Req();
+let req: reqModule.Req | undefined;
+const getReq = (): reqModule.Req => (req ??= new reqModule.Req());
 
 type Segment = {
 	uri: string;
@@ -214,7 +215,7 @@ export async function parse(
 					method: 'head',
 					...(parseOptions.selection && parseOptions.signal ? { signal: parseOptions.signal } : {})
 				};
-				const itemReq = await req.getData(playlist.sidx.uri, options);
+				const itemReq = await getReq().getData(playlist.sidx.uri, options);
 				const selectedLength = parseOptions.selection ? selectedHeadLength(itemReq) : undefined;
 				if (!itemReq.res || !itemReq.ok)
 					console.warn(
@@ -301,7 +302,7 @@ export async function parse(
 				method: 'head',
 				...(parseOptions.selection && parseOptions.signal ? { signal: parseOptions.signal } : {})
 			};
-			const itemReq = await req.getData(playlist.sidx.uri, options);
+			const itemReq = await getReq().getData(playlist.sidx.uri, options);
 			const selectedLength = parseOptions.selection ? selectedHeadLength(itemReq) : undefined;
 			if (!itemReq.res || !itemReq.ok)
 				console.warn(

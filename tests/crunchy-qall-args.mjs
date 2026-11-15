@@ -52,7 +52,7 @@ const qallOption = args.find((arg) => arg.name === 'qall');
 assert.equal(qallOption.default.default, false);
 assert.deepEqual(Array.from(qallOption.service), ['crunchy']);
 assert.equal(qallOption.type, 'boolean');
-assert.match(qallOption.docDescribe, /does not reduce manifest discovery requests/);
+assert.match(qallOption.docDescribe, /may trigger rate limits/);
 
 const yamlConfig = YAML.parse(fs.readFileSync(path.join(root, 'config/cli-defaults.yml'), 'utf8'));
 assert.equal(yamlConfig.qall, false, 'the shared CLI defaults set qall to false');
@@ -83,6 +83,26 @@ function parse(argv, config = {}, override) {
 	return appArgs.argvC;
 }
 
+const parser = compile(
+	'modules/module.app-args.ts',
+	{
+		'./module.args': { args, groups, configuredDefault },
+		'./log': { console: output },
+		'./module.langsData': languageData,
+		'../@types/enums': enums,
+		'../package.json': { description: 'fixture CLI', version: '1.0.0' },
+		leven: () => 99
+	},
+	{ process: { platform: 'darwin' } }
+);
+assert.equal(parser.statusInvocation(['--service', 'crunchy', '--check-status']), 'valid');
+assert.equal(parser.statusInvocation(['--check-status', '--debug', '--service=crunchy']), 'valid');
+for (const extra of ['--help', '--version', '--tsd', '--dry-run', '--no-qall', '--qall=false', '--e=', 'unexpected'])
+	assert.equal(parser.statusInvocation(['--service', 'crunchy', '--check-status', extra]), 'invalid');
+assert.equal(parser.statusInvocation(['--check-status=false', '--service', 'crunchy']), 'invalid');
+assert.equal(parser.statusInvocation(['--check-status', '--service', 'hidive']), 'invalid');
+assert.equal(parse([], { 'check-status': true }).checkStatus, undefined);
+assert.equal(parse(['--check-status'], { tsd: true, qall: true }).checkStatus, true);
 assert.equal(parse([]).qall, false, 'qall is false by default');
 assert.equal(parse([], { qall: true }).qall, true, 'qall can be enabled from the YAML config value');
 assert.equal(parse(['--qall'], { qall: false }).qall, true);
@@ -105,8 +125,17 @@ assert.equal(parse(['--disctmr', '12']).discoveryTimmer, 12);
 assert.equal(parse(['--disctmr', '12', '--discovery-timmer', '0']).discoveryTimmer, 0);
 assert.equal(parse([], { disctmr: 4 }).discoveryTimmer, 4);
 assert.equal(parse([], { 'discovery-timmer': 0, disctmr: 5 }).discoveryTimmer, 0);
-assert.equal(parse([], { forcevid: true }).forcevideo, true);
-assert.equal(parse([], { forcevideo: false, forcevid: true }).forcevideo, false);
+assert.equal(parse([], { forcevid: true, forcevideo: true }).bypasssync, false);
+assert.equal(parse([], { bypasssync: true }).bypasssync, true);
+assert.equal(parse(['--bypasssync'], {}).bypasssync, true);
+for (const old of ['--forcevideo', '--forcevid']) {
+	const command = parser
+		.getCommander({}, false)
+		.configureOutput({ writeOut() {}, writeErr() {} })
+		.exitOverride();
+	assert.throws(() => command.parse(['node', 'aniDL', '--service', 'crunchy', old]), /unknown option/);
+}
+
 assert.equal(parse([], { vs: 'android' }).vstream, 'android');
 assert.equal(parse([], { as: 'web' }).astream, 'web');
 assert.equal(parse(['--server', '3']).x, 3);
@@ -170,7 +199,9 @@ for (const [argv, cfg, crunchy] of [
 ]) {
 	const text = help(argv, cfg);
 	assert.equal(text.includes('--discovery-timmer'), crunchy);
-	assert.equal(text.includes('--forcevid'), crunchy);
+	assert.equal(text.includes('--bypasssync'), crunchy);
+	assert(!text.includes('--forcevid'));
+	assert.equal(text.includes('--check-status'), crunchy);
 	assert.equal(text.includes('--device'), crunchy);
 	assert(text.includes('--dry-run'));
 	if (crunchy) assert(text.includes('unset uses automatic 250–400 ms'));
@@ -189,7 +220,9 @@ for (const name of ['--username', '--password', '--token', '--forceMuxer']) {
 	assert(!section(name).includes('`automatic`'));
 }
 assert.equal((section('-x').match(/`server: `/g) ?? []).length, 1);
-assert.match(section('--forcevideo'), /`forcevideo: ` or `forcevid: `/);
+assert.match(section('--bypasssync'), /`bypasssync: `/);
+assert(!docs.includes('#### `--forcevideo`'));
+assert.match(section('--check-status'), /`—`/);
 assert.match(section('--vstream'), /`vstream: ` or `vs: `/);
 assert.match(section('--astream'), /`astream: ` or `as: `/);
 

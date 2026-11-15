@@ -10,7 +10,8 @@ import Helper from './module.helper';
 import * as reqModule from './module.fetch';
 import { Manifest } from 'm3u8-parser';
 
-const req = new reqModule.Req();
+let req: reqModule.Req | undefined;
+const getReq = (): reqModule.Req => (req ??= new reqModule.Req());
 
 export type HLSCallback = (data: ProgressData) => unknown;
 
@@ -424,7 +425,7 @@ const extFn = {
 			return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
 		}
 
-		const partReq = await req.getData(uri, {
+		const partReq = await getReq().getData(uri, {
 			method: 'GET',
 			headers: headers
 		});

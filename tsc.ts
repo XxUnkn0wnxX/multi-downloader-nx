@@ -26,6 +26,7 @@ const ignore = [
 	'./bin/mkvtoolnix*',
 	'./config/token.yml$',
 	'./config/updates.json$',
+	'./config/cr_playback_status.json*',
 	'./config/*_token.yml$',
 	'./config/*_sess.yml$',
 	'./config/*_profile.yml$',

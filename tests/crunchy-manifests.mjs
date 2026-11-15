@@ -341,6 +341,7 @@ const deps = {
 		}
 	},
 	'./modules/module.crunchy-playback-recovery': recoveryModule,
+	'./modules/module.crunchy-playback-status': { accountBinding: () => undefined, observePlaybackWait() {}, readPlaybackWait() {} },
 	'./modules/module.crunchy-discovery-scheduler': schedulerModule,
 	'./modules/module.crunchy-video-selection': {
 		discoverVideoCandidates: async () => ({ status: 'fallback' }),

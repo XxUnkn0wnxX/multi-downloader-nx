@@ -18,7 +18,8 @@ export let argvC: {
 	force: 'Y' | 'y' | 'N' | 'n' | 'C' | 'c';
 	skipUpdate: boolean;
 	dryRun?: boolean;
-	forcevideo?: boolean;
+	checkStatus?: boolean;
+	bypasssync?: boolean;
 	videoTitle: string;
 	override: string[];
 	fsRetryTime: number;
@@ -202,6 +203,24 @@ const normalizeParsed = (program: Command, parsed: ArgvType) => {
 	}
 };
 
+/** Validate raw status arguments before Commander can exit for help or version. */
+export function statusInvocation(argv: string[]): 'none' | 'valid' | 'invalid' {
+	if (!argv.some((arg) => arg === '--check-status' || arg.startsWith('--check-status='))) return 'none';
+	let status = 0,
+		service = 0;
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i];
+		if (arg === '--check-status') status++;
+		else if (arg === '--debug') continue;
+		else if (arg === '--service' && argv[i + 1] === 'crunchy') {
+			service++;
+			i++;
+		} else if (arg === '--service=crunchy') service++;
+		else return 'invalid';
+	}
+	return status === 1 && service === 1 ? 'valid' : 'invalid';
+}
+
 const appArgv = (
 	cfg: {
 		[key: string]: unknown;
@@ -209,6 +228,7 @@ const appArgv = (
 	isGUI = false
 ) => {
 	if (argvC) return argvC;
+	if (!isGUI && statusInvocation(process.argv.slice(2)) === 'invalid') throw new Error('--check-status requires only --service crunchy and optional --debug');
 	const argv = getCommander(cfg, isGUI).parse(processArgv());
 	const parsed = argv.opts() as ArgvType;
 

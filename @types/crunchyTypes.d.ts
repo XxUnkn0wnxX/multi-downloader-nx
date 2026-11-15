@@ -7,7 +7,7 @@ import { CrunchyVideoPlayStreams, CrunchyAudioPlayStreams } from './enums';
 
 export type CrunchyDownloadOptions = {
 	dryRun?: boolean;
-	forcevideo?: boolean;
+	bypasssync?: boolean;
 	hslang: string;
 	cstream: keyof typeof CrunchyVideoPlayStreams;
 	vstream: keyof typeof CrunchyVideoPlayStreams;

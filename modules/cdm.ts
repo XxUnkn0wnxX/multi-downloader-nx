@@ -6,7 +6,8 @@ import * as reqModule from './module.fetch';
 import Playready from 'node-playready';
 import { Widevine, KeyContainer, LicenseType } from 'widevine';
 
-const req = new reqModule.Req();
+let req: reqModule.Req | undefined;
+const getReq = (): reqModule.Req => (req ??= new reqModule.Req());
 
 //read cdm files located in the same directory
 let widevine: Widevine | undefined, playready: Playready | undefined;
@@ -126,7 +127,7 @@ export async function getKeysWVD(pssh: string | undefined, licenseServer: string
 	const session = widevine.createSession(psshBuffer, LicenseType.STREAMING);
 
 	// Request License
-	const licReq = await req.getData(licenseServer, {
+	const licReq = await getReq().getData(licenseServer, {
 		method: 'POST',
 		body: session.generateChallenge(),
 		headers: authData
@@ -154,7 +155,7 @@ export async function getKeysPRD(pssh: string | undefined, licenseServer: string
 	const session = playready.generateChallenge(pssh);
 
 	// Fetch license
-	const licReq = await req.getData(licenseServer, {
+	const licReq = await getReq().getData(licenseServer, {
 		method: 'POST',
 		body: session,
 		headers: authData
