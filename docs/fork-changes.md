@@ -9,13 +9,14 @@ This fork follows [anidl/multi-downloader-nx](https://github.com/anidl/multi-dow
 | Branch | Pull source | Push destination | Purpose |
 | --- | --- | --- | --- |
 | `master-upstream` | `upstream/master` | `origin/master-upstream` | Exact upstream mirror; no fork commits. |
-| `develop` | `origin/develop` | `origin/develop` | Fork changes and merges from `master-upstream`; fork default branch. |
+| `develop` | `origin/develop` | `origin/develop` | Working fork changes and merges from `master-upstream`. |
+| `main` | `origin/main` | `origin/main` | Stable fork and default branch; tested CLI releases. |
 
-These are the expected local tracking settings. Keep only these two maintenance branches on the fork's `origin`; fetching upstream branches does not require publishing them to the fork. Fast-forward `master-upstream` from upstream, then merge it into `develop`. Never merge `develop` into `master-upstream`.
+These are the expected local tracking settings. Keep these three maintenance branches on the fork's `origin`; fetching upstream branches does not require publishing them to the fork. Fast-forward `master-upstream` from upstream, then merge it into `develop`. Never merge fork changes into `master-upstream`.
 
-The user plans to create `main` as the stable fork branch when ready. The release workflow is prepared for that branch; adding it and updating the branch instructions is a separate promotion step. Keep the upstream mirror free of fork changes.
+Promote reviewed `develop` revisions to `main` by fast-forward after Tests passes. The release workflow packages only the exact current `main` revision after its own Tests run succeeds. Keep the upstream mirror free of fork changes.
 
-[AGENTS.md](../AGENTS.md) and this guide are tracked maintenance files on `develop`; they must also stay out of the upstream mirror.
+[AGENTS.md](../AGENTS.md) and this guide are tracked maintenance files on the fork branches; they must stay out of the upstream mirror.
 
 ## Active changes
 

@@ -77,13 +77,13 @@ Run the CLI from TypeScript:
 pnpm exec tsx index.ts --help
 ```
 
-Build JavaScript with `pnpm run prebuild-cli` or `pnpm run prebuild-gui`. After the CLI build, run `node lib/index.js --help`; after the GUI build, run `node lib/gui.js`. Package a target with `pnpm run build-{platform}-{arch}-{type}`; the available targets are listed in [`package.json`](../package.json). Build from this checkout's `develop` branch for its fork-specific features; upstream builds may not include them. This repository's release archives are listed only when available on its [Releases page](../../../releases).
+Build JavaScript with `pnpm run prebuild-cli` or `pnpm run prebuild-gui`. After the CLI build, run `node lib/index.js --help`; after the GUI build, run `node lib/gui.js`. Package a target with `pnpm run build-{platform}-{arch}-{type}`; the available targets are listed in [`package.json`](../package.json). Use `main` for the stable fork or `develop` for ongoing changes; upstream builds may not include the fork features. This repository's release archives are listed on its [Releases page](../../../releases).
 
 See [Getting started](GET-STARTED.md) for the Windows GUI walkthrough and [the CLI option reference](DOCUMENTATION.md) for all flags and defaults.
 
 ## Fork builds and releases
 
-`develop` is the working branch. When the stable fork branch `main` is created, its successful [Tests](../../../actions/workflows/test.yml) runs can trigger the CLI builder. Tests also run for `develop` and `main` pushes, pull requests, and manual dispatches. Markdown-only and `docs/`-only pushes and pull requests are skipped; manually dispatch Tests on the current `main` commit to build such a revision.
+`main` is the stable default branch, and `develop` is the working branch. Successful [Tests](../../../actions/workflows/test.yml) runs on `main` can trigger the CLI builder. Tests also run for `develop` and `main` pushes, pull requests, and manual dispatches. Markdown-only and `docs/`-only pushes and pull requests are skipped; manually dispatch Tests on the current `main` commit to build such a revision.
 
 The builder packages Windows, macOS, Linux, and Alpine CLI archives for x64 and arm64, then replaces the assets in one **Nightly Fork** release. It builds the exact tested `main` commit and checks that it is still current before publishing. GUI packages are built from source. Release notes link to the [fork changelog](CHANGELOG.md), where related implementation commits are grouped by change.
 
