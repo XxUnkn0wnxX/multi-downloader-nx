@@ -97,7 +97,7 @@ const parser = compile(
 );
 assert.equal(parser.statusInvocation(['--service', 'crunchy', '--check-status']), 'valid');
 assert.equal(parser.statusInvocation(['--check-status', '--debug', '--service=crunchy']), 'valid');
-for (const extra of ['--help', '--version', '--tsd', '--dry-run', '--no-qall', '--qall=false', '--e=', 'unexpected'])
+for (const extra of ['--help', '--version', '--tsd', '--dry-run', '--update', '--no-qall', '--qall=false', '--e=', 'unexpected'])
 	assert.equal(parser.statusInvocation(['--service', 'crunchy', '--check-status', extra]), 'invalid');
 assert.equal(parser.statusInvocation(['--check-status=false', '--service', 'crunchy']), 'invalid');
 assert.equal(parser.statusInvocation(['--check-status', '--service', 'hidive']), 'invalid');
@@ -112,6 +112,8 @@ assert.equal(parse(['--no-qall'], { qall: true }).qall, false, 'Commander negati
 assert.equal(parse(['--qall=true'], { qall: false }).qall, true);
 assert.equal(parse(['--qall=false', '--qall'], { qall: true }).qall, true, 'the last explicit option wins');
 assert.equal(parse(['--qall', '--qall=false'], { qall: true }).qall, false);
+assert.equal(parse(['--update']).update, true, 'the manual update flag remains accepted by the CLI parser');
+assert.equal(parse(['-update']).update, true, 'the existing single-dash spelling remains accepted');
 for (const flag of ['--qall=false', '--no-qall']) {
 	assert.equal(parse([flag], { qall: true }, { e: '1' }).qall, false, 'archive argument replacement preserves explicit CLI false');
 }
@@ -204,6 +206,8 @@ for (const [argv, cfg, crunchy] of [
 	assert.equal(text.includes('--check-status'), crunchy);
 	assert.equal(text.includes('--device'), crunchy);
 	assert(text.includes('--dry-run'));
+	assert(text.includes('--update'));
+	assert(text.replace(/\s+/g, ' ').includes('Updates disabled on this fork. Download updates: https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork'));
 	if (crunchy) assert(text.includes('unset uses automatic 250–400 ms'));
 	assert(text.includes('--help') && text.includes('--version'));
 	assert(!text.includes('--no-qall'));

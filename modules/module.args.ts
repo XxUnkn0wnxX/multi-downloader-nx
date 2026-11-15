@@ -821,8 +821,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	{
 		name: 'update',
 		group: 'util',
-		describe: 'Force the tool to check for updates (code version only)',
-		docDescribe: true,
+		describe: 'Updates disabled on this fork. Download updates: https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork',
+		docDescribe: 'Updates disabled on this fork. Download updates: https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork',
 		service: ['all'],
 		type: 'boolean',
 		usage: ''

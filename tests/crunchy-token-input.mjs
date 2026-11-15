@@ -1378,6 +1378,7 @@ try {
 		assert.equal(successful.messages.filter((message) => message.name === 'finish').length, 2);
 	});
 	await test('actual entry point propagates Crunchy failures, stops archive, and rejects other-provider device before update', async () => {
+		const updateDisabledNotice = 'Updates disabled on this fork. Download updates: https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork';
 		for (const scenario of [
 			{ status: 'invalid', argv: {}, result: false, expectedCalls: 0, exit: 1, updates: 0, cfgReads: 0 },
 			{ status: 'valid', argv: { service: 'crunchy', checkStatus: true }, result: true, expectedCalls: 1, exit: undefined, updates: 0, readOnly: true },
@@ -1387,12 +1388,24 @@ try {
 			{ argv: { service: 'hidive', dryRun: true, downloadArchive: true }, result: true, expectedCalls: 2, exit: undefined, updates: 0 },
 			{ argv: { service: 'adn', dryRun: true }, result: true, expectedCalls: 1, exit: undefined, updates: 0 },
 			{
-				argv: { service: 'crunchy', dryRun: true, update: true },
+				argv: { service: 'crunchy', dryRun: true, update: true, auth: true, addArchive: true },
+				rawArgs: ['--update', '--dry-run', '--auth', '--addArchive'],
 				result: true,
 				expectedCalls: 0,
 				exit: 1,
 				updates: 0,
-				error: '--dry-run cannot be combined with --update or --addArchive.'
+				cfgReadOnly: true,
+				warning: updateDisabledNotice
+			},
+			{
+				argv: { service: 'crunchy', update: true },
+				rawArgs: ['--update'],
+				result: true,
+				expectedCalls: 0,
+				exit: 1,
+				updates: 0,
+				cfgReadOnly: true,
+				warning: updateDisabledNotice
 			},
 			{
 				argv: { service: 'crunchy', dryRun: true, addArchive: true },
@@ -1430,7 +1443,7 @@ try {
 				cfgReads = 0,
 				cfgReadOnly;
 			const fakeProcess = {
-				argv: ['node', 'index'],
+				argv: ['node', 'index', ...(scenario.rawArgs ?? [])],
 				exitCode: undefined,
 				exit: () => {
 					throw new Error('unexpected exit');
@@ -1477,6 +1490,7 @@ try {
 			assert.equal(calls, scenario.expectedCalls);
 			if (scenario.cfgReads !== undefined) assert.equal(cfgReads, scenario.cfgReads);
 			if (scenario.readOnly) assert.equal(cfgReadOnly, true);
+			if (scenario.cfgReadOnly !== undefined) assert.equal(cfgReadOnly, scenario.cfgReadOnly);
 			if (scenario.argv.service === 'crunchy' && calls === 2) {
 				assert.equal(budgets.length, 2);
 				assert.equal(budgets[0], budgets[1]);

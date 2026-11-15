@@ -24,8 +24,14 @@ const SERVICES: Record<string, any> = {
 		process.exitCode = 1;
 		return;
 	}
-	const cfg = yamlCfg.loadCfg(status === 'valid');
+	const manualUpdateRequested = process.argv.slice(2).some((arg) => arg === '--update' || arg === '-update');
+	const cfg = yamlCfg.loadCfg(status === 'valid' || manualUpdateRequested);
 	const argv = appArgv(cfg.cli);
+	if (argv.update) {
+		console.warn('Updates disabled on this fork. Download updates: https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork');
+		process.exitCode = 1;
+		return;
+	}
 	if (status === 'valid') {
 		const service = new Crunchy(false, recoveryBudget, true);
 		if (!(await service.cli())) process.exitCode = 1;

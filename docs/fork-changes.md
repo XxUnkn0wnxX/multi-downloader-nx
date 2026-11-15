@@ -20,6 +20,16 @@ This guide is tracked on the fork’s `develop` and `main` branches and stays ou
 
 ## Active changes
 
+### Disable manual update requests on the fork
+
+Keep `--update` recognized so a manual request receives the fork-specific release location instead of invoking the upstream updater. The CLI exits with a nonzero status and prints this plain-text notice before authentication, provider, archive, or download actions:
+
+```text
+Updates disabled on this fork. Download updates: https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork
+```
+
+This applies with `--dry-run` too. Normal automatic update checks remain separate and are still controlled by `--skipUpdate`; keep the updater mechanism and its existing startup behavior intact.
+
 ### Ignore local files and generated output
 
 Preserve the categorized `##` sections in [.gitignore](../.gitignore) and its coverage of dependency/build directories, local configuration and credentials, runtime state, downloaded media, Android analysis artifacts, `.tmp/`, and `tmp/`. Local audit records and downloaded APK/DEX files must remain untracked.
@@ -109,7 +119,7 @@ With episode selection, `--tsd` or `tsd: true` enables a capacity assessment bef
 
 `--dry-run` is a CLI or programmatic action and is not enabled by configuration. It lists available and selected stream information for Crunchyroll, HIDIVE and ADN, then stops before license requests, media/subtitle/font downloads, chapter output, decryption, muxing and completed-download archive writes. Keep outer provider completion guards and cleanup of only the preview's own playback sessions, except for an explicitly enabled `--tsd` or `tsd: true` capacity-based reset, including previews. The standalone font command lists planned URLs in preview mode.
 
-Preview mode skips automatic updates and rejects explicit update/archive-add actions. Existing authentication/refresh, metadata requests and HEAD checks, logging and GUI queue progression can still occur; this is a download preview. `--debug` remains available. Normal download behavior and prerequisites must be preserved.
+Preview mode skips automatic updates. An explicit `--update` request prints the fork notice above and exits; archive-add actions remain rejected. Existing authentication/refresh, metadata requests and HEAD checks, logging and GUI queue progression can still occur; this is a download preview. `--debug` remains available. Normal download behavior and prerequisites must be preserved.
 
 ### Use undetermined language for video tracks
 

@@ -553,7 +553,7 @@ Set the service you want to use
 | --- | --- | --- | --- | --- | ---|
 | All | `--update ` | `boolean` | `No`| `—` | `—` |
 
-Force the tool to check for updates (code version only)
+Updates disabled on this fork. Download updates: https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork
 #### `--skipUpdate`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
