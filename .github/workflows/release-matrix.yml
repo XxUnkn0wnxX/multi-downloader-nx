@@ -1,6 +1,7 @@
 name: Nightly Fork
 
 on:
+    workflow_dispatch:
     workflow_run:
         workflows: [Tests]
         types: [completed]
@@ -13,9 +14,13 @@ jobs:
     gate:
         runs-on: ubuntu-latest
         timeout-minutes: 5
+        permissions:
+            contents: read
+            actions: read
         outputs:
             eligible: ${{ steps.gate.outputs.eligible }}
             sha: ${{ steps.gate.outputs.sha }}
+            tested_sha: ${{ steps.gate.outputs.tested_sha }}
             tests_run_id: ${{ steps.gate.outputs.tests_run_id }}
             tests_attempt: ${{ steps.gate.outputs.tests_attempt }}
         steps:
@@ -43,7 +48,8 @@ jobs:
         runs-on: ${{ matrix.runner }}
         timeout-minutes: 30
         env:
-            TESTED_SHA: ${{ needs.gate.outputs.sha }}
+            TARGET_SHA: ${{ needs.gate.outputs.sha }}
+            TESTED_SHA: ${{ needs.gate.outputs.tested_sha }}
             TESTS_RUN_ID: ${{ needs.gate.outputs.tests_run_id }}
             TESTS_ATTEMPT: ${{ needs.gate.outputs.tests_attempt }}
         steps:
@@ -53,7 +59,7 @@ jobs:
                   ref: ${{ github.workflow_sha }}
                   persist-credentials: false
                   path: controller
-            - name: Checkout tested source
+            - name: Checkout target source
               uses: actions/checkout@v6
               with:
                   ref: ${{ needs.gate.outputs.sha }}
@@ -116,13 +122,15 @@ jobs:
         timeout-minutes: 10
         permissions:
             contents: write
+            actions: read
         concurrency:
             group: nightly-fork-publish
             queue: max
             cancel-in-progress: false
         env:
             GH_TOKEN: ${{ github.token }}
-            TESTED_SHA: ${{ needs.gate.outputs.sha }}
+            TARGET_SHA: ${{ needs.gate.outputs.sha }}
+            TESTED_SHA: ${{ needs.gate.outputs.tested_sha }}
             TESTS_RUN_ID: ${{ needs.gate.outputs.tests_run_id }}
             TESTS_ATTEMPT: ${{ needs.gate.outputs.tests_attempt }}
         steps:

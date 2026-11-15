@@ -35,12 +35,149 @@ export function eligibleEvent(event, repository) {
 		!positiveInteger(run?.run_attempt)
 	)
 		return null;
-	return { sha: run.head_sha, testsRunId: run.id, testsAttempt: run.run_attempt };
+	return { sha: run.head_sha, testedSha: run.head_sha, testsRunId: run.id, testsAttempt: run.run_attempt };
+}
+
+async function currentMain(repository, api) {
+	const ref = await api('GET', `/repos/${repository}/git/ref/heads/main`);
+	if (!shaPattern.test(ref?.object?.sha ?? '')) throw new Error('Cannot verify current main head');
+	return ref.object.sha;
 }
 
 export async function requireCurrentMain(repository, sha, api) {
-	const ref = await api('GET', `/repos/${repository}/git/ref/heads/main`);
-	if (ref?.object?.sha !== sha) throw new Error('Tested commit is no longer the current main head');
+	if ((await currentMain(repository, api)) !== sha) throw new Error('Target commit is no longer the current main head');
+}
+
+const HISTORY_PAGE_SIZE = 100;
+const HISTORY_LIMIT = 500;
+const isDocument = (name) => typeof name === 'string' && name.length > 0 && (name.startsWith('docs/') || name.endsWith('.md'));
+
+export async function documentOnlyDescendant(repository, testedSha, targetSha, api) {
+	if (testedSha === targetSha) return true;
+	const comparison = await api('GET', `/repos/${repository}/compare/${testedSha}...${targetSha}?per_page=1&page=1`);
+	if (!comparison || typeof comparison.status !== 'string' || !comparison.merge_base_commit || !Number.isSafeInteger(comparison.behind_by) || !Array.isArray(comparison.files)) {
+		throw new Error('Cannot prove documentation-only comparison: malformed response');
+	}
+	if (comparison.files.length >= 300) throw new Error('Cannot prove documentation-only comparison: 300-file limit reached');
+	if (comparison.status !== 'ahead' || comparison.merge_base_commit.sha !== testedSha || comparison.behind_by !== 0) return false;
+	for (const file of comparison.files) {
+		if (
+			!file ||
+			typeof file.filename !== 'string' ||
+			!file.filename ||
+			!['added', 'removed', 'modified', 'renamed', 'changed', 'copied', 'unchanged'].includes(file.status) ||
+			(file.status === 'renamed' && (typeof file.previous_filename !== 'string' || !file.previous_filename)) ||
+			(file.previous_filename !== undefined && (typeof file.previous_filename !== 'string' || !file.previous_filename))
+		) {
+			throw new Error('Cannot prove documentation-only comparison: malformed file');
+		}
+		if (!isDocument(file.filename) || (file.previous_filename !== undefined && !isDocument(file.previous_filename))) return false;
+	}
+	return true;
+}
+
+function relevantRun(run, workflowId, repository) {
+	return (
+		run?.workflow_id === workflowId &&
+		run.head_branch === 'main' &&
+		['push', 'workflow_dispatch'].includes(run.event) &&
+		run.repository?.full_name === repository &&
+		run.head_repository?.full_name === repository &&
+		shaPattern.test(run.head_sha ?? '') &&
+		positiveInteger(run.id) &&
+		positiveInteger(run.run_attempt)
+	);
+}
+
+async function readHistory(base, workflowId, api) {
+	const runs = [];
+	let total;
+	for (let page = 1; page <= HISTORY_LIMIT / HISTORY_PAGE_SIZE; page++) {
+		const result = await api('GET', `${base}/actions/workflows/${workflowId}/runs?branch=main&per_page=${HISTORY_PAGE_SIZE}&page=${page}`);
+		if (!result || !Array.isArray(result.workflow_runs) || !Number.isSafeInteger(result.total_count) || result.total_count < 0)
+			throw new Error('Cannot verify Tests history: malformed response');
+		if (total !== undefined && total !== result.total_count) throw new Error('Tests history changed during pagination; retry the release');
+		total = result.total_count;
+		if (total > HISTORY_LIMIT) throw new Error(`Cannot verify Tests history: ${HISTORY_LIMIT}-run limit exceeded`);
+		runs.push(...result.workflow_runs);
+		if (runs.length >= total || result.workflow_runs.length < HISTORY_PAGE_SIZE) break;
+	}
+	if (runs.length !== total || new Set(runs.map((run) => run.id)).size !== runs.length) throw new Error('Incomplete or changing Tests history; retry the release');
+	return runs;
+}
+
+function historySnapshot(runs) {
+	return JSON.stringify(
+		runs
+			.map((run) => ({
+				id: run.id,
+				workflow_id: run.workflow_id,
+				head_sha: run.head_sha,
+				head_branch: run.head_branch,
+				event: run.event,
+				repository: run.repository?.full_name,
+				head_repository: run.head_repository?.full_name,
+				run_attempt: run.run_attempt,
+				run_started_at: run.run_started_at,
+				created_at: run.created_at,
+				status: run.status,
+				conclusion: run.conclusion
+			}))
+			.sort((a, b) => a.id - b.id)
+	);
+}
+
+export async function latestApplicableProof(repository, targetSha, api) {
+	const base = `/repos/${repository}`;
+	const workflow = await api('GET', `${base}/actions/workflows/test.yml`);
+	if (workflow?.name !== 'Tests' || workflow?.path !== '.github/workflows/test.yml' || !positiveInteger(workflow.id)) throw new Error('Cannot verify expected Tests workflow');
+	const runs = await readHistory(base, workflow.id, api);
+	const snapshot = historySnapshot(runs);
+	const candidates = [];
+	for (const run of runs.filter((entry) => relevantRun(entry, workflow.id, repository))) {
+		const time = run.run_started_at ?? (run.run_attempt === 1 && run.status !== 'completed' ? run.created_at : null);
+		if (typeof time !== 'string' || !Number.isFinite(Date.parse(time))) {
+			if (await documentOnlyDescendant(repository, run.head_sha, targetSha, api)) throw new Error('Cannot order applicable Tests attempt: missing activity time');
+			continue;
+		}
+		candidates.push({ run, time: Date.parse(time) });
+	}
+	candidates.sort((a, b) => b.time - a.time || a.run.id - b.run.id);
+	for (let i = 0; i < candidates.length;) {
+		const time = candidates[i].time;
+		const applicable = [];
+		while (i < candidates.length && candidates[i].time === time) {
+			const run = candidates[i++].run;
+			if (await documentOnlyDescendant(repository, run.head_sha, targetSha, api)) applicable.push(run);
+		}
+		if (!applicable.length) continue;
+		for (const run of applicable) {
+			const fresh = await api('GET', `${base}/actions/runs/${run.id}`);
+			if (!relevantRun(fresh, workflow.id, repository) || historySnapshot([fresh]) !== historySnapshot([run]))
+				throw new Error('Tests attempt changed during proof; retry the release');
+			if (fresh.status !== 'completed') throw new Error('Latest applicable Tests attempt is still running or pending');
+			if (fresh.conclusion !== 'success') throw new Error(`Latest applicable Tests attempt did not succeed: ${fresh.conclusion}`);
+		}
+		if (snapshot !== historySnapshot(await readHistory(base, workflow.id, api))) throw new Error('Tests history changed during proof; retry the release');
+		const selected = applicable[0];
+		return { sha: targetSha, testedSha: selected.head_sha, testsRunId: selected.id, testsAttempt: selected.run_attempt };
+	}
+	throw new Error('No successful applicable Tests run found for target main commit');
+}
+
+export async function selectGate({ eventName, event, ref, sha, repository }, api) {
+	if (eventName === 'workflow_dispatch') {
+		if (ref !== 'refs/heads/main' || !shaPattern.test(sha ?? '')) throw new Error('Manual release requires main');
+		await requireCurrentMain(repository, sha, api);
+		const selected = await latestApplicableProof(repository, sha, api);
+		await requireCurrentMain(repository, sha, api);
+		return selected;
+	}
+	if (eventName !== 'workflow_run') throw new Error('Unsupported release event');
+	const selected = eligibleEvent(event, repository);
+	if (!selected) return null;
+	if ((await currentMain(repository, api)) !== selected.sha) return { skipReason: 'Tests commit is no longer current main; skipping automatic release' };
+	return selected;
 }
 
 export function assetNames(arch) {
@@ -106,13 +243,18 @@ export async function verifyBundles(directory, provenance) {
 function workflowProvenance(env) {
 	const number = (value) => Number(value);
 	const result = {
-		sha: env.TESTED_SHA,
+		sha: env.TARGET_SHA,
+		testedSha: env.TESTED_SHA,
 		testsRunId: number(env.TESTS_RUN_ID),
 		testsAttempt: number(env.TESTS_ATTEMPT),
 		buildRunId: number(env.GITHUB_RUN_ID),
 		buildAttempt: number(env.GITHUB_RUN_ATTEMPT)
 	};
-	if (!shaPattern.test(result.sha ?? '') || ![result.testsRunId, result.testsAttempt, result.buildRunId, result.buildAttempt].every(positiveInteger)) {
+	if (
+		!shaPattern.test(result.sha ?? '') ||
+		!shaPattern.test(result.testedSha ?? '') ||
+		![result.testsRunId, result.testsAttempt, result.buildRunId, result.buildAttempt].every(positiveInteger)
+	) {
 		throw new Error('Invalid workflow provenance');
 	}
 	return result;
@@ -152,10 +294,19 @@ async function findRelease(base, api) {
 	}
 }
 
-export async function publish(directory, provenance, repository, api = githubApi, uploadAssets = uploadReleaseAssets, server = process.env.GITHUB_SERVER_URL) {
+export async function publish(
+	directory,
+	provenance,
+	repository,
+	api = githubApi,
+	uploadAssets = uploadReleaseAssets,
+	server = process.env.GITHUB_SERVER_URL,
+	proof = latestApplicableProof
+) {
 	const files = await verifyBundles(directory, provenance);
 	const base = `/repos/${repository}`;
 	let release = await findRelease(base, api);
+	await proof(repository, provenance.sha, api);
 	await requireCurrentMain(repository, provenance.sha, api);
 	if (!release) {
 		release = await api('POST', `${base}/releases`, {
@@ -170,11 +321,13 @@ export async function publish(directory, provenance, repository, api = githubApi
 	if (!positiveInteger(release.id)) throw new Error('Invalid release ID');
 	await uploadAssets(files, repository);
 	const tag = await api('GET', `${base}/git/ref/tags/nightly-fork`, undefined, true);
+	await proof(repository, provenance.sha, api);
 	await requireCurrentMain(repository, provenance.sha, api);
 	if (tag) await api('PATCH', `${base}/git/refs/tags/nightly-fork`, { sha: provenance.sha, force: true });
 	else await api('POST', `${base}/git/refs`, { ref: 'refs/tags/nightly-fork', sha: provenance.sha });
 	const url = `${server}/${repository}`;
-	const body = `Source: [${provenance.sha}](${url}/commit/${provenance.sha})\n\nTests: [run ${provenance.testsRunId}, attempt ${provenance.testsAttempt}](${url}/actions/runs/${provenance.testsRunId}/attempts/${provenance.testsAttempt})\n\nBuild: [run ${provenance.buildRunId}](${url}/actions/runs/${provenance.buildRunId}) (publication attempt ${provenance.buildAttempt})\n\n[Changelog](${url}/blob/${provenance.sha}/docs/CHANGELOG.md)`;
+	const testedCommit = provenance.testedSha === provenance.sha ? '' : ` (tested ancestor: [${provenance.testedSha}](${url}/commit/${provenance.testedSha}))`;
+	const body = `Source: [${provenance.sha}](${url}/commit/${provenance.sha})\n\nTests: [run ${provenance.testsRunId}, attempt ${provenance.testsAttempt}](${url}/actions/runs/${provenance.testsRunId}/attempts/${provenance.testsAttempt})${testedCommit}\n\nBuild: [run ${provenance.buildRunId}](${url}/actions/runs/${provenance.buildRunId}) (publication attempt ${provenance.buildAttempt})\n\n[Changelog](${url}/blob/${provenance.sha}/docs/CHANGELOG.md)`;
 	await api('PATCH', `${base}/releases/${release.id}`, { tag_name: 'nightly-fork', name: 'Nightly Fork', body, prerelease: true, draft: false });
 }
 
@@ -186,14 +339,18 @@ function uploadReleaseAssets(files, repository) {
 async function main() {
 	const command = process.argv[2];
 	if (command === 'gate') {
-		const event = JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8'));
-		const selected = eligibleEvent(event, process.env.GITHUB_REPOSITORY);
-		if (!selected) {
+		const eventName = process.env.GITHUB_EVENT_NAME;
+		const event = eventName === 'workflow_run' ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
+		const selected = await selectGate({ eventName, event, ref: process.env.GITHUB_REF, sha: process.env.GITHUB_SHA, repository: process.env.GITHUB_REPOSITORY }, githubApi);
+		if (!selected || selected.skipReason) {
+			if (selected?.skipReason) console.info(selected.skipReason);
 			await appendFile(process.env.GITHUB_OUTPUT, 'eligible=false\n');
 			return;
 		}
-		await requireCurrentMain(process.env.GITHUB_REPOSITORY, selected.sha, githubApi);
-		await appendFile(process.env.GITHUB_OUTPUT, `eligible=true\nsha=${selected.sha}\ntests_run_id=${selected.testsRunId}\ntests_attempt=${selected.testsAttempt}\n`);
+		await appendFile(
+			process.env.GITHUB_OUTPUT,
+			`eligible=true\nsha=${selected.sha}\ntested_sha=${selected.testedSha}\ntests_run_id=${selected.testsRunId}\ntests_attempt=${selected.testsAttempt}\n`
+		);
 	} else if (command === 'current-main') {
 		const { sha } = workflowProvenance(process.env);
 		await requireCurrentMain(process.env.GITHUB_REPOSITORY, sha, githubApi);

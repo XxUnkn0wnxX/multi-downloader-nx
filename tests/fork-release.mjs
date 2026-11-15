@@ -4,7 +4,17 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import console from 'node:console';
-import { assetNames, eligibleEvent, publish, recordBundle, requireCurrentMain, verifyBundles } from '../.github/scripts/fork-release.mjs';
+import {
+	assetNames,
+	documentOnlyDescendant,
+	eligibleEvent,
+	latestApplicableProof,
+	publish,
+	recordBundle,
+	requireCurrentMain,
+	selectGate,
+	verifyBundles
+} from '../.github/scripts/fork-release.mjs';
 
 const repo = 'owner/repository';
 const sha = 'a'.repeat(40);
@@ -25,7 +35,7 @@ const base = {
 		run_attempt: 2
 	}
 };
-const selected = { sha, testsRunId: 101, testsAttempt: 2 };
+const selected = { sha, testedSha: sha, testsRunId: 101, testsAttempt: 2 };
 assert.deepEqual(eligibleEvent(base, repo), selected);
 const changed = (part, values) => ({ ...base, [part]: { ...base[part], ...values } });
 assert.deepEqual(eligibleEvent(changed('workflow_run', { event: 'workflow_dispatch' }), repo), selected);
@@ -65,6 +75,124 @@ await assert.rejects(
 	/unavailable/
 );
 
+const otherSha = 'b'.repeat(40);
+const validComparison = { status: 'ahead', merge_base_commit: { sha }, behind_by: 0, files: [{ status: 'modified', filename: 'docs/CHANGELOG.md' }] };
+const compare = async () => validComparison;
+assert.equal(
+	await documentOnlyDescendant(repo, sha, sha, async () => {
+		throw new Error('unneeded comparison');
+	}),
+	true
+);
+assert.equal(await documentOnlyDescendant(repo, sha, otherSha, compare), true);
+for (const filename of ['package.json', 'pnpm-lock.yaml', '.github/workflows/test.yml']) {
+	assert.equal(await documentOnlyDescendant(repo, sha, otherSha, async () => ({ ...validComparison, files: [{ status: 'modified', filename }] })), false);
+}
+for (const [filename, previous_filename] of [
+	['docs/readme.md', 'src/index.ts'],
+	['src/index.ts', 'docs/readme.md']
+]) {
+	assert.equal(await documentOnlyDescendant(repo, sha, otherSha, async () => ({ ...validComparison, files: [{ status: 'renamed', filename, previous_filename }] })), false);
+}
+await assert.rejects(
+	documentOnlyDescendant(repo, sha, otherSha, async () => ({ ...validComparison, files: Array(300).fill(validComparison.files[0]) })),
+	/300-file/
+);
+await assert.rejects(
+	documentOnlyDescendant(repo, sha, otherSha, async () => ({ ...validComparison, files: [{ status: 'renamed', filename: 'docs/a.md' }] })),
+	/malformed/
+);
+await assert.rejects(
+	documentOnlyDescendant(repo, sha, otherSha, async () => ({ ...validComparison, files: null })),
+	/malformed/
+);
+assert.equal(await documentOnlyDescendant(repo, sha, otherSha, async () => ({ ...validComparison, status: 'diverged' })), false);
+assert.equal(await documentOnlyDescendant(repo, sha, otherSha, async () => ({ ...validComparison, merge_base_commit: { sha: otherSha } })), false);
+
+const run = { ...base.workflow_run, run_started_at: '2026-01-01T00:00:00Z', created_at: '2026-01-01T00:00:00Z' };
+const proofApi =
+	(runs, overrides = {}) =>
+	async (method, endpoint) => {
+		if (endpoint.endsWith('/actions/workflows/test.yml')) return { id: 7, name: 'Tests', path: '.github/workflows/test.yml' };
+		if (endpoint.includes('/actions/workflows/7/runs?')) return { total_count: runs.length, workflow_runs: runs };
+		if (endpoint.includes('/compare/')) return validComparison;
+		if (endpoint.includes('/actions/runs/')) return overrides[endpoint] ?? runs.find((entry) => endpoint.endsWith(`/${entry.id}`));
+		throw new Error(`Unexpected request ${method} ${endpoint}`);
+	};
+assert.deepEqual(await latestApplicableProof(repo, sha, proofApi([run])), selected);
+assert.deepEqual(await latestApplicableProof(repo, otherSha, proofApi([run])), { ...selected, sha: otherSha });
+const laterFailedRerun = { ...run, id: 100, run_attempt: 3, run_started_at: '2026-01-02T00:00:00Z', conclusion: 'failure' };
+await assert.rejects(latestApplicableProof(repo, sha, proofApi([run, laterFailedRerun])), /did not succeed/);
+await assert.rejects(latestApplicableProof(repo, sha, proofApi([run, { ...laterFailedRerun, status: 'queued', conclusion: null }])), /running or pending/);
+await assert.rejects(latestApplicableProof(repo, sha, proofApi([run], { '/repos/owner/repository/actions/runs/101': { ...run, run_attempt: 3 } })), /changed during proof/);
+await assert.rejects(
+	latestApplicableProof(
+		repo,
+		sha,
+		proofApi([
+			{ ...run, event: 'pull_request' },
+			{ ...run, id: 102, head_repository: { full_name: 'fork/repository' } }
+		])
+	),
+	/No successful/
+);
+await assert.rejects(
+	latestApplicableProof(repo, sha, async (method, endpoint) => (endpoint.endsWith('test.yml') ? { id: 7, name: 'Other', path: '.github/workflows/test.yml' } : {})),
+	/expected Tests/
+);
+await assert.rejects(
+	latestApplicableProof(repo, sha, async (method, endpoint) =>
+		endpoint.endsWith('test.yml') ? { id: 7, name: 'Tests', path: '.github/workflows/test.yml' } : { total_count: 501, workflow_runs: [] }
+	),
+	/500-run limit/
+);
+
+const tiedFailure = { ...run, id: 102, conclusion: 'failure' };
+await assert.rejects(latestApplicableProof(repo, sha, proofApi([run, tiedFailure])), /did not succeed/);
+await assert.rejects(latestApplicableProof(repo, sha, proofApi([run, { ...tiedFailure, status: 'queued', conclusion: null }])), /running or pending/);
+assert.deepEqual(await latestApplicableProof(repo, sha, proofApi([run, { ...tiedFailure, head_sha: otherSha }])), selected);
+const older = { ...run, id: 99, run_started_at: '2025-12-31T00:00:00Z' };
+let historyReads = 0;
+const baseRaceApi = proofApi([run, older]);
+await assert.rejects(
+	latestApplicableProof(repo, sha, async (method, endpoint) => {
+		if (endpoint.includes('/actions/workflows/7/runs?') && ++historyReads === 2) {
+			return { total_count: 2, workflow_runs: [run, { ...older, run_attempt: 3, conclusion: 'failure', run_started_at: '2026-01-02T00:00:00Z' }] };
+		}
+		return baseRaceApi(method, endpoint);
+	}),
+	/history changed/
+);
+const fiveHundred = Array.from({ length: 500 }, (_, index) => ({ ...run, id: index + 1, run_started_at: new Date(Date.parse(run.run_started_at) + index * 1000).toISOString() }));
+const pagedApi = async (method, endpoint) => {
+	if (endpoint.endsWith('test.yml')) return { id: 7, name: 'Tests', path: '.github/workflows/test.yml' };
+	if (endpoint.includes('/actions/workflows/7/runs?')) {
+		const page = Number(endpoint.match(/page=(\d+)$/)[1]);
+		return { total_count: 500, workflow_runs: fiveHundred.slice((page - 1) * 100, page * 100) };
+	}
+	if (endpoint.includes('/actions/runs/')) return fiveHundred.find((entry) => endpoint.endsWith(`/${entry.id}`));
+	throw new Error('Unexpected request');
+};
+assert.equal((await latestApplicableProof(repo, sha, pagedApi)).testsRunId, 500);
+const manualApi = async (method, endpoint) => (endpoint.endsWith('/git/ref/heads/main') ? { object: { sha: otherSha } } : proofApi([run])(method, endpoint));
+await assert.rejects(selectGate({ eventName: 'workflow_dispatch', ref: 'refs/heads/develop', sha, repository: repo }, manualApi), /requires main/);
+assert.deepEqual(await selectGate({ eventName: 'workflow_dispatch', ref: 'refs/heads/main', sha: otherSha, repository: repo }, manualApi), { ...selected, sha: otherSha });
+const exactApi = async (method, endpoint) => (endpoint.endsWith('/git/ref/heads/main') ? { object: { sha } } : proofApi([run])(method, endpoint));
+assert.deepEqual(await selectGate({ eventName: 'workflow_dispatch', ref: 'refs/heads/main', sha, repository: repo }, exactApi), selected);
+assert.deepEqual(await selectGate({ eventName: 'workflow_run', event: base, repository: repo }, manualApi), {
+	skipReason: 'Tests commit is no longer current main; skipping automatic release'
+});
+assert.equal(await selectGate({ eventName: 'workflow_run', event: { ...base, action: 'requested' }, repository: repo }, manualApi), null);
+await assert.rejects(selectGate({ eventName: 'push', repository: repo }, manualApi), /Unsupported/);
+await assert.rejects(
+	selectGate({ eventName: 'workflow_run', event: base, repository: repo }, async () => {
+		throw new Error('network failed');
+	}),
+	/network failed/
+);
+
+const proof = async () => {};
+
 const root = await mkdtemp(path.join(os.tmpdir(), 'fork-release-test-'));
 const provenance = { ...selected, buildRunId: 202, buildAttempt: 3 };
 try {
@@ -79,6 +207,32 @@ try {
 		await recordBundle(source, path.join(root, 'bundles', arch), arch, provenance);
 	}
 	assert.equal((await verifyBundles(path.join(root, 'bundles'), provenance)).length, 16);
+
+	const reusedProvenance = { ...provenance, sha: otherSha, testedSha: sha };
+	for (const arch of ['x64', 'arm64']) {
+		await recordBundle(path.join(root, 'source', arch), path.join(root, 'reused', arch), arch, reusedProvenance);
+	}
+	assert.equal((await verifyBundles(path.join(root, 'reused'), reusedProvenance)).length, 16);
+	await assert.rejects(verifyBundles(path.join(root, 'reused'), { ...reusedProvenance, testedSha: otherSha }), /provenance/);
+	let releaseBody;
+	await publish(
+		path.join(root, 'reused'),
+		reusedProvenance,
+		repo,
+		async (method, endpoint, body) => {
+			if (endpoint.endsWith('/releases/tags/nightly-fork')) return { id: 44 };
+			if (endpoint.endsWith('/git/ref/heads/main')) return { object: { sha: otherSha } };
+			if (endpoint.endsWith('/git/ref/tags/nightly-fork')) return { object: { sha } };
+			if (endpoint.endsWith('/releases/44')) releaseBody = body.body;
+			return {};
+		},
+		async () => {},
+		'https://github.com',
+		proof
+	);
+	assert.ok(releaseBody.includes(`Source: [${otherSha}]`));
+	assert.ok(releaseBody.includes(`tested ancestor: [${sha}]`));
+
 	const receiptFile = path.join(root, 'bundles', 'x64', 'provenance.json');
 	const originalReceipt = JSON.parse(await readFile(receiptFile, 'utf8'));
 	await writeFile(receiptFile, JSON.stringify({ ...originalReceipt, buildAttempt: 1 }));
@@ -101,7 +255,7 @@ try {
 	const upload = async (files, repository) => {
 		uploadCalls.push({ files, repository, requestsBeforeUpload: requests.length });
 	};
-	await publish(path.join(root, 'bundles'), provenance, repo, rest, upload, 'https://github.com');
+	await publish(path.join(root, 'bundles'), provenance, repo, rest, upload, 'https://github.com', proof);
 	assert.deepEqual(
 		requests.map((call) => call.method),
 		['GET', 'GET', 'GET', 'GET', 'PATCH', 'PATCH']
@@ -111,12 +265,50 @@ try {
 	assert.equal(requests[5].endpoint, '/repos/owner/repository/releases/44');
 	assert.match(requests[5].body.body, /tests|Tests/);
 	assert.equal(uploadCalls[0].files.length, 16);
+	assert.match(requests[5].body.body, new RegExp(sha));
+	requests.length = 0;
+	await assert.rejects(
+		publish(
+			path.join(root, 'bundles'),
+			provenance,
+			repo,
+			async (method, endpoint, body) => {
+				if (endpoint.endsWith('/git/ref/heads/main')) return { object: { sha: otherSha } };
+				return rest(method, endpoint, body);
+			},
+			async () => {
+				throw new Error('unexpected upload');
+			},
+			'https://github.com',
+			async () => {}
+		),
+		/no longer/
+	);
+	assert.ok(requests.every((call) => call.method === 'GET'));
+
+	requests.length = 0;
+	let checks = 0;
+	await assert.rejects(
+		publish(
+			path.join(root, 'bundles'),
+			provenance,
+			repo,
+			rest,
+			async () => {},
+			'https://github.com',
+			async () => {
+				if (++checks === 2) throw new Error('new failed test');
+			}
+		),
+		/new failed test/
+	);
+	assert.ok(requests.every((call) => call.method === 'GET'));
 
 	requests.length = 0;
 	const failedUpload = async () => {
 		throw new Error('upload failed');
 	};
-	await assert.rejects(publish(path.join(root, 'bundles'), provenance, repo, rest, failedUpload, 'https://github.com'), /upload failed/);
+	await assert.rejects(publish(path.join(root, 'bundles'), provenance, repo, rest, failedUpload, 'https://github.com', proof), /upload failed/);
 	assert.ok(requests.every((call) => call.method === 'GET'));
 	requests.length = 0;
 	let headChecks = 0;
@@ -125,7 +317,7 @@ try {
 		return rest(method, endpoint, body);
 	};
 	await assert.rejects(
-		publish(path.join(root, 'bundles'), provenance, repo, movedAfterUpload, async () => {}, 'https://github.com'),
+		publish(path.join(root, 'bundles'), provenance, repo, movedAfterUpload, async () => {}, 'https://github.com', proof),
 		/no longer/
 	);
 	assert.ok(requests.every((call) => call.method === 'GET'));
@@ -144,7 +336,7 @@ try {
 		}
 		return {};
 	};
-	await assert.rejects(publish(path.join(root, 'bundles'), provenance, repo, draftApi, failedUpload, 'https://github.com'), /upload failed/);
+	await assert.rejects(publish(path.join(root, 'bundles'), provenance, repo, draftApi, failedUpload, 'https://github.com', proof), /upload failed/);
 	assert.equal(draft.draft, true);
 	assert.equal(draft.target_commitish, sha);
 	assert.equal(draftCalls.filter((call) => call.method !== 'GET').length, 1);
@@ -160,7 +352,8 @@ try {
 				false
 			);
 		},
-		'https://github.com'
+		'https://github.com',
+		proof
 	);
 	assert.equal(draftCalls.filter((call) => call.method === 'POST' && call.endpoint.endsWith('/releases')).length, 0);
 	assert.equal(draftCalls.at(-1).endpoint, '/repos/owner/repository/releases/55');
@@ -171,7 +364,7 @@ try {
 		if (endpoint.endsWith('/git/ref/heads/main')) return { object: { sha: 'b'.repeat(40) } };
 		return rest(method, endpoint, body);
 	};
-	await assert.rejects(publish(path.join(root, 'bundles'), provenance, repo, staleRest, upload, 'https://github.com'), /no longer/);
+	await assert.rejects(publish(path.join(root, 'bundles'), provenance, repo, staleRest, upload, 'https://github.com', proof), /no longer/);
 	assert.ok(requests.every((call) => call.method === 'GET'));
 	assert.equal(uploadCalls.length, 1);
 
@@ -183,7 +376,7 @@ try {
 	await writeFile(file, 'altered');
 	await assert.rejects(verifyBundles(path.join(root, 'bundles'), provenance), /Checksum mismatch/);
 	requests.length = 0;
-	await assert.rejects(publish(path.join(root, 'bundles'), provenance, repo, rest, upload, 'https://github.com'), /Checksum mismatch/);
+	await assert.rejects(publish(path.join(root, 'bundles'), provenance, repo, rest, upload, 'https://github.com', proof), /Checksum mismatch/);
 	assert.equal(requests.length, 0);
 	assert.equal(uploadCalls.length, 1);
 	await writeFile(file, original);
