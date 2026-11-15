@@ -76,6 +76,8 @@ pnpm exec tsx index.ts --help
 | CLI       | `pnpm run prebuild-cli` | `node lib/index.js --help` |
 | GUI       | `pnpm run prebuild-gui` | `node lib/gui.js`          |
 
+The GUI remains buildable, but it is not actively supported in this fork. Development and support focus on the CLI.
+
 To package a standalone application, use a `build-{platform}-{arch}-{type}` script from [`package.json`](../package.json).
 
 ## Fork builds and releases

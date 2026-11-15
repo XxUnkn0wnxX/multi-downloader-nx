@@ -1559,6 +1559,7 @@ export default class Crunchy implements ServiceClass {
 					discovery = await discoverVideoCandidates({
 						signal: controller.signal,
 						onWaiting: (retry, ms) => indicator.waiting(retry, ms),
+						fixedPauseMs: options.discoveryTimmer,
 						req: this.req,
 						headers,
 						sources,
@@ -3060,6 +3061,7 @@ export default class Crunchy implements ServiceClass {
 							plQuality: {
 								str: string;
 								dim: string;
+								bandwidth: number;
 								CODECS?: string;
 								RESOLUTION?: {
 									width?: number;
@@ -3107,6 +3109,7 @@ export default class Crunchy implements ServiceClass {
 								plQuality.push({
 									str: qualityStrAdd,
 									dim: plResolutionText,
+									bandwidth: pl.attributes?.BANDWIDTH ?? 0,
 									CODECS: plCodecs,
 									RESOLUTION: plResolution
 								});
@@ -3144,7 +3147,7 @@ export default class Crunchy implements ServiceClass {
 						} else {
 							console.info(
 								`Available qualities:\n${formatGroupedVideoQualities(
-									plQuality.map((a) => ({ height: a.RESOLUTION?.height, text: `${a.str} [Current M] [V:${vcurStream.audio_lang || 'und'}]`, family: 'Current' as const })),
+									plQuality.map((a) => ({ height: a.RESOLUTION?.height, text: `${a.str} [Current M] [V:${vcurStream.audio_lang || 'und'}]`, family: 'Current' as const, bandwidth: a.bandwidth })),
 									selectedIndex,
 									{ compact: !options.qall }
 								)}`

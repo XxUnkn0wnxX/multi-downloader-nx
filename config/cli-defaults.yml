@@ -2,6 +2,9 @@
 q: 0
 # Show all Crunchyroll video qualities instead of the compact view.
 qall: false
+# Optional exact pause in milliseconds between normal Crunchyroll discovery batches.
+# Unset uses automatic pacing; 0 disables normal pauses (429 recovery still applies).
+# discovery-timmer: 0
 # Set which server to use
 server: 1
 # How many parts to download at once. Increasing may improve download speed.

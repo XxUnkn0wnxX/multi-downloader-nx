@@ -20,8 +20,8 @@ export const VIDEO_SELECTION_DEFAULTS = {
 	discoveryTimeoutMs: 90000,
 	// Discovery request batching and shared manifest rate-limit recovery.
 	discoveryBatchSize: 8,
-	discoveryGapMinMs: 300,
-	discoveryGapMaxMs: 600,
+	discoveryGapMinMs: 250,
+	discoveryGapMaxMs: 400,
 	discoveryNormalWaitBudgetMs: 6000,
 	discoveryRetryBatchSizes: [4, 2, 1],
 	discoveryRetryGapMs: [750, 1000, 1000],
@@ -518,27 +518,25 @@ export function formatGroupedVideoQualities(
 		const heights = [...new Set(entries.map((entry) => entry.height).filter((height): height is number => typeof height === 'number' && Number.isFinite(height) && height > 0))]
 			.sort((a, b) => b - a)
 			.slice(0, 3);
-		const legacyCandidates = new Map<number, number[]>();
-		for (const { entry, index } of entries.map((entry, index) => ({ entry, index }))) {
-			if (entry.family !== 'Legacy 0' && entry.family !== 'Legacy 1') continue;
-			const height = entry.height;
-			if (typeof height !== 'number' || !heights.includes(height)) continue;
-			const candidates = legacyCandidates.get(height) ?? [];
-			candidates.push(index);
-			legacyCandidates.set(height, candidates);
+		const candidates = new Map<string, number[]>();
+		for (const { entry, index } of visible) {
+			const family = entry.family === 'Current' ? 'current' : entry.family === 'Legacy 0' || entry.family === 'Legacy 1' ? 'legacy' : undefined;
+			if (!family || typeof entry.height !== 'number' || !heights.includes(entry.height)) continue;
+			const key = `${entry.height}:${family}`;
+			const group = candidates.get(key) ?? [];
+			group.push(index);
+			candidates.set(key, group);
 		}
-		const legacyWinners = new Map<number, Set<number>>();
-		for (const [height, indices] of legacyCandidates) {
-			const winners = indices.sort((a, b) => (entries[b].bandwidth ?? 0) - (entries[a].bandwidth ?? 0) || b - a).slice(0, 3);
-			legacyWinners.set(height, new Set(winners));
+		const winners = new Set<number>();
+		for (const indices of candidates.values()) {
+			for (const index of indices.sort((a, b) => (entries[b].bandwidth ?? 0) - (entries[a].bandwidth ?? 0) || b - a).slice(0, 4)) winners.add(index);
 		}
 		visible = visible.filter(({ entry, index }) => {
 			const height = entry.height;
 			const validHeight = typeof height === 'number' && Number.isFinite(height) && height > 0;
-			if (!validHeight) return true;
+			if (!validHeight || (entry.family !== 'Current' && entry.family !== 'Legacy 0' && entry.family !== 'Legacy 1')) return true;
 			if (!heights.includes(height)) return index === selectedIndex;
-			if (entry.family === 'Legacy 0' || entry.family === 'Legacy 1') return legacyWinners.get(height)?.has(index) || index === selectedIndex;
-			return true;
+			return winners.has(index) || index === selectedIndex;
 		});
 		visible.sort((a, b) => {
 			const aHeight = a.entry.height;

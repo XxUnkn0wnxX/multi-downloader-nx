@@ -29,6 +29,7 @@ export type TAppArg<T extends boolean | string | number | unknown[], K = any> = 
 	alias?: string;
 	describe: string;
 	docDescribe: true | string; // true means use describe for the docs
+	defaultLabel?: string;
 	default?:
 		| T
 		| {
@@ -227,7 +228,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 			default: 0
 		},
 		docDescribe:
-			'Use the listed quality number; 0 selects the maximum quality. Crunchyroll ranks by dimensions, then advertised bitrate, and compares compatible current and legacy video across languages while keeping the highest current audio for the requested dubs. Crunchyroll reports a short reason when checks force video fallback. Its quality list uses resolution groups and stable full-catalogue numbers; compact view may have gaps where rows are hidden. Use --qall to show every eligible video quality. Short manifest and video-source language tags such as [V:jpn] identify each row, which marks the selected entry. Its audio quality list uses independent [A:eng] language tags and shows the selected audio server below the row. A fallback prints only the discarded and re-selected rows, when applicable.',
+			'Use the listed quality number; 0 selects the maximum quality. Crunchyroll ranks by dimensions, then advertised bitrate, and compares compatible current and legacy video across languages while keeping the highest current audio for the requested dubs. Crunchyroll reports a short reason when checks force video fallback. Its compact quality list shows up to four Current and four Legacy entries in each of the top three resolution groups, with stable full-catalogue numbers; compact view may have gaps where rows are hidden. Use --qall to show every eligible video quality. Short manifest and video-source language tags such as [V:jpn] identify each row, which marks the selected entry. Its audio quality list uses independent [A:eng] language tags and shows the selected audio server below the row. A fallback prints only the discarded and re-selected rows, when applicable.',
 		service: ['all'],
 		type: 'number',
 		usage: '${qualityLevel}'
@@ -242,6 +243,26 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		service: ['crunchy'],
 		type: 'boolean',
 		usage: ''
+	},
+	{
+		name: 'discovery-timmer',
+		alias: 'disctmr',
+		group: 'dl',
+		service: ['crunchy'],
+		type: 'number',
+		describe: 'Discovery pause in ms: unset uses automatic 250–400 ms; set a fixed pause or 0 for none.',
+		defaultLabel: 'automatic',
+		docDescribe:
+			'Set an exact additional pause in milliseconds between normal eight-request discovery batches. Unset uses automatic 250–400 ms gaps with response-time credit and a six-second added-wait budget. Zero disables normal pauses. Fixed pauses are not capped at six seconds; discovery and request deadlines and 429 recovery still apply.',
+		default: { default: undefined },
+		usage: '${milliseconds}',
+		transformer: (value) => {
+			if ((typeof value !== 'number' && typeof value !== 'string') || (typeof value === 'string' && !/^\d+$/.test(value)))
+				throw new Error('--discovery-timmer requires a nonnegative safe integer in milliseconds');
+			const result = Number(value);
+			if (!Number.isSafeInteger(result) || result < 0) throw new Error('--discovery-timmer requires a nonnegative safe integer in milliseconds');
+			return result;
+		}
 	},
 	{
 		name: 'dlVideoOnce',
@@ -518,8 +539,9 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		service: ['all'],
 		type: 'boolean',
 		describe: 'Print available qualities and stream URLs without downloading files.',
-		docDescribe: 'Preview available qualities and stream URLs without downloading files. Authentication and token refresh still run.',
-		default: { default: false },
+		docDescribe:
+			'Preview available qualities and stream URLs without downloading files. Authentication and token refresh still run. This option is CLI or programmatic only and cannot be enabled through cli-defaults.',
+		default: false,
 		usage: ''
 	},
 	{
@@ -1095,20 +1117,19 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	}
 ];
 
+const configuredDefault = (option: TAppArg<boolean | number | string | unknown[]>, cfg: Record<string, unknown>): unknown => {
+	if (typeof option.default !== 'object' || option.default === null || Array.isArray(option.default)) return option.default;
+	for (const key of [(option.default as { name?: string }).name ?? option.name, option.alias]) {
+		if (key !== undefined && Object.prototype.hasOwnProperty.call(cfg, key)) return cfg[key];
+	}
+	return (option.default as { default: unknown }).default;
+};
+
 const getDefault = <T extends boolean | string | number | unknown[]>(name: string, cfg: Record<string, T>): T => {
-	const option = args.find((item) => item.name === name);
+	const option = args.find((item) => item.name === name || item.alias === name);
 	if (!option) throw new Error(`Unable to find option ${name}`);
 	if (option.default === undefined) throw new Error(`Option ${name} has no default`);
-	if (typeof option.default === 'object') {
-		if (Array.isArray(option.default)) return option.default as T;
-		if (Object.prototype.hasOwnProperty.call(cfg, (option.default as any).name ?? option.name)) {
-			return cfg[(option.default as any).name ?? option.name];
-		} else {
-			return (option.default as any).default as T;
-		}
-	} else {
-		return option.default as T;
-	}
+	return configuredDefault(option, cfg) as T;
 };
 
 const buildDefault = () => {
@@ -1128,4 +1149,4 @@ const buildDefault = () => {
 	return data;
 };
 
-export { getDefault, buildDefault, args, groups, availableFilenameVars };
+export { getDefault, configuredDefault, buildDefault, args, groups, availableFilenameVars };

@@ -1,5 +1,5 @@
-import { Command } from 'commander';
-import { args, AvailableMuxer, groups } from './module.args';
+import { Command, Help } from 'commander';
+import { args, AvailableMuxer, configuredDefault, groups } from './module.args';
 import { LanguageItem } from './module.langsData';
 import { DownloadInfo } from '../@types/messageHandler';
 import { HLSCallback } from './hls-download';
@@ -49,6 +49,7 @@ export let argvC: {
 	extid: string | undefined;
 	q: number;
 	qall: boolean;
+	discoveryTimmer?: number;
 	x: number;
 	cstream: keyof typeof CrunchyVideoPlayStreams;
 	vstream: keyof typeof CrunchyVideoPlayStreams;
@@ -149,6 +150,15 @@ const processArgv = () => {
 	return argv;
 };
 
+const normalizeParsed = (program: Command, parsed: ArgvType) => {
+	for (const item of args) {
+		const native = program.options.find((option) => (item.name.length === 1 ? option.short === `-${item.name}` : option.long === `--${item.name}`))?.attributeName();
+		if (!native || parsed[native] === undefined) continue;
+		parsed[item.name] = parsed[native];
+		if (item.alias) parsed[item.alias] = parsed[native];
+	}
+};
+
 const appArgv = (
 	cfg: {
 		[key: string]: unknown;
@@ -159,21 +169,7 @@ const appArgv = (
 	const argv = getCommander(cfg, isGUI).parse(processArgv());
 	const parsed = argv.opts() as ArgvType;
 
-	// Be sure that both vars (name and alias) are defined
-	for (const item of args) {
-		const name = item.name;
-		const alias = item.alias;
-
-		if (!alias) continue;
-
-		if (parsed[name] !== undefined) {
-			parsed[alias] = parsed[name];
-		}
-
-		if (parsed[alias] !== undefined) {
-			parsed[name] = parsed[alias];
-		}
-	}
+	normalizeParsed(argv, parsed);
 
 	if (!isGUI && (process.argv.length <= 2 || parsed.help)) {
 		argv.outputHelp();
@@ -188,8 +184,15 @@ const overrideArguments = (cfg: { [key: string]: unknown }, override: Partial<ty
 	const argv = getCommander(cfg, isGUI);
 	const baseArgv = [...processArgv()];
 
-	for (const [key, val] of Object.entries(override)) {
+	for (const [rawKey, val] of Object.entries(override)) {
 		if (val === undefined) continue;
+		const item = args.find(
+			(arg) =>
+				arg.name === rawKey ||
+				arg.alias === rawKey ||
+				argv.options.find((option) => (arg.name.length === 1 ? option.short === `-${arg.name}` : option.long === `--${arg.name}`))?.attributeName() === rawKey
+		);
+		const key = item?.name ?? rawKey;
 		if (typeof val === 'boolean') {
 			if (!val && key === 'qall') baseArgv.push('--no-qall');
 			if (val) baseArgv.push(key.length > 1 ? `--${key}` : `-${key}`);
@@ -201,21 +204,7 @@ const overrideArguments = (cfg: { [key: string]: unknown }, override: Partial<ty
 	const data = argv.parse(baseArgv);
 	const parsed = data.opts() as ArgvType;
 
-	// Be sure that both vars (name and alias) are defined
-	for (const item of args) {
-		const name = item.name;
-		const alias = item.alias;
-
-		if (!alias) continue;
-
-		if (parsed[name] !== undefined) {
-			parsed[alias] = parsed[name];
-		}
-
-		if (parsed[alias] !== undefined) {
-			parsed[name] = parsed[alias];
-		}
-	}
+	normalizeParsed(data, parsed);
 
 	if (!isGUI && (process.argv.length <= 2 || parsed.help)) {
 		argv.outputHelp();
@@ -225,7 +214,7 @@ const overrideArguments = (cfg: { [key: string]: unknown }, override: Partial<ty
 	argvC = parsed;
 };
 
-export { appArgv, overrideArguments };
+export { appArgv, overrideArguments, getCommander };
 
 const getCommander = (cfg: Record<string, unknown>, isGUI: boolean) => {
 	const program = new Command();
@@ -236,18 +225,12 @@ const getCommander = (cfg: Record<string, unknown>, isGUI: boolean) => {
 		.allowUnknownOption(false)
 		.allowExcessArguments(true);
 
-	const parseDefault = <T = unknown>(key: string, _default: T): T => {
-		if (Object.prototype.hasOwnProperty.call(cfg, key)) {
-			return cfg[key] as T;
-		} else return _default;
-	};
-
 	const data = args.map((a) => {
 		return {
 			...a,
 			demandOption: !isGUI && a.demandOption,
 			group: groups[a.group],
-			default: typeof a.default === 'object' && !Array.isArray(a.default) ? parseDefault((a.default as any).name || a.name, (a.default as any).default) : a.default
+			default: configuredDefault(a, cfg)
 		};
 	});
 
@@ -260,7 +243,7 @@ const getCommander = (cfg: Record<string, unknown>, isGUI: boolean) => {
 					: `--${item.name}`) + (item.type === 'boolean' ? '' : ` <value>`),
 			item.describe ?? ''
 		);
-		if (item.default !== undefined) option.default(item.transformer ? item.transformer(item.default) : item.default);
+		if (item.default !== undefined) option.default(item.transformer ? item.transformer(item.default as any) : item.default);
 
 		const optionNames = [...args.map((a) => `--${a.name}`), ...args.map((a) => (a.alias ? `-${a.alias}` : null)).filter(Boolean)];
 
@@ -312,6 +295,25 @@ const getCommander = (cfg: Record<string, unknown>, isGUI: boolean) => {
 	}
 
 	program.addOption(program.createOption('--no-qall').hideHelp());
+
+	program.configureHelp({
+		visibleOptions(command) {
+			const selected = command.opts().service as string | undefined;
+			return Help.prototype.visibleOptions.call(this, command).filter((option) => {
+				const metadata = args.find((item) => option.long === `--${item.name}` || (item.name.length === 1 && option.short === `-${item.name}`));
+				return !metadata || metadata.service.includes('all') || (!!selected && metadata.service.includes(selected as 'crunchy' | 'hidive' | 'adn'));
+			});
+		},
+		optionDescription(option) {
+			const selected = program.opts().service;
+			const original = option.description;
+			if (selected !== 'crunchy' && ['--auth', '--username', '--password'].includes(option.long ?? ''))
+				option.description = original.replace(' (Crunchyroll CLI: use --device)', '');
+			const result = Help.prototype.optionDescription.call(this, option);
+			option.description = original;
+			return result;
+		}
+	});
 
 	// Custom logic for suggesting corrections for misspelled options
 	program.hook('preAction', (_, command) => {

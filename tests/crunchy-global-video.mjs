@@ -420,11 +420,11 @@ function testClock(random = 0) {
 	assert.deepEqual(f.waits, []);
 	f.advance(200);
 	await pace.dispatch();
-	assert.deepEqual(f.waits, [100]);
+	assert.deepEqual(f.waits, [50]);
 	for (let i = 0; i < 7; i++) await pace.dispatch();
 	await pace.dispatch(true); // mandatory closure can overrun the batch
 	await pace.dispatch();
-	assert.deepEqual(f.waits, [100, 300]);
+	assert.deepEqual(f.waits, [50, 250]);
 }
 for (const maxCalls of [50, 160, 224]) {
 	const f = testClock(1);
@@ -447,6 +447,69 @@ for (const maxCalls of [50, 160, 224]) {
 	assert.deepEqual(f.waits, [2000, 5000, 20000]);
 	assert.throws(() => pace.retry(new Headers()), /retries exhausted/);
 }
+for (const [random, expected] of [
+	[0, 250],
+	[1, 400]
+]) {
+	const f = testClock(random);
+	const pace = new scheduler.DiscoveryScheduler(20, f.clock);
+	for (let i = 0; i < 9; i++) await pace.dispatch();
+	assert.deepEqual(f.waits, [expected]);
+}
+for (const random of [0, 1]) {
+	const f = testClock(random);
+	const pace = new scheduler.DiscoveryScheduler(80, f.clock, undefined, undefined, 1000);
+	for (let i = 0; i < 80; i++) {
+		await pace.dispatch();
+		f.advance(600);
+	}
+	assert.equal(f.waits.length, 9);
+	assert(
+		f.waits.every((wait) => wait === 1000),
+		'fixed wait remains exact without response credit or scaling'
+	);
+	assert.equal(
+		f.waits.reduce((a, b) => a + b, 0),
+		9000
+	);
+}
+{
+	const f = testClock();
+	const pace = new scheduler.DiscoveryScheduler(80, f.clock, undefined, undefined, 0);
+	for (let i = 0; i < 80; i++) await pace.dispatch();
+	assert.deepEqual(f.waits, []);
+	pace.retry(new Headers({ 'Retry-After': '2' }));
+	await pace.dispatch();
+	pace.retry(new Headers());
+	await pace.dispatch();
+	pace.retry(new Headers());
+	await pace.dispatch();
+	assert.deepEqual(f.waits, [2000, 5000, 20000]);
+	assert.throws(() => pace.retry(new Headers()), /retries exhausted/);
+}
+for (const value of [null, -1, 1.5, Infinity, Number.MAX_SAFE_INTEGER + 1, '0', false]) {
+	assert.throws(() => new scheduler.DiscoveryScheduler(9, testClock().clock, undefined, undefined, value), /nonnegative safe integer/);
+}
+{
+	const f = testClock();
+	const pace = new scheduler.DiscoveryScheduler(9, f.clock, undefined, undefined, 90000);
+	for (let i = 0; i < 8; i++) await pace.dispatch();
+	await assert.rejects(pace.dispatch(), /deadline/);
+	assert.deepEqual(f.waits, []);
+}
+{
+	const f = testClock();
+	const abort = new AbortController();
+	f.clock.sleep = async (_ms, signal) => {
+		abort.abort();
+		assert(signal.aborted);
+		throw Error('discovery cancelled');
+	};
+	const pace = new scheduler.DiscoveryScheduler(9, f.clock, abort.signal, undefined, 1000);
+	for (let i = 0; i < 8; i++) await pace.dispatch();
+	await assert.rejects(pace.dispatch(), /cancelled/);
+}
+
 const httpBase = Date.parse('Sun, 06 Nov 1994 08:49:00 GMT');
 for (const value of ['Sun, 06 Nov 1994 08:49:37 GMT', 'Sunday, 06-Nov-94 08:49:37 GMT', 'Sun Nov  6 08:49:37 1994']) {
 	assert.equal(scheduler.retryAfterMs(value, 'Sun, 06 Nov 1994 08:49:00 GMT', 0), 37000);
@@ -855,6 +918,7 @@ const control = {
 	rateDiscovery: false,
 	failLicense: false,
 	hls: false,
+	hlsMany: false,
 	downloadReject: false,
 	downloadRate: false,
 	downloadMalformed: false,
@@ -1125,7 +1189,15 @@ service.req = {
 				)
 			};
 		if (target === 'https://example.test/master.m3u8')
-			return { ok: true, res: new Response('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000000,RESOLUTION=1280x720\nhttps://cdn.example.test/chunk.m3u8?sig=ok\n') };
+			return {
+				ok: true,
+				res: new Response(
+					'#EXTM3U\n' +
+						(control.hlsMany ? [5000000, 1000000, 4000000, 3000000, 2000000] : [1000000])
+							.map((bandwidth) => `#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=1280x720\nhttps://cdn.example.test/chunk.m3u8?sig=ok\n`)
+							.join('')
+				)
+			};
 		const manifestRequest = /\/manifest\/(EN|JA2|JA)\/static\/(?:majin\/)?(?:EN|JA2|JA)\/(?:([01])\/)?clean\/(?:cenc\/)?dash\//.exec(target);
 		if (manifestRequest && control.rateDiscovery && tokenCounter === 1) return { ok: false, res: new Response('', { status: 429 }) };
 		if (manifestRequest && manifestRequest[2] && control.legacyMissing) return { ok: false, res: new Response('', { status: 404 }) };
@@ -1187,7 +1259,7 @@ assert.equal(await service.downloadEpisode(mediaData, mediaOptions), true);
 assert.equal(mediaLogs.filter((entry) => String(entry[0]).startsWith('Available Video Qualities:')).length, 1);
 const compactGlobalQualities = String(mediaLogs.find((entry) => String(entry[0]).startsWith('Available Video Qualities:'))[0]);
 assert(compactGlobalQualities.includes('[3]') && compactGlobalQualities.includes('[5]'), 'current rows retain their original indices when compact display leaves gaps');
-assert(compactGlobalQualities.includes('(1 quality hidden; use --qall to show all)'));
+assert(!compactGlobalQualities.includes('quality hidden'), 'four legacy rows remain visible');
 assert.equal(selectedVideoRows().length, 1);
 assert(mediaLogs.some((entry) => String(entry[0]).includes('[6]') && String(entry[0]).includes('[Legacy M] [V:jpn] <-- Selected')));
 assert(mediaLogs.some((entry) => String(entry[0]).includes('Selected video:') && String(entry[0]).includes('[V:jpn]')));
@@ -1261,6 +1333,7 @@ function resetGlobal(overrides = {}) {
 			rateDiscovery: false,
 			failLicense: false,
 			hls: false,
+			hlsMany: false,
 			downloadReject: false,
 			downloadRate: false,
 			downloadMalformed: false,
@@ -1500,6 +1573,16 @@ assert.equal(archiveWrites.length, 0);
 assert.equal(muxCalls.length, 0);
 assert(mediaLogs.some((entry) => entry[0] === 'Video first media segment URL:' && String(entry[1]).includes('/JA/1/')));
 assert(mediaLogs.some((entry) => entry[0] === 'Audio first media segment URL:' && String(entry[1]).includes('/EN/current/high-')));
+for (const [fixedPause, expectedWait] of [
+	[0, 0],
+	[750, 750]
+]) {
+	resetGlobal();
+	const before = fakeNow;
+	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, discoveryTimmer: fixedPause, dryRun: true }), true);
+	assert.equal(fakeNow - before, expectedWait, 'real Crunchy consumer passes the fixed timer to discovery');
+	assert.equal(mediaRequests.filter((request) => request.method === 'DELETE').length, 4);
+}
 resetGlobal();
 service.debug = true;
 assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, dryRun: true }), true);
@@ -1549,6 +1632,12 @@ assert.equal(mediaLogs.filter((entry) => String(entry[0]).includes('<-- Discarde
 assert.equal(tokenCounter, 2);
 assert.equal(mediaRequests.filter((request) => request.method === 'DELETE').length, 2);
 assert.equal(downloads.length, 0);
+resetGlobal({ hls: true, hlsMany: true });
+assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, keepAllVideos: true, dryRun: true }), true);
+const hlsRows = String(mediaLogs.find((entry) => String(entry[0]).startsWith('Available qualities:'))[0]);
+assert(hlsRows.includes('[1] 1280x720 (5000 kb/s)'));
+assert(!hlsRows.includes('[2] 1280x720 (1000 kb/s)'));
+assert(hlsRows.includes('[5] 1280x720 (2000 kb/s)') && hlsRows.includes('1 quality hidden'));
 resetGlobal({ hls: true });
 const noLangData = { ...mediaData, data: [{ ...mediaData.data[0], lang: undefined }] };
 assert.equal(await service.downloadEpisode(noLangData, { ...mediaOptions, dryRun: true }), true);

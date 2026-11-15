@@ -78,8 +78,10 @@ export class DiscoveryScheduler {
 		maxCalls: number,
 		readonly clock: DiscoveryClock = defaultDiscoveryClock,
 		private readonly signal?: AbortSignal,
-		private readonly waiting?: (retry: number, ms: number) => void
+		private readonly waiting?: (retry: number, ms: number) => void,
+		private readonly fixedPauseMs?: number
 	) {
+		if (fixedPauseMs !== undefined && (!Number.isSafeInteger(fixedPauseMs) || fixedPauseMs < 0)) throw new Error('discovery timer must be a nonnegative safe integer');
 		this.start = clock.now();
 		const boundaries = Math.max(0, Math.ceil(maxCalls / limits.discoveryBatchSize) - 1);
 		this.scale = boundaries ? Math.min(1, limits.discoveryNormalWaitBudgetMs / (limits.discoveryGapMaxMs * boundaries)) : 1;
@@ -98,9 +100,11 @@ export class DiscoveryScheduler {
 			if (this.count >= allowance && this.gap === undefined)
 				this.gap = this.retries
 					? limits.discoveryRetryGapMs[this.retries - 1]
-					: (limits.discoveryGapMinMs + (limits.discoveryGapMaxMs - limits.discoveryGapMinMs) * this.clock.random()) * this.scale;
-			const boundaryWait = this.gap === undefined ? 0 : Math.max(0, this.lastStart + this.gap - this.clock.now());
-			const normal = this.retries ? boundaryWait : Math.min(boundaryWait, Math.max(0, limits.discoveryNormalWaitBudgetMs - this.normalWait));
+					: (this.fixedPauseMs ?? (limits.discoveryGapMinMs + (limits.discoveryGapMaxMs - limits.discoveryGapMinMs) * this.clock.random()) * this.scale);
+			const boundaryWait =
+				this.gap === undefined ? 0 : !this.retries && this.fixedPauseMs !== undefined ? this.gap : Math.max(0, this.lastStart + this.gap - this.clock.now());
+			const normal =
+				this.retries || this.fixedPauseMs !== undefined ? boundaryWait : Math.min(boundaryWait, Math.max(0, limits.discoveryNormalWaitBudgetMs - this.normalWait));
 			const cooldown = Math.max(0, this.cooldownUntil - this.clock.now());
 			const wait = Math.max(normal, cooldown);
 			if (wait >= this.remaining()) throw new Error('discovery deadline exceeded');

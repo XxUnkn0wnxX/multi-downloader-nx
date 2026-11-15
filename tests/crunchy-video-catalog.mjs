@@ -22,8 +22,8 @@ assert.deepEqual(JSON.parse(JSON.stringify(catalog.VIDEO_SELECTION_DEFAULTS)), {
 	requestTimeoutMs: 15000,
 	discoveryTimeoutMs: 90000,
 	discoveryBatchSize: 8,
-	discoveryGapMinMs: 300,
-	discoveryGapMaxMs: 600,
+	discoveryGapMinMs: 250,
+	discoveryGapMaxMs: 400,
 	discoveryNormalWaitBudgetMs: 6000,
 	discoveryRetryBatchSizes: [4, 2, 1],
 	discoveryRetryGapMs: [750, 1000, 1000],
@@ -383,15 +383,15 @@ assert(compactDisplay.includes('        [3] 720p current A'));
 assert(compactDisplay.includes('        [4] 720p current B'), 'all current renditions in retained heights stay visible');
 assert(compactDisplay.includes('        [6] 720p legacy higher bandwidth [V:eng]'), 'legacy choices rank by bandwidth before width');
 assert(compactDisplay.includes('        [7] 720p legacy matching bandwidth [V:jpn]'), 'equal-bandwidth choices from distinct sources remain separate rows');
-assert(!compactDisplay.includes('cutoff earlier rank'));
-assert(compactDisplay.includes('        [9] 720p legacy cutoff later rank'), 'catalogue rank deterministically breaks a tie at the three-row cutoff');
+assert(compactDisplay.includes('cutoff earlier rank'));
+assert(compactDisplay.includes('        [9] 720p legacy cutoff later rank'), 'catalogue rank deterministically breaks a tie at the four-row cutoff');
 assert(!compactDisplay.includes('legacy wide lower bandwidth'));
 assert(compactDisplay.includes('        [11] 1080p legacy'));
 assert(compactDisplay.includes('        [12] 2160p current'));
 assert(compactDisplay.includes('        [13] 2160p legacy') && compactDisplay.includes('        [14] 2160p legacy collapsed'));
 assert(compactDisplay.includes('        [15] 360p selected outside top groups <-- Selected'), 'a chosen row outside the top three remains visible with its original number');
 assert(compactDisplay.includes('        [16] unknown height'), 'unknown-height rows remain visible');
-assert(compactDisplay.includes('(4 qualities hidden; use --qall to show all)'));
+assert(compactDisplay.includes('(3 qualities hidden; use --qall to show all)'));
 const fullDisplay = catalog.formatGroupedVideoQualities(compactEntries, 14, { compact: false });
 assert.equal(fullDisplay.split('\n').filter((line) => /^\s+\[\d+\]/.test(line)).length, compactEntries.length);
 assert(!fullDisplay.includes('qualities hidden'));
@@ -416,6 +416,7 @@ assert(
 const unsortedCompact = catalog.formatGroupedVideoQualities(
 	[
 		{ height: 320, text: '320p', family: 'Current' },
+		{ height: 240, text: 'unknown family' },
 		{ height: 1080, text: '1080p', family: 'Current' },
 		{ height: 720, text: '720p', family: 'Current' },
 		{ height: 480, text: '480p', family: 'Current' }
@@ -423,7 +424,8 @@ const unsortedCompact = catalog.formatGroupedVideoQualities(
 	undefined,
 	{ compact: true }
 );
-assert.match(unsortedCompact, /\[4\] 480p[\s\S]*\[3\] 720p[\s\S]*\[2\] 1080p/, 'compact groups display ascending heights while retaining catalogue numbers');
+assert(unsortedCompact.includes('unknown family'));
+assert.match(unsortedCompact, /\[5\] 480p[\s\S]*\[4\] 720p[\s\S]*\[3\] 1080p/, 'compact groups display ascending heights while retaining catalogue numbers');
 const representative140 = [];
 for (const [heightIndex, height] of [360, 480, 720, 1080, 1440, 1800, 2160].entries()) {
 	for (const family of ['Current', 'Legacy 0']) {
@@ -441,10 +443,10 @@ const representativeCompact = catalog.formatGroupedVideoQualities(representative
 assert.equal(representative140.length, 140);
 assert.equal(
 	representativeCompact.split('\n').filter((line) => /^\s+\[\d+\]/.test(line)).length,
-	39,
-	'10-language, 140-row catalogues compact to 30 Current plus three Legacy per retained height'
+	24,
+	'10-language, 140-row catalogues compact to four Current plus four Legacy per retained height'
 );
-assert(representativeCompact.includes('(101 qualities hidden; use --qall to show all)'));
+assert(representativeCompact.includes('(116 qualities hidden; use --qall to show all)'));
 assert(representativeCompact.includes('[140] Legacy 0 9 2160p <-- Selected'), 'the original last quality number and q0 selection survive compaction');
 
 const manyRepresentations = Array.from(

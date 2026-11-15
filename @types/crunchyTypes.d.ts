@@ -17,6 +17,7 @@ export type CrunchyDownloadOptions = {
 	x: number;
 	q: number;
 	qall?: boolean;
+	discoveryTimmer?: number;
 	fileName: string;
 	numbers: number;
 	partsize: number;

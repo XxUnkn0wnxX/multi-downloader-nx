@@ -163,13 +163,19 @@ Allows you to download or view legacy Crunchyroll Ids
 | --- | --- | --- | --- | --- | --- | ---|
 | All | `-q ${qualityLevel}` | `number` | `No`| `—` | `0`| `q: ` |
 
-Use the listed quality number; 0 selects the maximum quality. Crunchyroll ranks by dimensions, then advertised bitrate, and compares compatible current and legacy video across languages while keeping the highest current audio for the requested dubs. Crunchyroll reports a short reason when checks force video fallback. Its quality list uses resolution groups and stable full-catalogue numbers; compact view may have gaps where rows are hidden. Use --qall to show every eligible video quality. Short manifest and video-source language tags such as [V:jpn] identify each row, which marks the selected entry. Its audio quality list uses independent [A:eng] language tags and shows the selected audio server below the row. A fallback prints only the discarded and re-selected rows, when applicable.
+Use the listed quality number; 0 selects the maximum quality. Crunchyroll ranks by dimensions, then advertised bitrate, and compares compatible current and legacy video across languages while keeping the highest current audio for the requested dubs. Crunchyroll reports a short reason when checks force video fallback. Its compact quality list shows up to four Current and four Legacy entries in each of the top three resolution groups, with stable full-catalogue numbers; compact view may have gaps where rows are hidden. Use --qall to show every eligible video quality. Short manifest and video-source language tags such as [V:jpn] identify each row, which marks the selected entry. Its audio quality list uses independent [A:eng] language tags and shows the selected audio server below the row. A fallback prints only the discarded and re-selected rows, when applicable.
 #### `--qall`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
 | Crunchyroll | `--qall ` | `boolean` | `No`| `—` | `false`| `qall: ` |
 
 Show every eligible Crunchyroll video quality. Quality numbers remain stable when the compact display hides rows; use the same -q number to select them. This changes display only and does not reduce manifest discovery requests.
+#### `--discovery-timmer`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
+| --- | --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--discovery-timmer ${milliseconds}` | `number` | `No`| `--disctmr` | `automatic`| `discovery-timmer: ` or `disctmr: ` |
+
+Set an exact additional pause in milliseconds between normal eight-request discovery batches. Unset uses automatic 250–400 ms gaps with response-time credit and a six-second added-wait budget. Zero disables normal pauses. Fixed pauses are not capped at six seconds; discovery and request deadlines and 429 recovery still apply.
 #### `--dlVideoOnce`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
@@ -198,7 +204,7 @@ If selected, it will prefer to keep the original Font Size defined by the servic
 #### `-x`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | --- | ---|
-| All | `-x ${server}` | `number` | `No`| `--server` | [`1`, `2`, `3`, `4`] | `1`| `x: ` |
+| All | `-x ${server}` | `number` | `No`| `--server` | [`1`, `2`, `3`, `4`] | `1`| `x: ` or `server: ` |
 
 Select the server to use
 #### `--cstream`
@@ -210,13 +216,13 @@ Select the server to use
 #### `--vstream`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--vstream ${device}` | `string` | `No`| `--vs` | [`androidtv`, `android`, `androidtab`, `chrome`, `firefox`, `none`] | `androidtv`| `vstream: ` |
+| Crunchyroll | `--vstream ${device}` | `string` | `No`| `--vs` | [`androidtv`, `android`, `androidtab`, `chrome`, `firefox`, `none`] | `androidtv`| `vstream: ` or `vs: ` |
 
 Select a specific Crunchyroll video playback endpoint by device. Availability and quality depend on the service.
 #### `--astream`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--astream ${device}` | `string` | `No`| `--as` | [`androidtv`, `android`, `androidtab`, `chrome`, `firefox`, `none`] | `android`| `astream: ` |
+| Crunchyroll | `--astream ${device}` | `string` | `No`| `--as` | [`androidtv`, `android`, `androidtab`, `chrome`, `firefox`, `none`] | `android`| `astream: ` or `as: ` |
 
 Select a specific Crunchyroll audio playback endpoint by device. Available renditions and bitrate depend on the service, account, and episode.
 #### `--tsd`
@@ -295,15 +301,15 @@ Fixes subtitle dialogues that go over the video length (deletes dialogues where 
 #### `--forcevideo`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--forcevideo ` | `boolean` | `No`| `--forcevid` | `false`| `forcevideo: ` |
+| Crunchyroll | `--forcevideo ` | `boolean` | `No`| `--forcevid` | `false`| `forcevideo: ` or `forcevid: ` |
 
 Bypass cross-language video timing checks. May cause audio/video desync. Not needed with --noaudio; subtitle timings are never used.
 #### `--dry-run`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| All | `--dry-run ` | `boolean` | `No`| `--dryRun` | `false`| `dry-run: ` |
+| All | `--dry-run ` | `boolean` | `No`| `--dryRun` | `false`| `—` |
 
-Preview available qualities and stream URLs without downloading files. Authentication and token refresh still run.
+Preview available qualities and stream URLs without downloading files. Authentication and token refresh still run. This option is CLI or programmatic only and cannot be enabled through cli-defaults.
 #### `--novids`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|

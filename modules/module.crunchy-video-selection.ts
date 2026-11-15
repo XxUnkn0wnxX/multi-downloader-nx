@@ -120,6 +120,7 @@ type ProbeInput = {
 	signal?: AbortSignal;
 	clock?: DiscoveryClock;
 	onWaiting?: (retry: number, ms: number) => void;
+	fixedPauseMs?: number;
 	acquire: (source: VideoSource, signal: AbortSignal) => Promise<PlaybackLease>;
 	close: (source: VideoSource, token: string, signal: AbortSignal) => Promise<boolean>;
 	prepareDownload?: (source: VideoSource, signal: AbortSignal) => Promise<{ status: 'ok'; token?: string; url?: string } | { status: 'unavailable' }>;
@@ -145,7 +146,7 @@ export async function discoverVideoCandidates(input: ProbeInput): Promise<Discov
 	const sources = [...byGuid.values()];
 	if (!sources.length || sources.length > VIDEO_SELECTION_DEFAULTS.maxVersions || !input.requested.length) return { status: 'fallback', reason: 'version metadata unavailable' };
 
-	const scheduler = new DiscoveryScheduler(sources.length * (input.prepareDownload ? 7 : 5), input.clock, input.signal, input.onWaiting);
+	const scheduler = new DiscoveryScheduler(sources.length * (input.prepareDownload ? 7 : 5), input.clock, input.signal, input.onWaiting, input.fixedPauseMs);
 	const entries: CatalogVideo[] = [];
 	const references: CatalogVideo[] = [];
 	const deadline = async <T>(operation: (signal: AbortSignal) => Promise<T>, cleanup = false, onLate?: (value: T) => Promise<void>): Promise<T> => {

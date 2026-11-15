@@ -80,7 +80,7 @@ The video and audio endpoints are independent choices. Available renditions and 
 
 For raw DASH, the numbered quality list can include compatible video from `[Current M]` and `[Legacy M]` sources, with the video source language shown as `[V:eng]` or `[V:jpn]`. Resolution headings group the list without resetting quality numbers. `-q 0` selects the highest dimensions, then advertised bandwidth. The highest current audio rendition is selected independently for each requested dub.
 
-By default, the list shows the three highest available resolution groups (usually 480p, 720p and 1080p), every current entry in those groups, and up to three highest advertised-bandwidth legacy entries per group. Distinct source entries remain separate even when their advertised bandwidths match. The selected entry stays visible even outside those groups or below the three legacy choices. Numbers refer to the complete list, so gaps are expected and `-q N` selects the same entry in either view. Add `--qall` (or `-qall`) to show everything, or set the matching config option:
+By default, the list shows the three highest available resolution groups (usually 480p, 720p and 1080p), up to four Current and four Legacy entries in each group, ranked by advertised bandwidth. Distinct source entries remain separate even when their advertised bandwidths match. The selected entry stays visible even outside those groups or below those choices. Numbers refer to the complete list, so gaps are expected and `-q N` selects the same entry in either view. Add `--qall` (or `-qall`) to show everything, or set the matching config option:
 
 ```yaml
 qall: true
@@ -88,7 +88,9 @@ qall: true
 
 Set `qall: false` to restore the compact default; `--qall=false` overrides a true config value for one run. Compact output does not skip discovery requests.
 
-During global discovery, the CLI shows a transient “Discovering video qualities” indicator. On each retry it switches to “Retrying video manifest (N/3 in Ns)” with the current countdown, then returns to discovery status. Discovery uses small paced batches. A rate-limited manifest can be retried with waits of at least 1, 5 and 20 seconds, shared across the discovery; the server's `Retry-After` can require longer waits. Retries use smaller batches and stop at bounded limits. Normal pacing adds at most six seconds of deliberate waiting, separate from network time and rate-limit recovery. Session creation or cleanup failures can still stop the operation. `partsize` controls concurrent media segment downloads and does not control discovery pacing.
+Automatic discovery pacing uses a nominal random 250–400 ms between eight-request batches before response-time credit and scaling, with a six-second total normal-wait budget. Use `--discovery-timmer 1000` (or `-disctmr 1000`) for an exact additional 1,000 ms pause between normal batches. Set it to `0` to disable normal pauses; rate-limit recovery and request/discovery deadlines still apply. Fixed pauses can exceed the automatic six-second budget. The optional config keys are `discovery-timmer` and `disctmr`; when both are present the canonical key wins, including zero. Other configurable aliases follow the same precedence. `--qall` with timer zero shows the full list without normal pacing; it does not bypass timing checks or rate-limit recovery.
+
+During global discovery, the CLI shows a transient “Discovering video qualities” indicator. On each retry it switches to “Retrying video manifest (N/3 in Ns)” with the current countdown, then returns to discovery status. Discovery uses small paced batches. A rate-limited manifest can be retried with waits of at least 1, 5 and 20 seconds, shared across the discovery; the server's `Retry-After` can require longer waits. Retries use smaller batches and stop at bounded limits. Automatic pacing adds at most six seconds of deliberate waiting, separate from network time and rate-limit recovery. Session creation or cleanup failures can still stop the operation. `partsize` controls concurrent media segment downloads and does not control discovery pacing.
 
 The audio quality list uses `[A:eng]` or `[A:jpn]` for the audio language, marks its selected row, and shows the audio server below it. These display changes apply to Crunchyroll.
 
@@ -131,7 +133,7 @@ Episode-window settings apply only to that queue. To pause or resume queued work
 
 ## Preview from the CLI
 
-`--dry-run` prints metadata, available qualities, and selected stream URLs, then stops before licenses, media, subtitle, font, or chapter downloads; decryption, muxing, and completed-download history writes are skipped. Normal authentication, refresh, metadata, and required HEAD requests may still run. `--debug` keeps full request diagnostics.
+`--dry-run` is an explicit CLI or programmatic action and cannot be enabled through `cli-defaults.yml`. It prints metadata, available qualities, and selected stream URLs, then stops before licenses, media, subtitle, font, or chapter downloads; decryption, muxing, and completed-download history writes are skipped. Normal authentication, refresh, metadata, and required HEAD requests may still run. `--debug` keeps full request diagnostics.
 
 ```sh
 aniDL --service crunchy -s SEASON_ID -e 1 --dry-run

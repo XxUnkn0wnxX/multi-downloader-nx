@@ -52,23 +52,25 @@ Object.entries(groups).forEach(([key, value]) => {
 		.map((argument) => {
 			return [
 				`#### \`${argument.name.length > 1 ? '--' : '-'}${argument.name}\``,
-				`| **Service** | **Usage** | **Type** | **Required** | **Alias** | ${argument.choices ? '**Choices** |' : ''} ${argument.default ? '**Default** |' : ''}**cli-default Entry**`,
-				`| --- | --- | --- | --- | --- | ${argument.choices ? '--- | ' : ''}${argument.default ? '--- | ' : ''}---|`,
+				`| **Service** | **Usage** | **Type** | **Required** | **Alias** | ${argument.choices ? '**Choices** |' : ''} ${argument.default !== undefined ? '**Default** |' : ''}**cli-default Entry**`,
+				`| --- | --- | --- | --- | --- | ${argument.choices ? '--- | ' : ''}${argument.default !== undefined ? '--- | ' : ''}---|`,
 				`| ${transformService(argument.service)} | \`${argument.name.length > 1 ? '--' : '-'}${argument.name} ${argument.usage}\` | \`${argument.type}\` | \`${argument.demandOption ? 'Yes' : 'No'}\`|` +
 					` \`${(argument.alias ? `${argument.alias.length > 1 ? '--' : '-'}${argument.alias}` : undefined) ?? '—'}\` |` +
 					`${argument.choices ? ` [${argument.choices.map((a) => `\`${a || "''"}\``).join(', ')}] |` : ''}` +
 					`${
-						argument.default
+						argument.default !== undefined
 							? ` \`${
 									typeof argument.default === 'object'
 										? Array.isArray(argument.default)
 											? JSON.stringify(argument.default)
-											: (argument.default as any).default
+											: (argument.default as any).default === undefined
+												? (argument.defaultLabel ?? 'undefined')
+												: (argument.default as any).default
 										: argument.default
 								}\`|`
 							: ''
 					}` +
-					` ${typeof argument.default === 'object' && !Array.isArray(argument.default) ? `\`${argument.default.name || argument.name}: \`` : '`—`'} |`,
+					` ${typeof argument.default === 'object' && !Array.isArray(argument.default) ? `\`${argument.default.name || argument.name}: \`${argument.alias && argument.alias !== (argument.default.name || argument.name) ? ` or \`${argument.alias}: \`` : ''}` : '`—`'} |`,
 				'',
 				argument.docDescribe === true ? argument.describe : argument.docDescribe
 			].join('\n');
