@@ -500,10 +500,10 @@ export function formatGroupedVideoQualities(entries: Array<{ height?: number; te
 		const height = entry.height;
 		const group = typeof height === 'number' && Number.isFinite(height) && height > 0 ? `${height}p` : 'Other';
 		if (group !== currentGroup) {
-			lines.push(group);
+			lines.push(`    ${group}`);
 			currentGroup = group;
 		}
-		lines.push(`\t[${index + 1}] ${entry.text}`);
+		lines.push(`        [${index + 1}] ${entry.text}`);
 	}
-	return `\t${lines.join('\n\t')}`;
+	return lines.join('\n');
 }

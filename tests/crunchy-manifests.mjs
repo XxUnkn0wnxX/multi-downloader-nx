@@ -571,7 +571,7 @@ assert.equal(malformed.requests.filter(([, method]) => method === 'DELETE').leng
 const hls = await preview(0, false, false, 1, { testHls: true });
 if (hls.error) throw hls.error;
 assert.equal(hls.result, true);
-assert(hls.logs.some((entry) => entry.join(' ').includes('720p\n\t\t[1] 1280x720 (1000 kb/s) [Current M] [eng]')));
+assert(hls.logs.some((entry) => entry.join(' ').includes('720p\n        [1] 1280x720 (1000 kb/s) [Current M] [eng]')));
 assert(hls.logs.some((entry) => entry.join(' ').includes('Selected quality: 1280x720 [Current M] [eng]')));
 assert(!hls.logs.some((entry) => entry.join(' ').includes('KiB/s')));
 assert(hls.logs.some((entry) => entry.join(' ').includes('https://cdn.example.test/chunk.m3u8?sig=123')));

@@ -325,16 +325,16 @@ const groupedQualities = catalog.formatGroupedVideoQualities([
 assert.equal(
 	groupedQualities,
 	[
-		'\t360p',
-		'\t\t[1] 640x360 (1000 kb/s) [Current M] [jpn]',
-		'\t720p',
-		'\t\t[2] 1280x720 (2000 kb/s) [Legacy M] [jpn]',
-		'\t\t[3] 1280x720 (2000 kb/s) [Current M] [jpn]',
-		'\t\t[4] 1280x720 (3000 kb/s) [Current M] [jpn]',
-		'\t1080p',
-		'\t\t[5] 1920x1080 (4000 kb/s) [Current M] [jpn]',
-		'\tOther',
-		'\t\t[6] unknown height'
+		'    360p',
+		'        [1] 640x360 (1000 kb/s) [Current M] [jpn]',
+		'    720p',
+		'        [2] 1280x720 (2000 kb/s) [Legacy M] [jpn]',
+		'        [3] 1280x720 (2000 kb/s) [Current M] [jpn]',
+		'        [4] 1280x720 (3000 kb/s) [Current M] [jpn]',
+		'    1080p',
+		'        [5] 1920x1080 (4000 kb/s) [Current M] [jpn]',
+		'    Other',
+		'        [6] unknown height'
 	].join('\n')
 );
 assert.equal(ranked.at(-1)?.representationKey, 'highest', 'quality 0 remains the highest-ranked entry after formatting');
