@@ -4,6 +4,15 @@ Changes specific to this fork are grouped below with their implementation commit
 
 ## 2026-11-15
 
+### Fork CLI builds and rolling release
+
+Commit: [26657a9](../../../commit/26657a9ee8e24d160fadbf3118d949c4ff0e08e1).
+
+- Separate Tests from packaging, covering develop/main pushes, pull requests, and manual runs. Run all tracked source suites on Node 22 and 24, with shared type, documentation, and style checks. Documentation-only pushes and pull requests are skipped.
+- Build eight CLI archives on two hosts after the exact current main revision passes Tests, reusing each host's preparation and verified runtime cache. GUI packaging is excluded.
+- Replace one Nightly Fork release, validating all archives, checksums, and build provenance. Preserve interrupted drafts for retry and finish uploads before advancing the final tag and notes.
+- Use Node 22 in macOS CLI packages for the Big Sur baseline; keep Node 24 for other targets and GUI packaging. The macOS x64 executable passed a clean-environment help check on Big Sur; hosted builds and other platforms remain to be verified.
+
 ### Crunchyroll video discovery and download previews
 
 Commit: [1f915c4](../../../commit/1f915c446ed74b5e7681aa61012350bb7a369bf8).

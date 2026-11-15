@@ -44,7 +44,7 @@ Place Widevine files in `widevine/` and PlayReady files in `playready/` beside t
 
 ## Start the GUI
 
-This fork's automated releases contain CLI archives. For the Windows GUI shown below, follow the [source build instructions](README.md#build-from-source), build with `pnpm run prebuild-gui`, then launch with `pnpm start` from the checkout. If using an existing GUI archive, choose the one matching your system, extract it, and run `aniDL.exe`.
+This fork's automated releases contain CLI archives. For the Windows GUI shown below, follow the [source build instructions](README.md#build-from-source), build with `pnpm run prebuild-gui`, then launch with `node lib/gui.js` from the checkout. If using an existing GUI archive, choose the one matching your system, extract it, and run `aniDL.exe`.
 
 On first launch, set an optional application password or leave it blank, then choose **CONFIRM**. Reopen the application to reach the main window.
 

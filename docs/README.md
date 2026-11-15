@@ -77,7 +77,7 @@ Run the CLI from TypeScript:
 pnpm exec tsx index.ts --help
 ```
 
-Build JavaScript with `pnpm run prebuild-cli` or `pnpm run prebuild-gui`. After the CLI build, run `node lib/index.js --help`; after the GUI build, run `pnpm start`. Package a target with `pnpm run build-{platform}-{arch}-{type}`; the available targets are listed in [`package.json`](../package.json). Build from this checkout's `develop` branch for its fork-specific features; upstream builds may not include them. This repository's release archives are listed only when available on its [Releases page](../../../releases).
+Build JavaScript with `pnpm run prebuild-cli` or `pnpm run prebuild-gui`. After the CLI build, run `node lib/index.js --help`; after the GUI build, run `node lib/gui.js`. Package a target with `pnpm run build-{platform}-{arch}-{type}`; the available targets are listed in [`package.json`](../package.json). Build from this checkout's `develop` branch for its fork-specific features; upstream builds may not include them. This repository's release archives are listed only when available on its [Releases page](../../../releases).
 
 See [Getting started](GET-STARTED.md) for the Windows GUI walkthrough and [the CLI option reference](DOCUMENTATION.md) for all flags and defaults.
 
