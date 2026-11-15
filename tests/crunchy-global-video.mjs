@@ -633,16 +633,25 @@ async function retryProbe({ failClose = false, stallObserved = false, unsupporte
 	indicator.start();
 	assert.equal(writes.length, 0);
 	callback();
-	assert(writes.join('').includes('Working'));
+	assert(writes.join('').includes('Discovering video qualities'));
 	indicator.waiting(2, 5000);
 	callback();
-	assert(writes.at(-1).includes('Working (retry 2/3 in 5s)'));
-	indicatorNow += 2000;
+	assert(writes.at(-1).includes('Retrying video manifest (2/3 in 5s)'));
+	indicatorNow += 1000;
 	callback();
-	assert(writes.at(-1).includes('Working (retry 2/3 in 3s)'));
+	assert(writes.at(-1).includes('Retrying video manifest (2/3 in 4s)'));
+	indicatorNow += 1000;
+	callback();
+	assert(writes.at(-1).includes('Retrying video manifest (2/3 in 3s)'));
+	indicatorNow += 1000;
+	callback();
+	assert(writes.at(-1).includes('Retrying video manifest (2/3 in 2s)'));
+	indicatorNow += 1000;
+	callback();
+	assert(writes.at(-1).includes('Retrying video manifest (2/3 in 1s)'));
 	indicator.waiting(0, 0);
 	callback();
-	assert(writes.at(-1).endsWith('Working'));
+	assert(writes.at(-1).endsWith('Discovering video qualities'));
 	hook();
 	assert(writes.join('').includes('\x1b[?25h'));
 	indicator.stop();
@@ -682,6 +691,8 @@ async function retryProbe({ failClose = false, stallObserved = false, unsupporte
 		}
 	});
 	assert.equal(r.status, 'rate-limited');
+	assert.equal(r.reason, 'manifest rate limited: retries exhausted');
+	assert.equal(r.entries, undefined, 'exhausted shared retries return no partial candidate catalogue');
 	assert.equal(
 		[...counts.values()].reduce((a, b) => a + b, 0),
 		6
@@ -841,6 +852,7 @@ const control = {
 	audioClear: false,
 	videoClear: false,
 	rateFresh: false,
+	rateDiscovery: false,
 	failLicense: false,
 	hls: false,
 	downloadReject: false,
@@ -1115,6 +1127,7 @@ service.req = {
 		if (target === 'https://example.test/master.m3u8')
 			return { ok: true, res: new Response('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000000,RESOLUTION=1280x720\nhttps://cdn.example.test/chunk.m3u8?sig=ok\n') };
 		const manifestRequest = /\/manifest\/(EN|JA2|JA)\/static\/(?:majin\/)?(?:EN|JA2|JA)\/(?:([01])\/)?clean\/(?:cenc\/)?dash\//.exec(target);
+		if (manifestRequest && control.rateDiscovery && tokenCounter === 1) return { ok: false, res: new Response('', { status: 429 }) };
 		if (manifestRequest && manifestRequest[2] && control.legacyMissing) return { ok: false, res: new Response('', { status: 404 }) };
 		if (manifestRequest && control.rateFresh && manifestRequest[1] === 'JA' && manifestRequest[2] === '1' && tokenCounter >= 3)
 			return { ok: false, res: new Response('', { status: 429 }) };
@@ -1174,7 +1187,7 @@ assert.equal(await service.downloadEpisode(mediaData, mediaOptions), true);
 assert.equal(mediaLogs.filter((entry) => String(entry[0]).startsWith('Available Video Qualities:')).length, 1);
 const compactGlobalQualities = String(mediaLogs.find((entry) => String(entry[0]).startsWith('Available Video Qualities:'))[0]);
 assert(compactGlobalQualities.includes('[3]') && compactGlobalQualities.includes('[5]'), 'current rows retain their original indices when compact display leaves gaps');
-assert(compactGlobalQualities.includes('(3 qualities hidden; use --qall to show all)'));
+assert(compactGlobalQualities.includes('(1 quality hidden; use --qall to show all)'));
 assert.equal(selectedVideoRows().length, 1);
 assert(mediaLogs.some((entry) => String(entry[0]).includes('[6]') && String(entry[0]).includes('[Legacy M] [V:jpn] <-- Selected')));
 assert(mediaLogs.some((entry) => String(entry[0]).includes('Selected video:') && String(entry[0]).includes('[V:jpn]')));
@@ -1245,6 +1258,7 @@ function resetGlobal(overrides = {}) {
 			audioClear: false,
 			videoClear: false,
 			rateFresh: false,
+			rateDiscovery: false,
 			failLicense: false,
 			hls: false,
 			downloadReject: false,
@@ -1442,6 +1456,25 @@ resetGlobal({ rateFresh: true });
 assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions }), false);
 assert.equal(tokenCounter, 3);
 assert.equal(downloads.length, 0);
+assert.equal(archiveWrites.length, 0);
+resetGlobal({ rateDiscovery: true });
+assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions }), false);
+assert.equal(tokenCounter, 1);
+assert.equal(
+	mediaRequests.filter((request) => request.target.includes('/clean/cenc/dash/')).length,
+	4,
+	'initial discovery request and three retries stop at shared-budget exhaustion'
+);
+assert.equal(mediaRequests.filter((request) => request.method === 'DELETE').length, 1, 'the playback lease closes once after retry exhaustion');
+assert(mediaLogs.some((entry) => String(entry[0]).includes('Video discovery stopped: manifest rate limited: retries exhausted')));
+assert(!mediaLogs.some((entry) => String(entry[0]).startsWith('Available Video Qualities:')));
+assert(!mediaLogs.some((entry) => String(entry[0]).includes('[Notice: falling back')));
+assert.equal(downloads.length, 0);
+assert.equal(licenseCalls.length, 0);
+assert(!mediaRequests.some((request) => request.method === 'MEDIA' || request.method === 'LICENSE'));
+assert(!mediaRequests.some((request) => request.target.includes('/subs/')));
+assert(!mediaLogs.some((entry) => ['Video first media segment URL:', 'Audio first media segment URL:'].includes(entry[0])));
+assert.equal(muxCalls.length, 0);
 assert.equal(archiveWrites.length, 0);
 resetGlobal();
 mediaDeps['./modules/cdm'].cdm = 'playready';

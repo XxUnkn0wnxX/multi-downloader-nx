@@ -525,16 +525,16 @@ const requestedDashDisplay = String(high.logs.find((entry) => String(entry[0]).s
 assert(
 	requestedDashDisplay.includes('[7]') &&
 		requestedDashDisplay.includes('[9]') &&
+		requestedDashDisplay.includes('[8]') &&
 		requestedDashDisplay.includes('[10]') &&
+		requestedDashDisplay.includes('[11]') &&
 		requestedDashDisplay.includes('[12]') &&
+		requestedDashDisplay.includes('[13]') &&
 		requestedDashDisplay.includes('[14]')
 );
-assert(
-	!requestedDashDisplay.includes('[8]') && !requestedDashDisplay.includes('[11]') && !requestedDashDisplay.includes('[13]'),
-	'requested-version DASH keeps every Current row and only the highest-bandwidth Legacy per height'
-);
-assert.equal((requestedDashDisplay.match(/\[Legacy M\]/g) ?? []).length, 3);
+assert.equal((requestedDashDisplay.match(/\[Legacy M\]/g) ?? []).length, 6, 'both available legacy families remain visible when only two exist per height');
 assert.equal((requestedDashDisplay.match(/\[Current M\]/g) ?? []).length, 2);
+assert(requestedDashDisplay.includes('(6 qualities hidden; use --qall to show all)'));
 assert(requestedDashDisplay.includes('[14]') && requestedDashDisplay.includes('<-- Selected'), 'q0 selected marker keeps the original full-catalogue number');
 const fullRequestedDash = await preview(0, false, false, 1, { qall: true });
 const fullRequestedDashDisplay = String(fullRequestedDash.logs.find((entry) => String(entry[0]).startsWith('Available Video Qualities:'))?.[0]);

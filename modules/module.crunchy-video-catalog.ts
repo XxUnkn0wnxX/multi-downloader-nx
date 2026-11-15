@@ -518,25 +518,26 @@ export function formatGroupedVideoQualities(
 		const heights = [...new Set(entries.map((entry) => entry.height).filter((height): height is number => typeof height === 'number' && Number.isFinite(height) && height > 0))]
 			.sort((a, b) => b - a)
 			.slice(0, 3);
-		const legacyWinners = new Map<number, number>();
+		const legacyCandidates = new Map<number, number[]>();
 		for (const { entry, index } of entries.map((entry, index) => ({ entry, index }))) {
 			if (entry.family !== 'Legacy 0' && entry.family !== 'Legacy 1') continue;
 			const height = entry.height;
 			if (typeof height !== 'number' || !heights.includes(height)) continue;
-			const previousIndex = legacyWinners.get(height);
-			const previous = previousIndex === undefined ? undefined : entries[previousIndex];
-			const betterBandwidth = !previous || (entry.bandwidth ?? 0) > (previous.bandwidth ?? 0);
-			const laterRankTie = previousIndex !== undefined && (entry.bandwidth ?? 0) === (previous?.bandwidth ?? 0) && index > previousIndex;
-			if (betterBandwidth || laterRankTie) {
-				legacyWinners.set(height, index);
-			}
+			const candidates = legacyCandidates.get(height) ?? [];
+			candidates.push(index);
+			legacyCandidates.set(height, candidates);
+		}
+		const legacyWinners = new Map<number, Set<number>>();
+		for (const [height, indices] of legacyCandidates) {
+			const winners = indices.sort((a, b) => (entries[b].bandwidth ?? 0) - (entries[a].bandwidth ?? 0) || b - a).slice(0, 3);
+			legacyWinners.set(height, new Set(winners));
 		}
 		visible = visible.filter(({ entry, index }) => {
 			const height = entry.height;
 			const validHeight = typeof height === 'number' && Number.isFinite(height) && height > 0;
 			if (!validHeight) return true;
 			if (!heights.includes(height)) return index === selectedIndex;
-			if (entry.family === 'Legacy 0' || entry.family === 'Legacy 1') return legacyWinners.get(height) === index || index === selectedIndex;
+			if (entry.family === 'Legacy 0' || entry.family === 'Legacy 1') return legacyWinners.get(height)?.has(index) || index === selectedIndex;
 			return true;
 		});
 		visible.sort((a, b) => {
@@ -561,6 +562,6 @@ export function formatGroupedVideoQualities(
 		lines.push(formatVideoQualityRow(index + 1, entry.text, index === selectedIndex ? 'Selected' : undefined));
 	}
 	const hiddenCount = entries.length - visible.length;
-	if (hiddenCount > 0) lines.push(`    (${hiddenCount} qualities hidden; use --qall to show all)`);
+	if (hiddenCount > 0) lines.push(`    (${hiddenCount} ${hiddenCount === 1 ? 'quality' : 'qualities'} hidden; use --qall to show all)`);
 	return lines.join('\n');
 }

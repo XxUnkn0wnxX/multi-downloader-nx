@@ -18,7 +18,7 @@ export class WorkingIndicator {
 		this.timer = setInterval(() => {
 			if (!this.painted) this.output.write('\x1b[?25l');
 			this.output.write(
-				`\r\x1b[2K  ${this.frames[this.frame++ % this.frames.length]} ${this.retry ? `Working (retry ${this.retry}/3 in ${Math.max(0, Math.ceil((this.retryUntil - Date.now()) / 1000))}s)` : 'Working'}`
+				`\r\x1b[2K  ${this.frames[this.frame++ % this.frames.length]} ${this.retry ? `Retrying video manifest (${this.retry}/3 in ${Math.max(0, Math.ceil((this.retryUntil - Date.now()) / 1000))}s)` : 'Discovering video qualities'}`
 			);
 			this.painted = true;
 		}, 100);
