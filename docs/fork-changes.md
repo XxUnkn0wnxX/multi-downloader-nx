@@ -102,7 +102,9 @@ Preview mode skips automatic updates and rejects explicit update/archive-add act
 
 ### Run development checks
 
-The **Tests** workflow in [.github/workflows/test.yml](../.github/workflows/test.yml) runs on pushes and pull requests targeting `develop` and `main`, with manual dispatch available. Push/PR workflows skip changes limited to Markdown or `docs/`; mixed code/documentation changes still run. Keep the matching documentation exclusions in the Docker and auto-documentation push workflows.
+The **Tests** workflow in [.github/workflows/test.yml](../.github/workflows/test.yml) runs on pushes and pull requests targeting `develop` and `main`, with manual dispatch available. Push/PR workflows skip changes limited to Markdown or `docs/`; mixed code/documentation changes still run.
+
+Keep only Tests and the main-only Nightly Fork build/publish workflow. The inherited Docker and automatic documentation publishing workflows are removed. Regenerate the CLI reference locally with `pnpm run docs` and commit its output; Tests checks that the committed reference matches the generator without publishing documentation changes.
 
 The Node 24 gate checks TypeScript without emitting files, all tracked `tests/*.mjs` suites, and generated-reference parity. A separate Node 22 job checks the same source suites for the macOS CLI runtime; ESLint and Prettier remain required. Tests run serially within each runtime job. Keep cookie/device/GUI, catalog, global-video, manifest, provider-preview, and release-contract coverage. Packaging belongs only in the release workflow.
 
