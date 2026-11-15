@@ -15,14 +15,6 @@ These are the expected local tracking settings. Keep only these two maintenance 
 
 The user plans to create `main` as the stable fork branch when ready. The release workflow is prepared for that branch; adding it and updating the branch instructions is a separate promotion step. Keep the upstream mirror free of fork changes.
 
-The local `config.zsh` build wrapper selects `master-upstream` and runs its full build when called without arguments. To build local fork changes, explicitly select `develop`:
-
-```sh
-config.zsh --branch develop --local
-```
-
-`--local` skips remote synchronization and keeps local changes. By itself it keeps the current branch; `--branch` explicitly chooses one. Pulls on `master-upstream` use `upstream/master`, while pushes use `origin/master-upstream`.
-
 [AGENTS.md](../AGENTS.md) and this guide are tracked maintenance files on `develop`; they must also stay out of the upstream mirror.
 
 ## Active changes
