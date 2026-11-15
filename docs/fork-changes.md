@@ -103,6 +103,10 @@ The manifest transformation was identified in [Yurasubs' pinned implementation](
 
 Preview mode skips automatic updates and rejects explicit update/archive-add actions. Existing authentication/refresh, metadata requests and HEAD checks, logging and GUI queue progression can still occur; this is a download preview. `--debug` remains available. Normal download behavior and prerequisites must be preserved.
 
+### Use undetermined language for video tracks
+
+Both MKVToolNix and FFmpeg set video-track language metadata to `und`. Preserve descriptive video titles, including source-language names and `[Simulcast]` / `[Uncut]` labels. Audio and subtitle tracks retain their own language tags.
+
 ### Run development checks
 
 The **Tests** workflow in [.github/workflows/test.yml](../.github/workflows/test.yml) runs on pushes and pull requests targeting `develop` and `main`, with manual dispatch available. Push/PR workflows skip changes limited to Markdown or `docs/`; mixed code/documentation changes still run.

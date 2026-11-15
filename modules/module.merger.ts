@@ -202,6 +202,7 @@ class Merger {
 			)
 		);
 		args.push(...this.options.options.ffmpeg);
+		if (hasVideo) args.push('-metadata:s:v language=und');
 		args.push(`"${this.options.output}"`);
 		return args.join(' ');
 	}
@@ -230,7 +231,7 @@ class Merger {
 				args.push('--video-tracks 0', '--no-audio');
 				const trackName = (this.options.videoTitle ?? vid.lang.name) + (this.options.simul ? ' [Simulcast]' : ' [Uncut]');
 				args.push('--track-name', `0:"${trackName}"`);
-				args.push(`--language 0:${vid.lang.code}`);
+				args.push('--language 0:und');
 				hasVideo = true;
 				args.push(`"${vid.path}"`);
 			}
@@ -247,6 +248,7 @@ class Merger {
 				const trackName = (this.options.videoTitle ?? vid.lang.name) + (this.options.simul ? ' [Simulcast]' : ' [Uncut]');
 				args.push('--track-name', `0:"${trackName}"`);
 				//args.push('--track-name', `1:"${trackName}"`);
+				args.push(`--language ${videoTrackNum}:und`);
 				args.push(`--language ${audioTrackNum}:${vid.lang.code}`);
 				if (this.options.defaults.audio.code === vid.lang.code) {
 					args.push(`--default-track ${audioTrackNum}`);
