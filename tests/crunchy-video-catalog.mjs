@@ -338,6 +338,19 @@ assert.equal(
 	].join('\n')
 );
 assert.equal(ranked.at(-1)?.representationKey, 'highest', 'quality 0 remains the highest-ranked entry after formatting');
+const q0Qualities = catalog.formatGroupedVideoQualities(
+	[...ranked.map((entry) => ({ height: entry.height, text: catalog.formatVideoCandidate(entry) })), { text: 'unknown height' }],
+	ranked.length - 1
+);
+assert(q0Qualities.includes('        [5] 1920x1080 (4000 kb/s) [Current M] [jpn] <-- Selected'));
+assert(!q0Qualities.includes('        [6] unknown height <-- Selected'));
+const explicitQualities = catalog.formatGroupedVideoQualities(
+	ranked.map((entry) => ({ height: entry.height, text: catalog.formatVideoCandidate(entry) })),
+	1
+);
+assert(explicitQualities.includes('        [2] 1280x720 (2000 kb/s) [Legacy M] [jpn] <-- Selected'));
+assert.equal(catalog.formatVideoQualityRow(2, 'quality label', 'Discarded'), '        [2] quality label <-- Discarded');
+assert.equal(catalog.formatVideoQualityRow(5, 'quality label', 'Re-selected'), '        [5] quality label <-- Re-selected');
 
 const manyRepresentations = Array.from(
 	{ length: 105 },

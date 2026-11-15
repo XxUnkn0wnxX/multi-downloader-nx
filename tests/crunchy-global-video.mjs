@@ -475,7 +475,12 @@ const mediaMpd = (source, family) => {
 		);
 	return result;
 };
-const mediaLogger = { info: (...a) => mediaLogs.push(a), warn: (...a) => mediaLogs.push(a), error: (...a) => mediaLogs.push(a), debug: (...a) => mediaLogs.push(a) };
+const mediaLogger = {
+	info: (...a) => mediaLogs.push(Object.assign(a, { licenseCount: licenseCalls.length, downloadCount: downloads.length })),
+	warn: (...a) => mediaLogs.push(a),
+	error: (...a) => mediaLogs.push(a),
+	debug: (...a) => mediaLogs.push(a)
+};
 const selectedHeads = [];
 const realTransform = compile('modules/module.transform-mpd.ts', {
 	'./module.langsData': langData,
@@ -721,6 +726,8 @@ const mediaOptions = {
 assert.equal(await service.downloadEpisode(mediaData, mediaOptions), true);
 assert.equal(mediaLogs.filter((entry) => String(entry[0]).startsWith('Available Video Qualities:')).length, 1);
 assert(mediaLogs.some((entry) => String(entry[0]).includes('    1080p\n        [1]')));
+assert.equal(mediaLogs.filter((entry) => String(entry[0]).includes('<-- Selected')).length, 1);
+assert(mediaLogs.some((entry) => String(entry[0]).includes('[2]') && String(entry[0]).includes('[Legacy M] [jpn] <-- Selected')));
 assert(mediaLogs.some((entry) => String(entry[0]).includes('[Legacy M] [jpn]')));
 assert(mediaLogs.some((entry) => String(entry[0]).includes('[Current M] [eng]')));
 
@@ -814,10 +821,26 @@ assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, q: 6 })
 assert.equal(downloads.length, 0);
 assert.equal(archiveWrites.length, 0);
 assert.equal(muxCalls.length, 0);
+resetGlobal();
+assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, q: 999 }), false);
+assert.equal(mediaLogs.filter((entry) => String(entry[0]).includes('<-- Selected')).length, 0);
 resetGlobal({ vanish: true });
 assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions }), true);
 assert(downloads[0].m3u8json.segments[0].uri.includes('/EN/current/'));
+assert.equal(mediaLogs.filter((entry) => String(entry[0]).startsWith('Available Video Qualities:')).length, 1);
+const discardedRow = mediaLogs.findIndex((entry) => String(entry[0]).includes('<-- Discarded'));
+const reselectedRow = mediaLogs.findIndex((entry) => String(entry[0]).includes('<-- Re-selected'));
+assert(discardedRow >= 0 && reselectedRow > discardedRow);
+assert(mediaLogs[discardedRow].join(' ').includes('[Legacy M] [jpn]'));
+assert(mediaLogs[reselectedRow].join(' ').includes('[Current M] [eng]'));
+const originalQualityRows = mediaLogs.find((entry) => String(entry[0]).startsWith('Available Video Qualities:'))[0].split('\n');
+assert.equal(mediaLogs[discardedRow][0], originalQualityRows.find((row) => row.endsWith('<-- Selected')).replace('<-- Selected', '<-- Discarded'));
+assert(originalQualityRows.includes(mediaLogs[reselectedRow][0].replace(' <-- Re-selected', '')));
+assert.equal(mediaLogs[reselectedRow].licenseCount, 0);
+assert.equal(mediaLogs[reselectedRow].downloadCount, 0);
 assert.equal(mediaLogs.filter((entry) => String(entry[0]) === '[Notice: falling back to eng video — stream changed]').length, 1);
+assert(mediaLogs.findIndex((entry) => String(entry[0]) === '[Notice: falling back to eng video — stream changed]') > reselectedRow);
+assert.equal(mediaLogs.filter((entry) => String(entry[0]).includes('<-- Selected')).length, 1);
 resetGlobal({ mismatch: true });
 assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions }), true);
 assert(downloads[0].m3u8json.segments[0].uri.includes('/EN/'));
@@ -825,18 +848,30 @@ assert.equal(mediaLogs.filter((entry) => String(entry[0]) === '[Notice: falling 
 resetGlobal({ allUnknown: true });
 assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, dryRun: true }), true);
 assert.equal(mediaLogs.filter((entry) => String(entry[0]) === '[Notice: falling back to eng video — timing unknown]').length, 1);
+assert.equal(mediaLogs.filter((entry) => String(entry[0]).startsWith('Available Video Qualities:')).length, 0);
+assert.equal(mediaLogs.filter((entry) => String(entry[0]).includes('<-- Discarded')).length, 0);
+assert.equal(mediaLogs.filter((entry) => String(entry[0]).includes('<-- Re-selected')).length, 1);
+assert(mediaLogs.findIndex((entry) => String(entry[0]).includes('[Notice: falling back')) < mediaLogs.findIndex((entry) => String(entry[0]).includes('<-- Re-selected')));
 resetGlobal({ allUnknown: true });
 assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, q: 1, dryRun: true }), true);
 assert(!mediaLogs.some((entry) => String(entry[0]).includes('[Notice: falling back')));
+assert.equal(mediaLogs.filter((entry) => String(entry[0]).includes('<-- Selected')).length, 1);
 resetGlobal({ fpsMismatch: true });
 assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions }), true);
 assert.equal(mediaLogs.filter((entry) => String(entry[0]) === '[Notice: falling back to eng video — frame rate differs]').length, 1);
 resetGlobal({ durationDrift: true });
 assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions }), true);
 assert.equal(mediaLogs.filter((entry) => String(entry[0]) === '[Notice: falling back to eng video — timing drift 2.00s]').length, 1);
+const timingReplacement = mediaLogs.find((entry) => String(entry[0]).includes('<-- Re-selected'));
+assert(timingReplacement?.[0].includes('[Current M] [eng]'));
+assert.equal(timingReplacement.licenseCount, 0);
+assert.equal(timingReplacement.downloadCount, 0);
+assert.equal(mediaLogs.filter((entry) => String(entry[0]).includes('<-- Discarded')).length, 0);
+assert.equal(mediaLogs.filter((entry) => String(entry[0]).startsWith('Available Video Qualities:')).length, 1);
 resetGlobal({ mismatch: true });
 assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, q: 1 }), true);
 assert(!mediaLogs.some((entry) => String(entry[0]).includes('[Notice: falling back')));
+assert.equal(mediaLogs.filter((entry) => String(entry[0]).includes('<-- Selected')).length, 1);
 resetGlobal({ legacyMissing: true });
 assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions }), true);
 assert(!mediaLogs.some((entry) => String(entry[0]).includes('[Notice: falling back')));
@@ -973,6 +1008,7 @@ assert(downloads[0].m3u8json.segments[0].uri.includes('/JA2/1/'));
 resetGlobal();
 assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, novids: true, dryRun: true }), true);
 assert(!mediaLogs.some((entry) => String(entry[0]).includes('[Notice: falling back')));
+assert.equal(mediaLogs.filter((entry) => String(entry[0]).includes('<-- Selected')).length, 0);
 assert.equal(tokenCounter, 1);
 resetGlobal();
 assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, keepAllVideos: true, dryRun: true }), true);
@@ -981,6 +1017,9 @@ assert.equal(tokenCounter, 1);
 resetGlobal({ hls: true });
 assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, dryRun: true }), true);
 assert.equal(mediaLogs.filter((entry) => String(entry[0]) === '[Notice: falling back to eng video — unsupported manifest]').length, 1);
+assert.equal(mediaLogs.filter((entry) => String(entry[0]).startsWith('Available qualities:')).length, 0);
+assert.equal(mediaLogs.filter((entry) => String(entry[0]).includes('<-- Re-selected')).length, 1);
+assert.equal(mediaLogs.filter((entry) => String(entry[0]).includes('<-- Discarded')).length, 0);
 assert.equal(tokenCounter, 2);
 assert.equal(mediaRequests.filter((request) => request.method === 'DELETE').length, 2);
 assert.equal(downloads.length, 0);
@@ -1001,6 +1040,9 @@ assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, astream
 assert.equal(mediaRequests.filter((request) => request.method === 'DELETE').length, 4);
 assert.equal(licenseCalls[1].headers['x-cr-video-token'], 'token-EN-4');
 const multiDubData = { ...mediaData, data: [...mediaData.data, { ...mediaData.data[0], mediaId: 'JA', lang: languageItems[1] }] };
+resetGlobal();
+assert.equal(await service.downloadEpisode(multiDubData, { ...mediaOptions, keepAllVideos: true, dryRun: true }), true);
+assert.equal(mediaLogs.filter((entry) => String(entry[0]).includes('<-- Selected')).length, 1);
 resetGlobal({ failFirstDubClose: true });
 assert.equal(await service.downloadEpisode(multiDubData, { ...mediaOptions }), false);
 assert.equal(tokenCounter, 4);

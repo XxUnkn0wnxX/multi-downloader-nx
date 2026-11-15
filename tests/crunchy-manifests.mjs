@@ -572,14 +572,20 @@ const hls = await preview(0, false, false, 1, { testHls: true });
 if (hls.error) throw hls.error;
 assert.equal(hls.result, true);
 assert(hls.logs.some((entry) => entry.join(' ').includes('720p\n        [1] 1280x720 (1000 kb/s) [Current M] [eng]')));
+assert(hls.logs.some((entry) => entry.join(' ').includes('[1] 1280x720 (1000 kb/s) [Current M] [eng] <-- Selected')));
 assert(hls.logs.some((entry) => entry.join(' ').includes('Selected quality: 1280x720 [Current M] [eng]')));
 assert(!hls.logs.some((entry) => entry.join(' ').includes('KiB/s')));
 assert(hls.logs.some((entry) => entry.join(' ').includes('https://cdn.example.test/chunk.m3u8?sig=123')));
 assert(!hls.requests.some(([target]) => target.includes('chunk.m3u8')));
 assert.equal(hls.requests.filter(([, method]) => method === 'DELETE').length, 2);
 
+const fractionalHls = await preview(0.5, false, false, 1, { testHls: true });
+assert.equal(fractionalHls.error, undefined, 'a fractional HLS quality keeps the existing unavailable-quality path without a display exception');
+assert(!fractionalHls.logs.some((entry) => entry.join(' ').includes('<-- Selected')));
+
 const normal = await preview(0, false, false, 1, { testNormal: true, dryRun: false, tsd: false, partsize: 4 });
 assert.match(String(normal.error), /intentional downloader stop/);
+assert(normal.logs.some((entry) => entry.join(' ').includes('<-- Selected')));
 assert.deepEqual(normal.keyInputs, ['legacy1-4', 'original-audio']);
 assert.equal(normal.downloaderInputs.length, 1);
 const expectedLegacy = dubFamily('legacy1', 3000000, 'one.example.test', normal.optionalUrls[0])['one.example.test'].video[4];

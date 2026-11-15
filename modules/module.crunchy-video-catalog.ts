@@ -493,7 +493,13 @@ export function formatVideoCandidate(entry: CatalogVideo): string {
 	return `${entry.width}x${entry.height} (${Math.round(entry.bandwidth / 1000)} kb/s) [${manifest}] [${entry.source.languageCode}]`;
 }
 
-export function formatGroupedVideoQualities(entries: Array<{ height?: number; text: string }>): string {
+export type VideoQualityMarker = 'Selected' | 'Discarded' | 'Re-selected';
+
+export function formatVideoQualityRow(quality: number, text: string, marker?: VideoQualityMarker): string {
+	return `        [${quality}] ${text}${marker ? ` <-- ${marker}` : ''}`;
+}
+
+export function formatGroupedVideoQualities(entries: Array<{ height?: number; text: string }>, selectedIndex?: number): string {
 	const lines: string[] = [];
 	let currentGroup: string | undefined;
 	for (const [index, entry] of entries.entries()) {
@@ -503,7 +509,7 @@ export function formatGroupedVideoQualities(entries: Array<{ height?: number; te
 			lines.push(`    ${group}`);
 			currentGroup = group;
 		}
-		lines.push(`        [${index + 1}] ${entry.text}`);
+		lines.push(formatVideoQualityRow(index + 1, entry.text, index === selectedIndex ? 'Selected' : undefined));
 	}
 	return lines.join('\n');
 }

@@ -50,6 +50,7 @@ import {
 	CatalogVideo,
 	formatGroupedVideoQualities,
 	formatVideoCandidate,
+	formatVideoQualityRow,
 	inspectVideoManifest,
 	rankVideoCandidates,
 	timingCompatible,
@@ -89,6 +90,7 @@ type GlobalVideoPass = {
 	noRetry?: boolean;
 	forceVideo?: boolean;
 	forceWarning?: boolean;
+	onSelectionConfirmed?: (entry: CatalogVideo) => void;
 };
 
 export type sxItem = {
@@ -1593,8 +1595,13 @@ export default class Crunchy implements ServiceClass {
 				if (discovery.status === 'ok' && !discovery.entries.length)
 					fallbackCause = discovery.timingFallbackReason ? (options.q === 0 ? discovery.timingFallbackReason : undefined) : 'metadata unavailable';
 				if (discovery.status === 'ok' && discovery.entries.length) {
+					const requestedIndex = options.q === 0 ? discovery.entries.length - 1 : options.q - 1;
+					const validRequestedIndex = requestedIndex >= 0 && requestedIndex < discovery.entries.length ? requestedIndex : undefined;
 					console.info(
-						`Available Video Qualities:\n${formatGroupedVideoQualities(discovery.entries.map((entry) => ({ height: entry.height, text: formatVideoCandidate(entry) })))}`
+						`Available Video Qualities:\n${formatGroupedVideoQualities(
+							discovery.entries.map((entry) => ({ height: entry.height, text: formatVideoCandidate(entry) })),
+							validRequestedIndex
+						)}`
 					);
 					if (options.q > discovery.entries.length) {
 						console.error(`Requested quality ${options.q} is not available`);
@@ -1606,14 +1613,15 @@ export default class Crunchy implements ServiceClass {
 						return false;
 					}
 					const requestedName = data.data[0]?.lang?.name || langsData.languages.find((lang) => lang.cr_locale === requested[0]?.audio_locale)?.name;
-					const runVideo = async (choice: CatalogVideo) => {
+					const runVideo = async (choice: CatalogVideo, onSelectionConfirmed?: (entry: CatalogVideo) => void) => {
 						const lang = langsData.languages.find((item) => item.cr_locale === choice.source.locale);
 						const pass: GlobalVideoPass = {
 							kind: 'video',
 							selected: choice,
 							references: discovery.references,
 							ignoreTiming: !!options.noaudio || !!options.forcevideo,
-							requestedName
+							requestedName,
+							onSelectionConfirmed
 						};
 						const videoData = { ...data, data: [{ ...data.data[0], lang }] };
 						let videoResult: Awaited<ReturnType<Crunchy['downloadMediaList']>>;
@@ -1624,20 +1632,33 @@ export default class Crunchy implements ServiceClass {
 						}
 						return { videoResult, pass };
 					};
-					let video = await runVideo(selected);
-					let streamFallback = false;
+					let video = await runVideo(
+						selected,
+						options.q === 0 && discovery.timingFallbackReason
+							? (confirmed) => {
+									const selectedIndex = discovery.entries.findIndex((entry) => entry.representationKey === confirmed.representationKey);
+									if (selectedIndex >= 0) console.info(formatVideoQualityRow(selectedIndex + 1, formatVideoCandidate(confirmed), 'Re-selected'));
+									console.info(`[Notice: falling back to ${confirmed.source.languageCode} video — ${discovery.timingFallbackReason}]`);
+								}
+							: undefined
+					);
 					if ((!video.videoResult || video.videoResult.error) && video.pass.selectionLost && !video.pass.cleanupFailed && !video.pass.noRetry && options.q === 0) {
 						const fallback = discovery.entries.filter((entry) => preferred.includes(entry.source.guid) && entry.family === 'Current').slice(-1)[0];
 						if (fallback) {
-							streamFallback = true;
-							video = await runVideo(fallback);
+							const discarded = video.pass.selected;
+							video = await runVideo(fallback, (confirmed) => {
+								const discardedIndex = discovery.entries.findIndex((entry) => entry.representationKey === discarded.representationKey);
+								const selectedIndex = discovery.entries.findIndex((entry) => entry.representationKey === confirmed.representationKey);
+								if (discardedIndex >= 0)
+									console.info(formatVideoQualityRow(discardedIndex + 1, formatVideoCandidate(discovery.entries[discardedIndex]), 'Discarded'));
+								if (selectedIndex >= 0)
+									console.info(formatVideoQualityRow(selectedIndex + 1, formatVideoCandidate(discovery.entries[selectedIndex]), 'Re-selected'));
+								console.info(`[Notice: falling back to ${confirmed.source.languageCode} video — stream changed]`);
+							});
 						}
 					}
 					if (!video.videoResult || video.videoResult.error || (!options.dryRun && !video.videoResult.data.some((item) => item.type === 'Video'))) return false;
 					selected = video.pass.selected;
-					if (streamFallback) console.info(`[Notice: falling back to ${selected.source.languageCode} video — stream changed]`);
-					else if (options.q === 0 && discovery.timingFallbackReason)
-						console.info(`[Notice: falling back to ${selected.source.languageCode} video — ${discovery.timingFallbackReason}]`);
 					const forceWarning = !!options.forcevideo && !options.noaudio && !timingCompatible(selected, discovery.references).compatible;
 					if (forceWarning) console.warn('Forced video timing differs or is unknown; audio and video may be out of sync.');
 					const audioPass: GlobalVideoPass = {
@@ -1665,7 +1686,7 @@ export default class Crunchy implements ServiceClass {
 		}
 		if (!res) {
 			if (fallbackCause) console.info(`[Notice: falling back to ${fallbackLanguage} video — ${fallbackCause}]`);
-			res = await this.downloadMediaList(data, options);
+			res = await this.downloadMediaList(data, options, undefined, fallbackCause);
 		}
 		if (res === undefined || res.error) {
 			return false;
@@ -1963,7 +1984,8 @@ export default class Crunchy implements ServiceClass {
 	public async downloadMediaList(
 		medias: CrunchyEpMeta,
 		options: CrunchyDownloadOptions,
-		globalPass?: GlobalVideoPass
+		globalPass?: GlobalVideoPass,
+		selectionFallbackReason?: string
 	): Promise<
 		| {
 				data: DownloadedMedia[];
@@ -2673,8 +2695,21 @@ export default class Crunchy implements ServiceClass {
 						const chosenVideoSegments = videos[chosenVideoQuality] || (globalPass?.kind === 'audio' ? { quality: { width: globalPass.selected.width, height: globalPass.selected.height }, bandwidth: 0, segments: [], pssh_wvd: undefined, pssh_prd: undefined, resolutionText: '', server: '' } : undefined);
 						const chosenAudioSegments = audios[chosenAudioQuality] || (globalPass?.kind === 'video' ? { bandwidth: 0, segments: [], pssh_wvd: undefined, pssh_prd: undefined, resolutionText: '' } : undefined);
 						if (!chosenVideoSegments || !chosenAudioSegments) { if (globalPass?.kind === 'video') globalPass.selectionLost = true; console.error('No usable selected tracks'); return undefined; }
+						if (globalPass?.kind === 'video') globalPass.onSelectionConfirmed?.(globalPass.selected);
 
-						if (!globalPass) console.info(`Available Video Qualities:\n${formatGroupedVideoQualities(videos.map((a) => ({ height: a.quality.height, text: a.resolutionText })))}`);
+						if (!globalPass) {
+							const selectedIndex = !options.novids && !(dlVideoOnce && options.dlVideoOnce) ? chosenVideoQuality : undefined;
+							if (selectionFallbackReason) {
+								if (selectedIndex !== undefined) console.info(formatVideoQualityRow(selectedIndex + 1, chosenVideoSegments.resolutionText, 'Re-selected'));
+							} else {
+								console.info(
+									`Available Video Qualities:\n${formatGroupedVideoQualities(
+										videos.map((a) => ({ height: a.quality.height, text: a.resolutionText })),
+										selectedIndex
+									)}`
+								);
+							}
+						}
 						if (globalPass?.kind !== 'video') console.info(`Available Audio Qualities:\n\t${audios.map((a, ind) => `[${ind + 1}] ${a.resolutionText}`).join('\n\t')}`);
 
 						variables.push(
@@ -3061,9 +3096,21 @@ export default class Crunchy implements ServiceClass {
 								quality--;
 							}
 						}
+						const selectedQuality = plQuality[quality - 1];
+						const selectedQualityText = selectedQuality ? `${selectedQuality.str} [Current M] [${vcurStream.audio_lang || 'und'}]` : '';
 						const selPlUrl = plSelectedList[plQuality.map((a) => a.dim)[quality - 1]] ? plSelectedList[plQuality.map((a) => a.dim)[quality - 1]] : '';
 						console.info(`Servers available:\n\t${plServerList.join('\n\t')}`);
-						console.info(`Available qualities:\n${formatGroupedVideoQualities(plQuality.map((a) => ({ height: a.RESOLUTION?.height, text: `${a.str} [Current M] [${vcurStream.audio_lang || 'und'}]` })))}`);
+						const selectedIndex = selectedQuality && selPlUrl !== '' && !options.novids && !(dlVideoOnce && options.dlVideoOnce) ? quality - 1 : undefined;
+						if (selectionFallbackReason) {
+							if (selectedIndex !== undefined) console.info(formatVideoQualityRow(quality, selectedQualityText, 'Re-selected'));
+						} else {
+							console.info(
+								`Available qualities:\n${formatGroupedVideoQualities(
+									plQuality.map((a) => ({ height: a.RESOLUTION?.height, text: `${a.str} [Current M] [${vcurStream.audio_lang || 'und'}]` })),
+									selectedIndex
+								)}`
+							);
+						}
 
 						if (selPlUrl != '') {
 							variables.push(
