@@ -1,137 +1,142 @@
-name: Release Builds
+name: Nightly Fork
 
 on:
-    release:
-        types: [published]
+    workflow_run:
+        workflows: [Tests]
+        types: [completed]
+        branches: [main]
 
 permissions:
-    contents: write
+    contents: read
 
 jobs:
+    gate:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        outputs:
+            eligible: ${{ steps.gate.outputs.eligible }}
+            sha: ${{ steps.gate.outputs.sha }}
+            tests_run_id: ${{ steps.gate.outputs.tests_run_id }}
+            tests_attempt: ${{ steps.gate.outputs.tests_attempt }}
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  ref: ${{ github.workflow_sha }}
+                  persist-credentials: false
+            - name: Check successful Tests run and current main
+              id: gate
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: node .github/scripts/fork-release.mjs gate
+
     build:
+        needs: gate
+        if: needs.gate.outputs.eligible == 'true'
         strategy:
+            fail-fast: false
             matrix:
                 include:
-                    # WINDOWS
-                    - os: ubuntu-latest
-                      build_type: windows
-                      build_arch: x64
-                      gui: cli
-                    - os: macos-latest
-                      build_type: windows
-                      build_arch: arm64
-                      gui: cli
-                    - os: ubuntu-latest
-                      build_type: windows
-                      build_arch: x64
-                      gui: gui
-                    - os: macos-latest
-                      build_type: windows
-                      build_arch: arm64
-                      gui: gui
-                    # MACOS
-                    - os: ubuntu-latest
-                      build_type: macos
-                      build_arch: x64
-                      gui: cli
-                    - os: macos-latest
-                      build_type: macos
-                      build_arch: arm64
-                      gui: cli
-                    - os: ubuntu-latest
-                      build_type: macos
-                      build_arch: x64
-                      gui: gui
-                    - os: macos-latest
-                      build_type: macos
-                      build_arch: arm64
-                      gui: gui
-                    # LINUX
-                    - os: ubuntu-latest
-                      build_type: linux
-                      build_arch: x64
-                      gui: cli
-                    - os: macos-latest
-                      build_type: linux
-                      build_arch: arm64
-                      gui: cli
-                    - os: ubuntu-latest
-                      build_type: linux
-                      build_arch: x64
-                      gui: gui
-                    - os: macos-latest
-                      build_type: linux
-                      build_arch: arm64
-                      gui: gui
-                    # ALPINE
-                    - os: ubuntu-latest
-                      build_type: alpine
-                      build_arch: x64
-                      gui: cli
-                    - os: macos-latest
-                      build_type: alpine
-                      build_arch: arm64
-                      gui: cli
-                    - os: ubuntu-latest
-                      build_type: alpine
-                      build_arch: x64
-                      gui: gui
-                    - os: macos-latest
-                      build_type: alpine
-                      build_arch: arm64
-                      gui: gui
-        runs-on: ${{ matrix.os }}
+                    - runner: ubuntu-latest
+                      arch: x64
+                    - runner: macos-latest
+                      arch: arm64
+        runs-on: ${{ matrix.runner }}
+        timeout-minutes: 30
+        env:
+            TESTED_SHA: ${{ needs.gate.outputs.sha }}
+            TESTS_RUN_ID: ${{ needs.gate.outputs.tests_run_id }}
+            TESTS_ATTEMPT: ${{ needs.gate.outputs.tests_attempt }}
         steps:
-            - name: Checkout
+            - name: Checkout release controller
               uses: actions/checkout@v6
+              with:
+                  ref: ${{ github.workflow_sha }}
+                  persist-credentials: false
+                  path: controller
+            - name: Checkout tested source
+              uses: actions/checkout@v6
+              with:
+                  ref: ${{ needs.gate.outputs.sha }}
+                  persist-credentials: false
+                  path: source
+            - name: Recheck current main before preparation
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: node controller/.github/scripts/fork-release.mjs current-main
             - uses: pnpm/action-setup@v5
               with:
                   version: latest
-            - name: Set up Node.js
-              uses: actions/setup-node@v6
+            - uses: actions/setup-node@v6
               with:
                   node-version: 24
                   cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      ${{ matrix.gui == 'gui' && 'gui/react/pnpm-lock.yaml' || '' }}
-                  check-latest: true
-            - name: Install Node modules
-              run: |
-                  pnpm install
-            - name: Get name and version from package.json
-              run: |
-                  test -n $(node -p -e "require('./package.json').name") &&
-                  test -n $(node -p -e "require('./package.json').version") &&
-                  echo PACKAGE_NAME=$(node -p -e "require('./package.json').name") >> $GITHUB_ENV &&
-                  echo PACKAGE_VERSION=$(node -p -e "require('./package.json').version") >> $GITHUB_ENV || exit 1
-            - name: Make build
-              run: pnpm run build-${{ matrix.build_type }}-${{ matrix.build_arch }}-${{ matrix.gui }}
-            - name: Upload assets to the GitHub Release
-              uses: softprops/action-gh-release@v2
+                  cache-dependency-path: source/pnpm-lock.yaml
+            - name: Restore verified pkg runtime cache
+              id: pkg-cache
+              uses: actions/cache/restore@v6
               with:
-                  files: |
-                      ./lib/_builds/multi-downloader-nx-${{ matrix.build_type }}-${{ matrix.build_arch }}-${{ matrix.gui }}.7z
-                      ./lib/_builds/multi-downloader-nx-${{ matrix.build_type }}-${{ matrix.build_arch }}-${{ matrix.gui }}.7z.sha256
-                  fail_on_unmatched_files: true
-    build-docker:
+                  path: ~/.pkg-cache/**/fetched-*
+                  key: fork-cli-runtime-v2-${{ runner.os }}-${{ matrix.arch }}-windows-macos-linuxstatic-alpine-${{ hashFiles('source/pnpm-lock.yaml', 'source/modules/build.ts') }}
+            - name: Install and prepare CLI once
+              working-directory: source
+              run: |
+                  pnpm install --frozen-lockfile
+                  pnpm run prebuild-cli
+            - name: Build four CLI archives
+              working-directory: source/lib
+              env:
+                  BUILD_ARCH: ${{ matrix.arch }}
+              run: |
+                  node modules/build "windows-$BUILD_ARCH"
+                  node modules/build "macos-$BUILD_ARCH"
+                  node modules/build "linuxstatic-$BUILD_ARCH"
+                  node modules/build "alpine-$BUILD_ARCH"
+            - name: Validate and record bundle
+              env:
+                  BUILD_ARCH: ${{ matrix.arch }}
+              run: node controller/.github/scripts/fork-release.mjs record source/lib/_builds "bundle/$BUILD_ARCH" "$BUILD_ARCH"
+            - name: Save verified pkg runtime cache
+              if: steps.pkg-cache.outputs.cache-hit != 'true'
+              uses: actions/cache/save@v6
+              with:
+                  path: ~/.pkg-cache/**/fetched-*
+                  key: ${{ steps.pkg-cache.outputs.cache-primary-key }}
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: fork-cli-${{ matrix.arch }}
+                  path: bundle/${{ matrix.arch }}/
+                  if-no-files-found: error
+                  overwrite: true
+                  compression-level: 0
+
+    publish:
+        needs: [gate, build]
+        if: needs.gate.outputs.eligible == 'true'
         runs-on: ubuntu-latest
+        timeout-minutes: 10
+        permissions:
+            contents: write
+        concurrency:
+            group: nightly-fork-publish
+            queue: max
+            cancel-in-progress: false
+        env:
+            GH_TOKEN: ${{ github.token }}
+            TESTED_SHA: ${{ needs.gate.outputs.sha }}
+            TESTS_RUN_ID: ${{ needs.gate.outputs.tests_run_id }}
+            TESTS_ATTEMPT: ${{ needs.gate.outputs.tests_attempt }}
         steps:
             - uses: actions/checkout@v6
-            - name: Set up Docker Buildx
-              id: buildx
-              uses: docker/setup-buildx-action@v4
-            - name: Login to DockerHub
-              uses: docker/login-action@v4
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
-            - name: Build and push Docker images
-              uses: docker/build-push-action@v7
+                  ref: ${{ github.workflow_sha }}
+                  persist-credentials: false
+            - uses: actions/download-artifact@v4
               with:
-                  github-token: ${{ github.token }}
-                  push: true
-                  tags: |
-                      "multidl/multi-downloader-nx:${{ github.event.release.tag_name }}"
-            - name: Image digest
-              run: echo ${{ steps.docker_build.outputs.digest }}
+                  name: fork-cli-x64
+                  path: artifacts/x64
+            - uses: actions/download-artifact@v4
+              with:
+                  name: fork-cli-arm64
+                  path: artifacts/arm64
+            - name: Verify bundles and publish rolling release
+              run: node .github/scripts/fork-release.mjs publish artifacts

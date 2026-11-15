@@ -13,6 +13,8 @@ This fork follows [anidl/multi-downloader-nx](https://github.com/anidl/multi-dow
 
 These are the expected local tracking settings. Keep only these two maintenance branches on the fork's `origin`; fetching upstream branches does not require publishing them to the fork. Fast-forward `master-upstream` from upstream, then merge it into `develop`. Never merge `develop` into `master-upstream`.
 
+The user plans to create `main` as the stable fork branch when ready. The release workflow is prepared for that branch; adding it and updating the branch instructions is a separate promotion step. Keep the upstream mirror free of fork changes.
+
 The local `config.zsh` build wrapper selects `master-upstream` and runs its full build when called without arguments. To build local fork changes, explicitly select `develop`:
 
 ```sh
@@ -100,11 +102,21 @@ Preview mode skips automatic updates and rejects explicit update/archive-add act
 
 ### Run development checks
 
-The **Style and build test** workflow in [.github/workflows/test.yml](../.github/workflows/test.yml) runs on pushes and pull requests targeting `develop`, with manual dispatch available. Push/PR workflows skip changes limited to Markdown or `docs/`; mixed code/documentation changes still run. Keep the matching documentation exclusions in the Docker and auto-documentation push workflows; release events and manual dispatch remain available.
+The **Tests** workflow in [.github/workflows/test.yml](../.github/workflows/test.yml) runs on pushes and pull requests targeting `develop` and `main`, with manual dispatch available. Push/PR workflows skip changes limited to Markdown or `docs/`; mixed code/documentation changes still run. Keep the matching documentation exclusions in the Docker and auto-documentation push workflows.
 
-The test workflow first checks TypeScript without emitting files and runs `node tests/crunchy-token-input.mjs` for cookie input, device login, refresh, transport cancellation and GUI queue failure handling. Catalog, global-video, manifest and provider-preview fixtures plus generated-reference parity run once in that shared gate; ESLint, Prettier, and the existing platform packaging checks remain required downstream. Keep this branch-specific workflow adaptation separate from changes intended for the upstream mirror.
+The Node 24 gate checks TypeScript without emitting files, all tracked `tests/*.mjs` suites, and generated-reference parity. A separate Node 22 job checks the same source suites for the macOS CLI runtime; ESLint and Prettier remain required. Tests run serially within each runtime job. Keep cookie/device/GUI, catalog, global-video, manifest, provider-preview, and release-contract coverage. Packaging belongs only in the release workflow.
 
-Keep lockfile-based pnpm download caches separate for root checks and builds that also install GUI dependencies. Cache only verified `pkg` runtime downloads, scoped to OS, architecture and build inputs; keep normal installs and tests on cache misses, and exclude generated applications and `node_modules`.
+### Package the tested stable CLI
+
+The [Nightly Fork workflow](../.github/workflows/release-matrix.yml) listens for completed Tests runs on `main`. Only successful runs from this repository's expected test workflow, started by a main push or manual dispatch, qualify. Preserve the tested SHA, Tests run ID and attempt, and current-main checks before preparation and publication. Check out the immutable tested SHA for source; `workflow_run` uses the default branch for its controller. The listener must exist on that default branch. A docs-only main revision needs its own manually dispatched Tests run; a tested ancestor is insufficient.
+
+Two hosts package CLI archives: Ubuntu x64 and macOS arm64. Each installs the frozen root lockfile and prepares CLI JavaScript once, then packages Windows, macOS, Linux static, and Alpine sequentially. Retain the existing eight archive names and their SHA-256 files, with no GUI preparation, duplicate source tests, or Docker publishing in this workflow. macOS CLI targets use Node 22 for Big Sur compatibility; other targets and existing GUI packaging retain Node 24. Local macOS x64 startup/help was verified on Big Sur with a clean environment; other target execution remains a platform check.
+
+Keep lockfile-based pnpm download caches and normal installs. Cache only verified `pkg` `fetched-*` runtimes, scoped to host OS, architecture, target set, lockfile and build configuration; exclude applications and `node_modules`. The CLI runtime cache uses a new namespace so old single-target caches cannot mask the larger target set. Cache reuse also depends on GitHub branch scope.
+
+The publisher validates all eight archives, eight checksums, and source/Tests/build provenance before changing the fixed `nightly-fork` tag and **Nightly Fork** release. Preserve the release identity, serialized publication and stale-main checks. Finish uploads before advancing the tag or final notes; an initial release stays a draft until upload and the final main check succeed. Replace expected assets and concise notes linking to the [changelog](CHANGELOG.md) at the tested SHA; do not generate a Full Changelog or commit source from the publisher. Host receipts retain their own build attempts so partial reruns can reuse a successful host's bundle.
+
+Asset replacement is not atomic. A failed upload must fail the workflow visibly; retained build artifacts allow a complete rerun while that source is still current. Do not delete the release before replacement. GitHub can require workflow-write authority when the target commit's workflow files differ from the default branch; keep those definitions aligned during initial promotion and resolve any provider rejection explicitly, without adding credentials automatically.
 
 ### Keep documentation links relative
 

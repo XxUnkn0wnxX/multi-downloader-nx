@@ -10,7 +10,6 @@ import esbuild from 'esbuild';
 import path from 'path';
 
 const buildsDir = './_builds';
-const nodeVer = 'node24-';
 
 type BuildTypes = `${'windows' | 'macos' | 'linux' | 'linuxstatic' | 'alpine'}-${'x64' | 'arm64'}` | 'linuxstatic-armv7';
 
@@ -67,6 +66,9 @@ async function buildBinary(buildType: BuildTypes, gui: boolean) {
 
 	if (build.errors?.length > 0) console.error(build.errors);
 	if (build.warnings?.length > 0) console.warn(build.warnings);
+
+	// macOS CLI runtimes retain Big Sur support; other targets keep Node 24.
+	const nodeVer = !gui && buildType.startsWith('macos-') ? 'node22-' : 'node24-';
 
 	// Compiling single executable
 	const buildConfig = [`${buildsDir}/index.cjs`, '--target', nodeVer + buildType, '--output', `${buildDir}/${pkg.short_name}`, '--public', '--compress', 'GZip'];

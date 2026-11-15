@@ -44,9 +44,9 @@ Place Widevine files in `widevine/` and PlayReady files in `playready/` beside t
 
 ## Start the GUI
 
-Check this repository's [Releases page](../../../releases) for a Windows GUI archive. If one is available, choose the archive matching your system and extract it. Release archives are not guaranteed; if none is listed, follow the [source build instructions](README.md#build-from-source).
+This fork's automated releases contain CLI archives. For the Windows GUI shown below, follow the [source build instructions](README.md#build-from-source), build with `pnpm run prebuild-gui`, then launch with `pnpm start` from the checkout. If using an existing GUI archive, choose the one matching your system, extract it, and run `aniDL.exe`.
 
-Run `aniDL.exe`. On first launch, set an optional application password or leave it blank, then choose **CONFIRM**. Reopen the application to reach the main window.
+On first launch, set an optional application password or leave it blank, then choose **CONFIRM**. Reopen the application to reach the main window.
 
 ![First launch](./imgs/anidl_start.png)
 

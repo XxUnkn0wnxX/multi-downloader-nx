@@ -1,11 +1,11 @@
-name: Style and build test
+name: Tests
 
 on:
     push:
-        branches: [develop]
+        branches: [develop, main]
         paths-ignore: ['**/*.md', 'docs/**']
     pull_request:
-        branches: [develop]
+        branches: [develop, main]
         paths-ignore: ['**/*.md', 'docs/**']
     workflow_dispatch:
 
@@ -27,17 +27,15 @@ jobs:
                   cache: pnpm
                   cache-dependency-path: pnpm-lock.yaml
                   check-latest: true
-            - run: pnpm i
+            - run: pnpm install --frozen-lockfile
             - name: Check TypeScript
               run: pnpm exec tsc --noEmit
-            - name: Test Crunchyroll token input
-              run: node tests/crunchy-token-input.mjs
-            - name: Test manifest selection and download previews
+            - name: Run tracked source tests
               run: |
-                  node tests/crunchy-video-catalog.mjs
-                  node tests/crunchy-global-video.mjs
-                  node tests/crunchy-manifests.mjs
-                  node tests/dry-run.mjs
+                  set -euo pipefail
+                  git ls-files -z -- 'tests/*.mjs' | while IFS= read -r -d '' test_file; do
+                      node "$test_file"
+                  done
             - name: Verify generated CLI reference
               run: |
                   pnpm run docs
@@ -57,7 +55,7 @@ jobs:
                   cache: pnpm
                   cache-dependency-path: pnpm-lock.yaml
                   check-latest: true
-            - run: pnpm i
+            - run: pnpm install --frozen-lockfile
             - run: pnpm run eslint
     prettier:
         needs: tsc
@@ -74,106 +72,9 @@ jobs:
                   cache: pnpm
                   cache-dependency-path: pnpm-lock.yaml
                   check-latest: true
-            - run: pnpm i
+            - run: pnpm install --frozen-lockfile
             - run: pnpm run prettier
-    build-test-windows-arm64:
-        needs: [eslint, prettier, tsc]
-        runs-on: windows-11-arm
-        steps:
-            - uses: actions/checkout@v6
-            - uses: pnpm/action-setup@v5
-              with:
-                  version: latest
-            - name: Set up Node.js
-              uses: actions/setup-node@v6
-              with:
-                  node-version: 24
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      gui/react/pnpm-lock.yaml
-                  check-latest: true
-            - run: pnpm i
-            - name: Cache pkg runtime downloads
-              uses: actions/cache@v6
-              with:
-                  path: ~/.pkg-cache/**/fetched-*
-                  key: pkg-fetch-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'modules/build.ts') }}
-            - run: pnpm run test-windows-arm64
-    build-test-linux-arm64:
-        needs: [eslint, prettier, tsc]
-        runs-on: ubuntu-24.04-arm
-        steps:
-            - uses: actions/checkout@v6
-            - uses: pnpm/action-setup@v5
-              with:
-                  version: latest
-            - name: Set up Node.js
-              uses: actions/setup-node@v6
-              with:
-                  node-version: 24
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      gui/react/pnpm-lock.yaml
-                  check-latest: true
-            - run: pnpm i
-            - name: Cache pkg runtime downloads
-              uses: actions/cache@v6
-              with:
-                  path: ~/.pkg-cache/**/fetched-*
-                  key: pkg-fetch-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'modules/build.ts') }}
-            - run: pnpm run test-linux-arm64
-    build-test-macos-arm64:
-        needs: [eslint, prettier, tsc]
-        runs-on: macos-latest
-        steps:
-            - uses: actions/checkout@v6
-            - uses: pnpm/action-setup@v5
-              with:
-                  version: latest
-            - name: Set up Node.js
-              uses: actions/setup-node@v6
-              with:
-                  node-version: 24
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      gui/react/pnpm-lock.yaml
-                  check-latest: true
-            - run: pnpm i
-            - name: Cache pkg runtime downloads
-              uses: actions/cache@v6
-              with:
-                  path: ~/.pkg-cache/**/fetched-*
-                  key: pkg-fetch-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'modules/build.ts') }}
-            - run: pnpm run test-macos-arm64
-    build-test-windows-x64:
-        needs: [eslint, prettier, tsc]
-        runs-on: windows-latest
-        steps:
-            - uses: actions/checkout@v6
-            - uses: pnpm/action-setup@v5
-              with:
-                  version: latest
-            - name: Set up Node.js
-              uses: actions/setup-node@v6
-              with:
-                  node-version: 24
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      gui/react/pnpm-lock.yaml
-                  check-latest: true
-            - run: pnpm i
-            - name: Cache pkg runtime downloads
-              uses: actions/cache@v6
-              with:
-                  path: ~/.pkg-cache/**/fetched-*
-                  key: pkg-fetch-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'modules/build.ts') }}
-            - run: pnpm run test-windows-x64
-    build-test-linux-x64:
-        needs: [eslint, prettier, tsc]
+    node22:
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v6
@@ -183,40 +84,14 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@v6
               with:
-                  node-version: 24
+                  node-version: 22
                   cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      gui/react/pnpm-lock.yaml
+                  cache-dependency-path: pnpm-lock.yaml
                   check-latest: true
-            - run: pnpm i
-            - name: Cache pkg runtime downloads
-              uses: actions/cache@v6
-              with:
-                  path: ~/.pkg-cache/**/fetched-*
-                  key: pkg-fetch-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'modules/build.ts') }}
-            - run: pnpm run test-linux-x64
-    build-test-macos-x64:
-        needs: [eslint, prettier, tsc]
-        runs-on: macos-15-intel
-        steps:
-            - uses: actions/checkout@v6
-            - uses: pnpm/action-setup@v5
-              with:
-                  version: latest
-            - name: Set up Node.js
-              uses: actions/setup-node@v6
-              with:
-                  node-version: 24
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      gui/react/pnpm-lock.yaml
-                  check-latest: true
-            - run: pnpm i
-            - name: Cache pkg runtime downloads
-              uses: actions/cache@v6
-              with:
-                  path: ~/.pkg-cache/**/fetched-*
-                  key: pkg-fetch-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'modules/build.ts') }}
-            - run: pnpm run test-macos-x64
+            - run: pnpm install --frozen-lockfile
+            - name: Run tracked source tests
+              run: |
+                  set -euo pipefail
+                  git ls-files -z -- 'tests/*.mjs' | while IFS= read -r -d '' test_file; do
+                      node "$test_file"
+                  done

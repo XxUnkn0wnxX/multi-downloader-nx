@@ -2,9 +2,9 @@
 
 **AniDL** downloads episodes from Crunchyroll, HIDIVE, and AnimationDigitalNetwork. This fork of [anidl/multi-downloader-nx](https://github.com/anidl/multi-downloader-nx) includes CLI and GUI workflows; [Fork changes](fork-changes.md) tracks its additions.
 
-[![Style and build test](../../../actions/workflows/test.yml/badge.svg)](../../../actions/workflows/test.yml) [![Discord](https://img.shields.io/discord/884479461997805568?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/qEpbWen5vq)
+[![Tests](../../../actions/workflows/test.yml/badge.svg)](../../../actions/workflows/test.yml) [![Discord](https://img.shields.io/discord/884479461997805568?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/qEpbWen5vq)
 
-**Browse:** [Getting started](GET-STARTED.md) · [CLI options](DOCUMENTATION.md) · [Fork changes](fork-changes.md) · [Build from source](#build-from-source) · [Issues](../../../issues) · [Releases](../../../releases)
+**Browse:** [Getting started](GET-STARTED.md) · [CLI options](DOCUMENTATION.md) · [Fork changes](fork-changes.md) · [Changelog](CHANGELOG.md) · [Build from source](#build-from-source) · [Issues](../../../issues) · [Releases](../../../releases)
 
 ## Legal warning
 
@@ -55,6 +55,8 @@ Authentication and token refresh, metadata requests, required HEAD checks, loggi
 
 Install [Node.js](https://nodejs.org/) 22 or newer and [pnpm](https://pnpm.io/) 10 or newer to run or build from source. Download and install [ffmpeg](https://www.videohelp.com/software/ffmpeg) and [MKVToolNix](https://www.videohelp.com/software/MKVToolNix) for media processing. For DRM decryption, install either [Bento4's `mp4decrypt`](https://www.bento4.com/downloads/) or [Shaka Packager](https://github.com/stratumadev/shaka-packager/releases).
 
+Standalone CLI binaries include their own Node runtime. macOS CLI packages use Node 22 to retain the macOS 11 Big Sur baseline; other CLI targets use Node 24. Building and running JavaScript from source uses your installed Node instead.
+
 The application does not include CDM files. Supported Widevine files belong in `widevine/`; supported PlayReady files belong in `playready/`. CDM acquisition is outside this guide. Executable paths can be set in [`config/bin-path.yml`](../config/bin-path.yml).
 
 CLI defaults can be stored in [`config/cli-defaults.yml`](../config/cli-defaults.yml); the [option reference](DOCUMENTATION.md) shows which settings are available there.
@@ -78,5 +80,11 @@ pnpm exec tsx index.ts --help
 Build JavaScript with `pnpm run prebuild-cli` or `pnpm run prebuild-gui`. After the CLI build, run `node lib/index.js --help`; after the GUI build, run `pnpm start`. Package a target with `pnpm run build-{platform}-{arch}-{type}`; the available targets are listed in [`package.json`](../package.json). Build from this checkout's `develop` branch for its fork-specific features; upstream builds may not include them. This repository's release archives are listed only when available on its [Releases page](../../../releases).
 
 See [Getting started](GET-STARTED.md) for the Windows GUI walkthrough and [the CLI option reference](DOCUMENTATION.md) for all flags and defaults.
+
+## Fork builds and releases
+
+`develop` is the working branch. When the stable fork branch `main` is created, its successful [Tests](../../../actions/workflows/test.yml) runs can trigger the CLI builder. Tests also run for `develop` and `main` pushes, pull requests, and manual dispatches. Markdown-only and `docs/`-only pushes and pull requests are skipped; manually dispatch Tests on the current `main` commit to build such a revision.
+
+The builder packages Windows, macOS, Linux, and Alpine CLI archives for x64 and arm64, then replaces the assets in one **Nightly Fork** release. It builds the exact tested `main` commit and checks that it is still current before publishing. GUI packages are built from source. Release notes link to the [fork changelog](CHANGELOG.md), where related implementation commits are grouped by change.
 
 Released under the [MIT license](../LICENSE.md).
