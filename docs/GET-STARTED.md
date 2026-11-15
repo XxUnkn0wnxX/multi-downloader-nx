@@ -80,6 +80,16 @@ The video and audio endpoints are independent choices. Available renditions and 
 
 For raw DASH, the numbered quality list can include compatible video from `[Current M]` and `[Legacy M]` sources, with the video source language shown as `[V:eng]` or `[V:jpn]`. Resolution headings group the list without resetting quality numbers. `-q 0` selects the highest dimensions, then advertised bandwidth. The highest current audio rendition is selected independently for each requested dub.
 
+By default, the list shows the three highest available resolution groups (usually 480p, 720p and 1080p), every current entry in those groups, and the highest-bitrate legacy entry per group. The selected entry stays visible even outside those groups. Numbers refer to the complete list, so gaps are expected and `-q N` selects the same entry in either view. Add `--qall` (or `-qall`) to show everything, or set the matching config option:
+
+```yaml
+qall: true
+```
+
+Set `qall: false` to restore the compact default; `--qall=false` overrides a true config value for one run. Compact output does not skip discovery requests.
+
+Global video discovery uses small paced batches. A rate-limited manifest can be retried with waits of at least 1, 5 and 20 seconds, shared across the discovery; the server's `Retry-After` can require longer waits. Retries use smaller batches and stop at bounded limits. Normal pacing adds at most six seconds of deliberate waiting, separate from network time and rate-limit recovery. Session creation or cleanup failures can still stop the operation. `partsize` controls concurrent media segment downloads and does not control discovery pacing.
+
 The audio quality list uses `[A:eng]` or `[A:jpn]` for the audio language, marks its selected row, and shows the audio server below it. These display changes apply to Crunchyroll.
 
 Quality-list rates use decimal `kb/s` (1 kb/s = 1,000 bits/s). `KiB/s` measures 1,024 bytes/s.

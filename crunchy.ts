@@ -57,6 +57,7 @@ import {
 	VideoSource
 } from './modules/module.crunchy-video-catalog';
 import { boundedRequest, discoverVideoCandidates, readLimitedManifest } from './modules/module.crunchy-video-selection';
+import { WorkingIndicator } from './modules/module.working-indicator';
 import { AndroidObject, CrunchyAndroidObject, CrunchyMVObject } from './@types/crunchyAndroidObject';
 import { CrunchyChapters, CrunchyChapter, CrunchyOldChapter } from './@types/crunchyChapters';
 import vtt2ass from './modules/module.vtt2ass';
@@ -1544,51 +1545,75 @@ export default class Crunchy implements ServiceClass {
 					}
 				};
 				const preferred = [...new Set(requested.map((version) => version!.guid))];
-				const discovery = await discoverVideoCandidates({
-					req: this.req,
-					headers,
-					sources,
-					requested: preferred,
-					ordinal: options.x,
-					ignoreTiming: !!options.noaudio || !!options.forcevideo,
-					debug: this.debug || !!this.req.argv?.debug,
-					acquire: async (source, signal) => {
-						const response = await this.req.getData(
-							`https://cr-play-service.prd.crunchyrollsvc.com/v3/${source.guid}/${CrunchyVideoPlayStreams[this.token.auth_type === 'web' ? 'chrome' : 'androidtv']}/play?queue=0`,
-							{ ...headers, signal }
-						);
-						if (!response.ok || !response.res) throw new Error('Playback request failed');
-						const stream = (await response.res.json()) as CrunchyPlayStream;
-						return { token: stream.token, url: stream.url };
-					},
-					prepareDownload:
-						options.vstream === 'android' || options.vstream === 'androidtab'
-							? async (source, signal) => {
-									const response = await this.req.getData(
-										`https://cr-play-service.prd.crunchyrollsvc.com/v3/${source.guid}/${CrunchyVideoPlayStreams[options.vstream]}/download`,
-										{ ...headers, signal }
-									);
-									const status = response.res?.status ?? response.error?.res?.status;
-									if (!response.ok || !response.res) {
-										if (status === 403 || status === 404) return { status: 'unavailable' as const };
-										throw new Error(status === 429 ? 'rate limited' : 'download request outcome unknown');
+				const controller = new AbortController();
+				const onSignal = () => controller.abort();
+				const cli = process.env.isGUI !== 'true';
+				const indicator = new WorkingIndicator(cli && !this.debug && !this.req.argv?.debug && !!process.stdout.isTTY && !!process.env.TERM && process.env.TERM !== 'dumb');
+				if (cli) {
+					process.on('SIGINT', onSignal);
+					process.on('SIGTERM', onSignal);
+				}
+				indicator.start();
+				let discovery: Awaited<ReturnType<typeof discoverVideoCandidates>>;
+				try {
+					discovery = await discoverVideoCandidates({
+						signal: controller.signal,
+						onWaiting: (retry, ms) => indicator.waiting(retry, ms),
+						req: this.req,
+						headers,
+						sources,
+						requested: preferred,
+						ordinal: options.x,
+						ignoreTiming: !!options.noaudio || !!options.forcevideo,
+						debug: this.debug || !!this.req.argv?.debug,
+						acquire: async (source, signal) => {
+							const response = await this.req.getData(
+								`https://cr-play-service.prd.crunchyrollsvc.com/v3/${source.guid}/${CrunchyVideoPlayStreams[this.token.auth_type === 'web' ? 'chrome' : 'androidtv']}/play?queue=0`,
+								{ ...headers, signal }
+							);
+							if (!response.ok || !response.res) throw new Error(response.res?.status === 429 ? 'playback HTTP 429' : 'Playback request failed');
+							const stream = (await response.res.json()) as CrunchyPlayStream;
+							return { token: stream.token, url: stream.url };
+						},
+						prepareDownload:
+							options.vstream === 'android' || options.vstream === 'androidtab'
+								? async (source, signal) => {
+										const response = await this.req.getData(
+											`https://cr-play-service.prd.crunchyrollsvc.com/v3/${source.guid}/${CrunchyVideoPlayStreams[options.vstream]}/download`,
+											{ ...headers, signal }
+										);
+										const status = response.res?.status ?? response.error?.res?.status;
+										if (!response.ok || !response.res) {
+											if (status === 403 || status === 404) return { status: 'unavailable' as const };
+											throw new Error(status === 429 ? 'download HTTP 429' : 'download request outcome unknown');
+										}
+										const stream = (await response.res.json()) as CrunchyPlayStream;
+										return { status: 'ok' as const, token: stream.token, url: stream.url };
 									}
-									const stream = (await response.res.json()) as CrunchyPlayStream;
-									return { status: 'ok' as const, token: stream.token, url: stream.url };
-								}
-							: undefined,
-					resolve: (_source, lease, downloadUrl) => this.convertDownloadToPlayback(downloadUrl, lease.url),
-					close: async (source, token, signal) => {
-						const response = await this.req.getData(`https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${source.guid}/${token}`, {
-							...headers,
-							signal,
-							method: 'DELETE'
-						});
-						return response.ok && (response.res?.status === 200 || response.res?.status === 204);
+								: undefined,
+						resolve: (_source, lease, downloadUrl) => this.convertDownloadToPlayback(downloadUrl, lease.url),
+						close: async (source, token, signal) => {
+							const response = await this.req.getData(`https://cr-play-service.prd.crunchyrollsvc.com/v1/token/${source.guid}/${token}`, {
+								...headers,
+								signal,
+								method: 'DELETE'
+							});
+							return response.ok && (response.res?.status === 200 || response.res?.status === 204);
+						}
+					});
+				} finally {
+					indicator.stop();
+					if (cli) {
+						process.removeListener('SIGINT', onSignal);
+						process.removeListener('SIGTERM', onSignal);
 					}
-				});
+				}
+				if (discovery.status === 'cancelled' || discovery.status === 'rate-limited') {
+					console.error(discovery.status === 'cancelled' ? 'Video discovery cancelled' : `Video discovery stopped: ${discovery.reason}`);
+					return false;
+				}
 				if (discovery.status === 'unsafe') {
-					console.error('Unable to safely complete video discovery');
+					console.error(`Unable to safely complete video discovery${discovery.reason ? `: ${discovery.reason}` : ''}`);
 					return false;
 				}
 				if (discovery.status === 'fallback') fallbackCause = discovery.reason;
@@ -1599,8 +1624,9 @@ export default class Crunchy implements ServiceClass {
 					const validRequestedIndex = requestedIndex >= 0 && requestedIndex < discovery.entries.length ? requestedIndex : undefined;
 					console.info(
 						`Available Video Qualities:\n${formatGroupedVideoQualities(
-							discovery.entries.map((entry) => ({ height: entry.height, text: formatVideoCandidate(entry) })),
-							validRequestedIndex
+							discovery.entries.map((entry) => ({ height: entry.height, text: formatVideoCandidate(entry), family: entry.family, bandwidth: entry.bandwidth })),
+							validRequestedIndex,
+							{ compact: !options.qall }
 						)}`
 					);
 					if (options.q > discovery.entries.length) {
@@ -2704,8 +2730,9 @@ export default class Crunchy implements ServiceClass {
 							} else {
 								console.info(
 									`Available Video Qualities:\n${formatGroupedVideoQualities(
-										videos.map((a) => ({ height: a.quality.height, text: a.resolutionText })),
-										selectedIndex
+										videos.map((a) => ({ height: a.quality.height, text: a.resolutionText, family: a.family, bandwidth: a.bandwidth })),
+										selectedIndex,
+										{ compact: !options.qall }
 									)}`
 								);
 							}
@@ -3117,8 +3144,9 @@ export default class Crunchy implements ServiceClass {
 						} else {
 							console.info(
 								`Available qualities:\n${formatGroupedVideoQualities(
-									plQuality.map((a) => ({ height: a.RESOLUTION?.height, text: `${a.str} [Current M] [V:${vcurStream.audio_lang || 'und'}]` })),
-									selectedIndex
+									plQuality.map((a) => ({ height: a.RESOLUTION?.height, text: `${a.str} [Current M] [V:${vcurStream.audio_lang || 'und'}]`, family: 'Current' as const })),
+									selectedIndex,
+									{ compact: !options.qall }
 								)}`
 							);
 						}

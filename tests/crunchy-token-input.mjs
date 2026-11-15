@@ -147,6 +147,7 @@ try {
 		'./modules/module.crunchy-manifests',
 		'./modules/module.crunchy-video-catalog',
 		'./modules/module.crunchy-video-selection',
+		'./modules/module.working-indicator',
 		'./modules/module.vtt2ass',
 		'./@types/enums'
 	]);
@@ -780,6 +781,45 @@ try {
 		assert.equal((await result.res.json()).error, 'invalid_grant');
 		assert(logs.some(([kind, line]) => kind === 'debug' && line.includes('FETCH OPTIONS')));
 		assert(logs.some(([kind, line]) => kind === 'error' && line.includes('invalid_grant')));
+	});
+	await test('manifest opt-in observes 429 before awaiting bounded body disposal', async () => {
+		let release;
+		let observed;
+		let cloneCalled = false;
+		const disposed = new Promise((resolve) => {
+			release = resolve;
+		});
+		const response = {
+			ok: false,
+			status: 429,
+			statusText: 'Too Many Requests',
+			headers: new globalThis.Headers({ 'retry-after': '3' }),
+			body: { cancel: () => disposed },
+			clone: () => {
+				cloneCalled = true;
+				throw Error('unexpected clone');
+			}
+		};
+		const { Req } = compile(path.join(root, 'modules/module.fetch.ts'), (id) => {
+			if (id === './module.cfg-loader') return { loadCfg: () => ({ cli: {} }) };
+			if (id === './module.app-args') return { appArgv: () => ({ debug: false }) };
+			if (id === './log') return { console: fakeConsole };
+			if (id === 'undici') return { Agent: class {}, ProxyAgent: class {}, fetch: async () => response };
+			throw Error(`Unexpected transport import ${id}`);
+		});
+		const pending = new Req().getData('https://example.invalid/manifest', {
+			quietErrors: true,
+			skipErrorBody: true,
+			onResponse: (res) => {
+				observed = res;
+			}
+		});
+		await new Promise((resolve) => globalThis.setImmediate(resolve));
+		assert.equal(observed, response);
+		assert.equal(observed.headers.get('retry-after'), '3');
+		assert.equal(cloneCalled, false);
+		release();
+		assert.equal((await pending).res.status, 429);
 	});
 	await test('device quiet errors hide response bodies outside debug while preserving the response', async () => {
 		logs.length = 0;

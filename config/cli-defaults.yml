@@ -1,5 +1,7 @@
 # Set the quality of the stream, 0 is highest available.
 q: 0
+# Show all Crunchyroll video qualities instead of the compact view.
+qall: false
 # Set which server to use
 server: 1
 # How many parts to download at once. Increasing may improve download speed.

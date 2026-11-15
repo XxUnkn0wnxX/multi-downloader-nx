@@ -16,6 +16,7 @@ export type CrunchyDownloadOptions = {
 	noaudio?: boolean;
 	x: number;
 	q: number;
+	qall?: boolean;
 	fileName: string;
 	numbers: number;
 	partsize: number;

@@ -48,6 +48,7 @@ export let argvC: {
 	e: string | undefined;
 	extid: string | undefined;
 	q: number;
+	qall: boolean;
 	x: number;
 	cstream: keyof typeof CrunchyVideoPlayStreams;
 	vstream: keyof typeof CrunchyVideoPlayStreams;
@@ -113,6 +114,11 @@ const processArgv = () => {
 
 	for (let i = 0; i < process.argv.length; i++) {
 		const arg = process.argv[i];
+
+		if (arg === '--qall=false' || arg === '--qall=true') {
+			argv.push(arg === '--qall=false' ? '--no-qall' : '--qall');
+			continue;
+		}
 
 		if (/^-[a-zA-Z]{2,}$/.test(arg)) {
 			const found = args.find((a) => a.name === arg.substring(1) || a.alias === arg.substring(1));
@@ -185,6 +191,7 @@ const overrideArguments = (cfg: { [key: string]: unknown }, override: Partial<ty
 	for (const [key, val] of Object.entries(override)) {
 		if (val === undefined) continue;
 		if (typeof val === 'boolean') {
+			if (!val && key === 'qall') baseArgv.push('--no-qall');
 			if (val) baseArgv.push(key.length > 1 ? `--${key}` : `-${key}`);
 		} else {
 			baseArgv.push(key.length > 1 ? `--${key}` : `-${key}`, String(val));
@@ -303,6 +310,8 @@ const getCommander = (cfg: Record<string, unknown>, isGUI: boolean) => {
 
 		program.addOption(option);
 	}
+
+	program.addOption(program.createOption('--no-qall').hideHelp());
 
 	// Custom logic for suggesting corrections for misspelled options
 	program.hook('preAction', (_, command) => {

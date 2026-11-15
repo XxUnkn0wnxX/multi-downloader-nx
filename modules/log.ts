@@ -66,4 +66,15 @@ const getLogger = () => {
 	return log4js.getLogger();
 };
 
+let outputClearHook: (() => void) | undefined;
+export const setOutputClearHook = (hook: (() => void) | undefined) => {
+	outputClearHook = hook;
+};
 export const console = getLogger();
+for (const level of ['log', 'info', 'warn', 'error', 'debug'] as const) {
+	const original = console[level].bind(console);
+	console[level] = (...args: any[]) => {
+		outputClearHook?.();
+		original.apply(console, args as [any]);
+	};
+}

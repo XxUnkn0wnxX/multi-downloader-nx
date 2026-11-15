@@ -26,6 +26,8 @@ type CustomParams = {
 	useProxy: boolean;
 	allowH2: boolean;
 	quietErrors?: boolean;
+	onResponse?: (response: Response) => void;
+	skipErrorBody?: boolean;
 };
 
 type GetDataResponse = {
@@ -98,6 +100,15 @@ export class Req {
 		try {
 			const res = await fetch(durl, { ...options, dispatcher });
 			receivedResponse = res;
+			params.onResponse?.(res as any);
+			if (!res.ok && params.skipErrorBody) {
+				try {
+					await res.body?.cancel();
+				} catch {
+					/* Keep the HTTP status on disposal failure. */
+				}
+				return { ok: false, res: res as any, headers: params.headers as Record<string, string> };
+			}
 			if (!res.ok) {
 				if (logRequestErrors) console.error(`${res.status}: ${res.statusText}`);
 				const body = await res.clone().text();

@@ -18,6 +18,15 @@ export type VideoAddressing = 'SegmentBase' | 'SegmentList' | 'SegmentTemplate' 
 export const VIDEO_SELECTION_DEFAULTS = {
 	requestTimeoutMs: 15000,
 	discoveryTimeoutMs: 90000,
+	// Discovery request batching and shared manifest rate-limit recovery.
+	discoveryBatchSize: 8,
+	discoveryGapMinMs: 300,
+	discoveryGapMaxMs: 600,
+	discoveryNormalWaitBudgetMs: 6000,
+	discoveryRetryBatchSizes: [4, 2, 1],
+	discoveryRetryGapMs: [750, 1000, 1000],
+	discoveryRetryCooldownMs: [1000, 5000, 20000],
+	discoveryRateWaitBudgetMs: 45000,
 	maxVersions: 32,
 	maxManifestBytes: 2 * 1024 * 1024,
 	startToleranceFrames: 1,
@@ -499,10 +508,50 @@ export function formatVideoQualityRow(quality: number, text: string, marker?: Vi
 	return `        [${quality}] ${text}${marker ? ` <-- ${marker}` : ''}`;
 }
 
-export function formatGroupedVideoQualities(entries: Array<{ height?: number; text: string }>, selectedIndex?: number): string {
+export function formatGroupedVideoQualities(
+	entries: Array<{ height?: number; text: string; family?: VideoFamily; bandwidth?: number }>,
+	selectedIndex?: number,
+	options: { compact?: boolean } = {}
+): string {
+	let visible = entries.map((entry, index) => ({ entry, index }));
+	if (options.compact) {
+		const heights = [...new Set(entries.map((entry) => entry.height).filter((height): height is number => typeof height === 'number' && Number.isFinite(height) && height > 0))]
+			.sort((a, b) => b - a)
+			.slice(0, 3);
+		const legacyWinners = new Map<number, number>();
+		for (const { entry, index } of entries.map((entry, index) => ({ entry, index }))) {
+			if (entry.family !== 'Legacy 0' && entry.family !== 'Legacy 1') continue;
+			const height = entry.height;
+			if (typeof height !== 'number' || !heights.includes(height)) continue;
+			const previousIndex = legacyWinners.get(height);
+			const previous = previousIndex === undefined ? undefined : entries[previousIndex];
+			const betterBandwidth = !previous || (entry.bandwidth ?? 0) > (previous.bandwidth ?? 0);
+			const laterRankTie = previousIndex !== undefined && (entry.bandwidth ?? 0) === (previous?.bandwidth ?? 0) && index > previousIndex;
+			if (betterBandwidth || laterRankTie) {
+				legacyWinners.set(height, index);
+			}
+		}
+		visible = visible.filter(({ entry, index }) => {
+			const height = entry.height;
+			const validHeight = typeof height === 'number' && Number.isFinite(height) && height > 0;
+			if (!validHeight) return true;
+			if (!heights.includes(height)) return index === selectedIndex;
+			if (entry.family === 'Legacy 0' || entry.family === 'Legacy 1') return legacyWinners.get(height) === index || index === selectedIndex;
+			return true;
+		});
+		visible.sort((a, b) => {
+			const aHeight = a.entry.height;
+			const bHeight = b.entry.height;
+			const aValid = typeof aHeight === 'number' && Number.isFinite(aHeight) && aHeight > 0;
+			const bValid = typeof bHeight === 'number' && Number.isFinite(bHeight) && bHeight > 0;
+			if (aValid && bValid && aHeight !== bHeight) return aHeight - bHeight;
+			if (aValid !== bValid) return aValid ? -1 : 1;
+			return a.index - b.index;
+		});
+	}
 	const lines: string[] = [];
 	let currentGroup: string | undefined;
-	for (const [index, entry] of entries.entries()) {
+	for (const { entry, index } of visible) {
 		const height = entry.height;
 		const group = typeof height === 'number' && Number.isFinite(height) && height > 0 ? `${height}p` : 'Other';
 		if (group !== currentGroup) {
@@ -511,5 +560,7 @@ export function formatGroupedVideoQualities(entries: Array<{ height?: number; te
 		}
 		lines.push(formatVideoQualityRow(index + 1, entry.text, index === selectedIndex ? 'Selected' : undefined));
 	}
+	const hiddenCount = entries.length - visible.length;
+	if (hiddenCount > 0) lines.push(`    (${hiddenCount} qualities hidden; use --qall to show all)`);
 	return lines.join('\n');
 }

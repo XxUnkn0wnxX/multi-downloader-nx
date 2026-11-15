@@ -312,6 +312,13 @@ currentMap['current.example.test'].audio = [originalAudio];
 const deps = {
 	'./package.json': {},
 	'./modules/module.crunchy-video-catalog': catalogModule,
+	'./modules/module.working-indicator': {
+		WorkingIndicator: class {
+			start() {}
+			stop() {}
+			waiting() {}
+		}
+	},
 	'./modules/module.crunchy-video-selection': { discoverVideoCandidates: async () => ({ status: 'fallback' }) },
 	fs: {
 		existsSync: () => true,
@@ -514,6 +521,27 @@ async function preview(q, sameToken = false, failAudio = false, count = 1, extra
 }
 const high = await preview(0, false, false, 2);
 assert.equal(high.result, true);
+const requestedDashDisplay = String(high.logs.find((entry) => String(entry[0]).startsWith('Available Video Qualities:'))?.[0]);
+assert(
+	requestedDashDisplay.includes('[7]') &&
+		requestedDashDisplay.includes('[9]') &&
+		requestedDashDisplay.includes('[10]') &&
+		requestedDashDisplay.includes('[12]') &&
+		requestedDashDisplay.includes('[14]')
+);
+assert(
+	!requestedDashDisplay.includes('[8]') && !requestedDashDisplay.includes('[11]') && !requestedDashDisplay.includes('[13]'),
+	'requested-version DASH keeps every Current row and only the highest-bandwidth Legacy per height'
+);
+assert.equal((requestedDashDisplay.match(/\[Legacy M\]/g) ?? []).length, 3);
+assert.equal((requestedDashDisplay.match(/\[Current M\]/g) ?? []).length, 2);
+assert(requestedDashDisplay.includes('[14]') && requestedDashDisplay.includes('<-- Selected'), 'q0 selected marker keeps the original full-catalogue number');
+const fullRequestedDash = await preview(0, false, false, 1, { qall: true });
+const fullRequestedDashDisplay = String(fullRequestedDash.logs.find((entry) => String(entry[0]).startsWith('Available Video Qualities:'))?.[0]);
+assert.equal(fullRequestedDashDisplay.split('\n').filter((line) => /^\s+\[\d+\]/.test(line)).length, 14);
+assert(!fullRequestedDashDisplay.includes('qualities hidden'));
+assert(fullRequestedDashDisplay.includes('[8]') && fullRequestedDashDisplay.includes('[13]') && fullRequestedDashDisplay.includes('[14]'));
+assert(fullRequestedDashDisplay.includes('<-- Selected'));
 assert.equal(high.requests.filter(([, method]) => method === 'DELETE').length, 4);
 assert.equal(high.effects.length, 0);
 assert(high.logs.some((entry) => entry.join(' ').includes('one.example.test/legacy1/4')));

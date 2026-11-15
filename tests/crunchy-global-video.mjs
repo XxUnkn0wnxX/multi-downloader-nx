@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import output from 'node:console';
-import { setTimeout, clearTimeout } from 'node:timers';
+import { setTimeout, clearTimeout, setImmediate } from 'node:timers';
+import process from 'node:process';
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -9,7 +10,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath, URL } from 'node:url';
 import ts from 'typescript';
 
-const { AbortController, Response } = globalThis;
+const { AbortController, Response, Headers, queueMicrotask } = globalThis;
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 async function within(promise) {
 	let timer;
@@ -33,7 +34,19 @@ function compile(file, deps = {}, overrides = {}) {
 	const module = { exports: {} };
 	vm.runInNewContext(
 		code,
-		{ module, exports: module.exports, require: (id) => deps[id] ?? require(id), URL, AbortController, setTimeout, clearTimeout, Buffer, console: output, ...overrides },
+		{
+			module,
+			exports: module.exports,
+			require: (id) => deps[id] ?? require(id),
+			URL,
+			AbortController,
+			setTimeout,
+			clearTimeout,
+			Buffer,
+			process,
+			console: output,
+			...overrides
+		},
 		{ filename: file }
 	);
 	return module.exports;
@@ -41,10 +54,19 @@ function compile(file, deps = {}, overrides = {}) {
 const messages = [];
 const log = { debug: (...args) => messages.push(args) };
 const catalog = compile('modules/module.crunchy-video-catalog.ts');
+const scheduler = compile('modules/module.crunchy-discovery-scheduler.ts', { './module.crunchy-video-catalog': catalog }, { performance: { now: () => fakeNow } });
+let fakeNow = 0;
+scheduler.defaultDiscoveryClock.now = () => fakeNow;
+scheduler.defaultDiscoveryClock.sleep = async (ms, signal) => {
+	if (signal?.aborted) throw Error('discovery cancelled');
+	fakeNow += ms;
+};
+scheduler.defaultDiscoveryClock.random = () => 0;
 const manifests = compile('modules/module.crunchy-manifests.ts', { './log': { console: log }, './module.transform-mpd': {}, './module.crunchy-video-catalog': catalog });
 const { discoverVideoCandidates } = compile('modules/module.crunchy-video-selection.ts', {
 	'./log': { console: log },
 	'./module.crunchy-video-catalog': catalog,
+	'./module.crunchy-discovery-scheduler': scheduler,
 	'./module.crunchy-manifests': manifests
 });
 const sources = [
@@ -132,7 +154,7 @@ const badClose = await run({ failClose: true });
 assert.equal(badClose.result.status, 'unsafe');
 assert.deepEqual(badClose.opened, ['EN']);
 const limited = await run({ rateLimited: true });
-assert.equal(limited.result.status, 'unsafe');
+assert.equal(limited.result.status, 'rate-limited');
 assert.deepEqual(limited.opened, ['EN']);
 assert.deepEqual(limited.closed, [['EN', 'token-EN']]);
 const tooLarge = await run({ oversized: true });
@@ -176,7 +198,7 @@ assert.equal(declaredCancel, 1);
 assert.equal(oversizedRequests, 1);
 const timed = compile(
 	'modules/module.crunchy-video-selection.ts',
-	{ './log': { console: log }, './module.crunchy-video-catalog': catalog, './module.crunchy-manifests': manifests },
+	{ './log': { console: log }, './module.crunchy-video-catalog': catalog, './module.crunchy-discovery-scheduler': scheduler, './module.crunchy-manifests': manifests },
 	{ setTimeout: (fn) => setTimeout(fn, 0) }
 );
 let abortSignal;
@@ -211,11 +233,12 @@ class ExpiredClock extends Date {
 }
 const expiredBefore = compile(
 	'modules/module.crunchy-video-selection.ts',
-	{ './log': { console: log }, './module.crunchy-video-catalog': catalog, './module.crunchy-manifests': manifests },
+	{ './log': { console: log }, './module.crunchy-video-catalog': catalog, './module.crunchy-discovery-scheduler': scheduler, './module.crunchy-manifests': manifests },
 	{ Date: ExpiredClock }
 );
 let began = false;
 const noLease = await expiredBefore.discoverVideoCandidates({
+	clock: { ...scheduler.defaultDiscoveryClock, now: () => (clockReads++ === 0 ? 0 : 90001) },
 	sources: [sources[0]],
 	requested: ['EN'],
 	ordinal: 1,
@@ -369,6 +392,413 @@ revealLatePlay({ token: 'late-P', url: 'https://example.test/late.mpd' });
 assert.equal(await within(latePlayClosedPromise), 'late-P');
 assert.equal(manifestAfterLate, false);
 
+// Scheduler contracts use one monotonic fake clock: no real pacing sleeps.
+function testClock(random = 0) {
+	let now = 0;
+	const waits = [];
+	return {
+		clock: {
+			now: () => now,
+			wallNow: () => Date.parse('Sun, 06 Nov 1994 08:49:00 GMT'),
+			random: () => random,
+			sleep: async (ms, signal) => {
+				if (signal?.aborted) throw Error('discovery cancelled');
+				waits.push(ms);
+				now += ms;
+			}
+		},
+		advance: (ms) => {
+			now += ms;
+		},
+		waits
+	};
+}
+{
+	const f = testClock();
+	const pace = new scheduler.DiscoveryScheduler(50, f.clock);
+	for (let i = 0; i < 8; i++) await pace.dispatch();
+	assert.deepEqual(f.waits, []);
+	f.advance(200);
+	await pace.dispatch();
+	assert.deepEqual(f.waits, [100]);
+	for (let i = 0; i < 7; i++) await pace.dispatch();
+	await pace.dispatch(true); // mandatory closure can overrun the batch
+	await pace.dispatch();
+	assert.deepEqual(f.waits, [100, 300]);
+}
+for (const maxCalls of [50, 160, 224]) {
+	const f = testClock(1);
+	const pace = new scheduler.DiscoveryScheduler(maxCalls, f.clock);
+	for (let i = 0; i < maxCalls; i++) await pace.dispatch();
+	assert(f.waits.reduce((a, b) => a + b, 0) <= 6000.000001);
+	assert(f.waits.every((delay) => delay > 0));
+}
+{
+	const f = testClock();
+	const pace = new scheduler.DiscoveryScheduler(40, f.clock);
+	for (let i = 0; i < 8; i++) await pace.dispatch();
+	pace.retry(new Headers({ 'Retry-After': '2' }));
+	await pace.dispatch();
+	assert.deepEqual(f.waits, [2000]); // max(boundary gap, cooldown)
+	pace.retry(new Headers());
+	await pace.dispatch();
+	pace.retry(new Headers());
+	await pace.dispatch();
+	assert.deepEqual(f.waits, [2000, 5000, 20000]);
+	assert.throws(() => pace.retry(new Headers()), /retries exhausted/);
+}
+const httpBase = Date.parse('Sun, 06 Nov 1994 08:49:00 GMT');
+for (const value of ['Sun, 06 Nov 1994 08:49:37 GMT', 'Sunday, 06-Nov-94 08:49:37 GMT', 'Sun Nov  6 08:49:37 1994']) {
+	assert.equal(scheduler.retryAfterMs(value, 'Sun, 06 Nov 1994 08:49:00 GMT', 0), 37000);
+	assert.equal(scheduler.retryAfterMs(value, '1.5', httpBase), 37000);
+}
+assert.equal(scheduler.retryAfterMs('12', null, 0), 12000);
+const modernDate = Date.UTC(2026, 10, 15);
+assert.equal(scheduler.retryAfterMs('Tuesday, 06-Nov-68 08:49:37 GMT', null, modernDate), Date.UTC(2068, 10, 6, 8, 49, 37) - modernDate);
+assert.equal(scheduler.retryAfterMs('Sunday, 06-Nov-77 08:49:37 GMT', null, modernDate), 0, 'dates more than fifty years ahead use the previous century');
+assert.equal(scheduler.retryAfterMs('9'.repeat(500), null, 0), Infinity);
+for (const value of ['1.5', '-1', '+1', '1e3', '1 second', 'garbage']) assert.equal(scheduler.retryAfterMs(value, null, 0), undefined);
+{
+	const f = testClock();
+	const pace = new scheduler.DiscoveryScheduler(5, f.clock);
+	assert.throws(() => pace.retry(new Headers({ 'Retry-After': '999999999999999999999999' })), /budget/);
+}
+async function retryProbe({ failClose = false, stallObserved = false, unsupportedNext = false } = {}) {
+	const f = testClock();
+	let requests = 0,
+		closes = 0;
+	const selection = stallObserved ? timed : { discoverVideoCandidates };
+	const result = await selection.discoverVideoCandidates({
+		sources: unsupportedNext ? sources.slice(0, 2) : [sources[0]],
+		requested: ['EN'],
+		ordinal: 1,
+		ignoreTiming: false,
+		debug: false,
+		headers: {},
+		clock: f.clock,
+		acquire: async (source) => ({
+			token: 'retry-' + source.guid,
+			url: source.guid === sources[0].guid ? 'https://example.test/static/EN/clean/dash/manifest.mpd' : 'https://example.test/master.m3u8'
+		}),
+		close: async () => {
+			closes++;
+			return !failClose;
+		},
+		req: {
+			getData: async (url, opts) => {
+				requests++;
+				if (stallObserved) {
+					opts.onResponse(new Response('', { status: 429 }));
+					return new Promise(() => {});
+				}
+				if (requests <= 3) return { ok: false, res: new Response('', { status: 429 }) };
+				return url.includes('/0/clean/') || url.includes('/1/clean/') ? { ok: false, res: new Response('', { status: 404 }) } : { ok: true, res: new Response(xml('EN')) };
+			}
+		}
+	});
+	return { result, requests, closes, waits: f.waits };
+}
+{
+	const r = await retryProbe();
+	assert.equal(r.result.status, 'ok');
+	assert.deepEqual(r.waits.slice(0, 3), [1000, 5000, 20000]);
+	assert.equal(r.requests, 6);
+	assert.equal(r.closes, 1);
+	const stalled = await retryProbe({ stallObserved: true });
+	assert.equal(stalled.result.status, 'rate-limited');
+	assert.equal(stalled.requests, 1);
+	assert.equal(stalled.closes, 1);
+	const failed = await retryProbe({ failClose: true });
+	assert.equal(failed.result.status, 'unsafe');
+	assert.equal(failed.result.reason, 'session cleanup failed');
+	const recoveredThenUnsupported = await retryProbe({ unsupportedNext: true });
+	assert.equal(recoveredThenUnsupported.result.status, 'fallback');
+	assert.equal(recoveredThenUnsupported.result.reason, 'unsupported manifest');
+	assert.equal(recoveredThenUnsupported.closes, 2, 'both leases close before ordinary metadata fallback after a recovered rate limit');
+}
+{
+	const abort = new AbortController();
+	abort.abort();
+	let dispatched = 0;
+	const r = await discoverVideoCandidates({
+		sources: [sources[0]],
+		requested: ['EN'],
+		ordinal: 1,
+		ignoreTiming: false,
+		debug: false,
+		headers: {},
+		signal: abort.signal,
+		req: {},
+		acquire: async () => {
+			dispatched++;
+		},
+		close: async () => true
+	});
+	assert.equal(r.status, 'cancelled');
+	assert.equal(dispatched, 0);
+}
+{
+	const abort = new AbortController();
+	let calls = 0,
+		dispatched = 0;
+	const f = testClock();
+	const originalNow = f.clock.now;
+	f.clock.now = () => {
+		if (++calls === 3) abort.abort();
+		return originalNow();
+	};
+	const r = await discoverVideoCandidates({
+		sources: [sources[0]],
+		requested: ['EN'],
+		ordinal: 1,
+		ignoreTiming: false,
+		debug: false,
+		headers: {},
+		signal: abort.signal,
+		clock: f.clock,
+		req: {},
+		acquire: async () => {
+			dispatched++;
+		},
+		close: async () => true
+	});
+	assert.equal(r.status, 'cancelled');
+	assert.equal(dispatched, 0);
+}
+{
+	const abort = new AbortController();
+	let reveal,
+		closed = 0;
+	const completion = new Promise((resolve) => {
+		reveal = resolve;
+	});
+	let started;
+	const startedPromise = new Promise((resolve) => {
+		started = resolve;
+	});
+	const run = discoverVideoCandidates({
+		sources: [sources[0]],
+		requested: ['EN'],
+		ordinal: 1,
+		ignoreTiming: false,
+		debug: false,
+		headers: {},
+		signal: abort.signal,
+		req: {},
+		acquire: () => {
+			started();
+			return completion;
+		},
+		close: async () => {
+			closed++;
+			return true;
+		}
+	});
+	await startedPromise;
+	abort.abort();
+	assert.equal((await run).status, 'unsafe');
+	reveal({ token: 'late', url: 'https://example.test/test.mpd' });
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(closed, 1);
+}
+{
+	let callback,
+		hook,
+		cleared = 0;
+	let indicatorNow = 0;
+	const writes = [];
+	const indicatorModule = compile(
+		'modules/module.working-indicator.ts',
+		{
+			'./log': {
+				setOutputClearHook: (value) => {
+					hook = value;
+				}
+			}
+		},
+		{
+			setInterval: (fn, ms) => {
+				assert.equal(ms, 100);
+				callback = fn;
+				return 1;
+			},
+			clearInterval: () => {
+				cleared++;
+			},
+			Date: { now: () => indicatorNow },
+			process
+		}
+	);
+	const indicator = new indicatorModule.WorkingIndicator(true, { write: (s) => writes.push(s) });
+	indicator.start();
+	assert.equal(writes.length, 0);
+	callback();
+	assert(writes.join('').includes('Working'));
+	indicator.waiting(2, 5000);
+	callback();
+	assert(writes.at(-1).includes('Working (retry 2/3 in 5s)'));
+	indicatorNow += 2000;
+	callback();
+	assert(writes.at(-1).includes('Working (retry 2/3 in 3s)'));
+	indicator.waiting(0, 0);
+	callback();
+	assert(writes.at(-1).endsWith('Working'));
+	hook();
+	assert(writes.join('').includes('\x1b[?25h'));
+	indicator.stop();
+	indicator.stop();
+	assert.equal(cleared, 1);
+	assert.equal(hook, undefined);
+	const disabled = new indicatorModule.WorkingIndicator(false, { write: () => assert.fail('disabled spinner wrote output') });
+	disabled.start();
+	disabled.stop();
+}
+
+{
+	// One retry budget spans different manifest families.
+	const f = testClock();
+	const counts = new Map();
+	let closed = 0;
+	const r = await discoverVideoCandidates({
+		sources: [sources[0]],
+		requested: ['EN'],
+		ordinal: 1,
+		ignoreTiming: false,
+		debug: false,
+		headers: {},
+		clock: f.clock,
+		acquire: async () => ({ token: 'P', url: 'https://example.test/static/EN/clean/dash/manifest.mpd' }),
+		close: async () => {
+			closed++;
+			return true;
+		},
+		req: {
+			getData: async (url) => {
+				const count = (counts.get(url) ?? 0) + 1;
+				counts.set(url, count);
+				if (count === 1 || (url.includes('/1/clean/') && count === 2)) return { ok: false, res: new Response('', { status: 429 }) };
+				return { ok: true, res: new Response(xml('EN')) };
+			}
+		}
+	});
+	assert.equal(r.status, 'rate-limited');
+	assert.equal(
+		[...counts.values()].reduce((a, b) => a + b, 0),
+		6
+	);
+	assert.equal(closed, 1);
+	assert.deepEqual(f.waits.slice(0, 3), [1000, 5000, 20000]);
+}
+{
+	// Cancel a paced boundary while holding a lease; closure must not inherit abort.
+	const abort = new AbortController();
+	let calls = 0,
+		closes = 0;
+	const f = testClock();
+	f.clock.sleep = async () => {
+		abort.abort();
+		throw Error('discovery cancelled');
+	};
+	const r = await discoverVideoCandidates({
+		sources: [sources[0], sources[1]],
+		requested: ['EN'],
+		ordinal: 1,
+		ignoreTiming: false,
+		debug: false,
+		headers: {},
+		clock: f.clock,
+		signal: abort.signal,
+		acquire: async (source) => ({ token: source.guid, url: `https://example.test/static/${source.guid}/clean/dash/manifest.mpd` }),
+		close: async (_source, _token, signal) => {
+			assert.equal(signal.aborted, false);
+			closes++;
+			return true;
+		},
+		req: {
+			getData: async (url) => {
+				calls++;
+				return url.includes('/0/clean/') || url.includes('/1/clean/') ? { ok: false, res: new Response('', { status: 404 }) } : { ok: true, res: new Response(xml('EN')) };
+			}
+		}
+	});
+	assert.equal(r.status, 'cancelled');
+	assert.equal(calls, 5);
+	assert.equal(closes, 2);
+}
+{
+	// A token that settles just before abort still has exactly one cleanup owner.
+	const abort = new AbortController();
+	let closed = 0;
+	const r = await discoverVideoCandidates({
+		sources: [sources[0]],
+		requested: ['EN'],
+		ordinal: 1,
+		ignoreTiming: false,
+		debug: false,
+		headers: {},
+		signal: abort.signal,
+		req: {},
+		acquire: () => {
+			const result = Promise.resolve({ token: 'race', url: 'https://example.test/test.mpd' });
+			queueMicrotask(() => abort.abort());
+			return result;
+		},
+		close: async () => {
+			closed++;
+			return true;
+		}
+	});
+	assert.equal(r.status, 'unsafe');
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(closed, 1);
+}
+
+{
+	// A rate response followed by expiry during cleanup must not fall back.
+	const f = testClock();
+	let calls = 0;
+	const r = await discoverVideoCandidates({
+		sources: [sources[0]],
+		requested: ['EN'],
+		ordinal: 1,
+		ignoreTiming: false,
+		debug: false,
+		headers: {},
+		clock: f.clock,
+		acquire: async () => ({ token: 'deadline', url: 'https://example.test/static/EN/clean/dash/manifest.mpd' }),
+		close: async () => {
+			f.advance(90000);
+			return true;
+		},
+		req: {
+			getData: async (url) => {
+				calls++;
+				if (calls === 1) return { ok: false, res: new Response('', { status: 429 }) };
+				return url.includes('/0/clean/') || url.includes('/1/clean/') ? { ok: false, res: new Response('', { status: 404 }) } : { ok: true, res: new Response(xml('EN')) };
+			}
+		}
+	});
+	assert.equal(r.status, 'rate-limited');
+	assert.equal(r.reason, 'discovery timed out');
+}
+{
+	const r = await discoverVideoCandidates({
+		sources: [sources[0]],
+		requested: ['EN'],
+		ordinal: 1,
+		ignoreTiming: false,
+		debug: false,
+		headers: {},
+		req: {},
+		acquire: async () => {
+			throw Error('playback HTTP 429');
+		},
+		close: async () => true
+	});
+	assert.equal(r.status, 'unsafe');
+	assert.equal(r.reason, 'playback HTTP 429');
+}
+
 output.log('Crunchy global metadata discovery contracts passed');
 
 const languageItems = [
@@ -506,6 +936,7 @@ const realSelection = compile(
 	{
 		'./log': { console: mediaLogger },
 		'./module.crunchy-video-catalog': catalog,
+		'./module.crunchy-discovery-scheduler': scheduler,
 		'./module.crunchy-manifests': realManifests
 	},
 	{ setTimeout: (fn, ms) => setTimeout(fn, fastTimers ? 0 : ms) }
@@ -526,6 +957,13 @@ const mediaDeps = {
 	'./modules/module.crunchy-manifests': realManifests,
 	'./modules/module.crunchy-video-catalog': catalog,
 	'./modules/module.crunchy-video-selection': realSelection,
+	'./modules/module.working-indicator': {
+		WorkingIndicator: class {
+			start() {}
+			stop() {}
+			waiting() {}
+		}
+	},
 	'./modules/module.cfg-loader': { loadBinCfg: async () => ({ ffmpeg: 'fake', mp4decrypt: 'fake' }) },
 	'./modules/module.api-urls': { api: { crunchyDefHeader: {}, drm_widevine: 'https://license.invalid/', me: 'https://api.example.test/me' }, domain: {} },
 	'./@types/enums': {
@@ -734,9 +1172,11 @@ function selectedVideoRows() {
 }
 assert.equal(await service.downloadEpisode(mediaData, mediaOptions), true);
 assert.equal(mediaLogs.filter((entry) => String(entry[0]).startsWith('Available Video Qualities:')).length, 1);
-assert(mediaLogs.some((entry) => String(entry[0]).includes('    1080p\n        [1]')));
+const compactGlobalQualities = String(mediaLogs.find((entry) => String(entry[0]).startsWith('Available Video Qualities:'))[0]);
+assert(compactGlobalQualities.includes('[3]') && compactGlobalQualities.includes('[5]'), 'current rows retain their original indices when compact display leaves gaps');
+assert(compactGlobalQualities.includes('(3 qualities hidden; use --qall to show all)'));
 assert.equal(selectedVideoRows().length, 1);
-assert(mediaLogs.some((entry) => String(entry[0]).includes('[2]') && String(entry[0]).includes('[Legacy M] [V:jpn] <-- Selected')));
+assert(mediaLogs.some((entry) => String(entry[0]).includes('[6]') && String(entry[0]).includes('[Legacy M] [V:jpn] <-- Selected')));
 assert(mediaLogs.some((entry) => String(entry[0]).includes('Selected video:') && String(entry[0]).includes('[V:jpn]')));
 const globalAudioQualities = mediaLogs.find((entry) => String(entry[0]).startsWith('Available Audio Qualities:'));
 assert(globalAudioQualities);

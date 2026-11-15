@@ -21,6 +21,14 @@ const manifestUrl = 'https://example.test/catalog/manifest.mpd?sig=synthetic';
 assert.deepEqual(JSON.parse(JSON.stringify(catalog.VIDEO_SELECTION_DEFAULTS)), {
 	requestTimeoutMs: 15000,
 	discoveryTimeoutMs: 90000,
+	discoveryBatchSize: 8,
+	discoveryGapMinMs: 300,
+	discoveryGapMaxMs: 600,
+	discoveryNormalWaitBudgetMs: 6000,
+	discoveryRetryBatchSizes: [4, 2, 1],
+	discoveryRetryGapMs: [750, 1000, 1000],
+	discoveryRetryCooldownMs: [1000, 5000, 20000],
+	discoveryRateWaitBudgetMs: 45000,
 	maxVersions: 32,
 	maxManifestBytes: 2 * 1024 * 1024,
 	startToleranceFrames: 1,
@@ -351,6 +359,74 @@ const explicitQualities = catalog.formatGroupedVideoQualities(
 assert(explicitQualities.includes('        [2] 1280x720 (2000 kb/s) [Legacy M] [V:jpn] <-- Selected'));
 assert.equal(catalog.formatVideoQualityRow(2, 'quality label', 'Discarded'), '        [2] quality label <-- Discarded');
 assert.equal(catalog.formatVideoQualityRow(5, 'quality label', 'Re-selected'), '        [5] quality label <-- Re-selected');
+
+const compactEntries = [
+	{ height: 320, text: '320p current', family: 'Current', bandwidth: 100 },
+	{ height: 480, text: '480p current', family: 'Current', bandwidth: 200 },
+	{ height: 720, text: '720p current A', family: 'Current', bandwidth: 300 },
+	{ height: 720, text: '720p current B', family: 'Current', bandwidth: 400 },
+	{ height: 720, text: '720p legacy wide lower bandwidth', family: 'Legacy 0', bandwidth: 900, width: 1920 },
+	{ height: 720, text: '720p legacy higher bandwidth', family: 'Legacy 1', bandwidth: 1000, width: 1280 },
+	{ height: 1080, text: '1080p current', family: 'Current', bandwidth: 1100 },
+	{ height: 1080, text: '1080p legacy', family: 'Legacy 0', bandwidth: 1200 },
+	{ height: 2160, text: '2160p current', family: 'Current', bandwidth: 1300 },
+	{ height: 2160, text: '2160p legacy', family: 'Legacy 1', bandwidth: 1400 },
+	{ height: 2160, text: '2160p legacy collapsed', family: 'Legacy 0', bandwidth: 1400 },
+	{ height: 360, text: '360p selected outside top groups', family: 'Current', bandwidth: 150 },
+	{ text: 'unknown height' }
+];
+const compactDisplay = catalog.formatGroupedVideoQualities(compactEntries, 11, { compact: true });
+assert(compactDisplay.includes('        [3] 720p current A'));
+assert(compactDisplay.includes('        [4] 720p current B'), 'all current renditions in retained heights stay visible');
+assert(compactDisplay.includes('        [6] 720p legacy higher bandwidth'), 'legacy winner uses bandwidth before width');
+assert(!compactDisplay.includes('legacy wide lower bandwidth'));
+assert(compactDisplay.includes('        [8] 1080p legacy'));
+assert(compactDisplay.includes('        [9] 2160p current'));
+assert(compactDisplay.includes('        [10] 2160p legacy <-- Selected') === false);
+assert(compactDisplay.includes('        [11] 2160p legacy collapsed'), 'rank-order tie break keeps the last equally rated legacy candidate');
+assert(compactDisplay.includes('        [12] 360p selected outside top groups <-- Selected'), 'a chosen row outside the top three remains visible with its original number');
+assert(compactDisplay.includes('        [13] unknown height'), 'unknown-height rows remain visible');
+assert(compactDisplay.includes('(4 qualities hidden; use --qall to show all)'));
+const fullDisplay = catalog.formatGroupedVideoQualities(compactEntries, 11, { compact: false });
+assert.equal(fullDisplay.split('\n').filter((line) => /^\s+\[\d+\]/.test(line)).length, compactEntries.length);
+assert(!fullDisplay.includes('qualities hidden'));
+assert(fullDisplay.includes('        [12] 360p selected outside top groups <-- Selected'));
+const collapsedSelected = catalog.formatGroupedVideoQualities(compactEntries, 4, { compact: true });
+assert(collapsedSelected.includes('        [5] 720p legacy wide lower bandwidth <-- Selected'), 'a selected legacy row remains visible even when compacted');
+assert.match(collapsedSelected, /\(\d+ qualities hidden; use --qall to show all\)/);
+const unsortedCompact = catalog.formatGroupedVideoQualities(
+	[
+		{ height: 320, text: '320p', family: 'Current' },
+		{ height: 1080, text: '1080p', family: 'Current' },
+		{ height: 720, text: '720p', family: 'Current' },
+		{ height: 480, text: '480p', family: 'Current' }
+	],
+	undefined,
+	{ compact: true }
+);
+assert.match(unsortedCompact, /\[4\] 480p[\s\S]*\[3\] 720p[\s\S]*\[2\] 1080p/, 'compact groups display ascending heights while retaining catalogue numbers');
+const representative140 = [];
+for (const [heightIndex, height] of [360, 480, 720, 1080, 1440, 1800, 2160].entries()) {
+	for (const family of ['Current', 'Legacy 0']) {
+		for (let language = 0; language < 10; language++) {
+			representative140.push({
+				height,
+				family,
+				bandwidth: 1000000 + heightIndex * 10000 + language,
+				text: `${family} ${language} ${height}p`
+			});
+		}
+	}
+}
+const representativeCompact = catalog.formatGroupedVideoQualities(representative140, representative140.length - 1, { compact: true });
+assert.equal(representative140.length, 140);
+assert.equal(
+	representativeCompact.split('\n').filter((line) => /^\s+\[\d+\]/.test(line)).length,
+	33,
+	'10-language, 140-row catalogues compact to 30 Current plus one Legacy per retained height'
+);
+assert(representativeCompact.includes('(107 qualities hidden; use --qall to show all)'));
+assert(representativeCompact.includes('[140] Legacy 0 9 2160p <-- Selected'), 'the original last quality number and q0 selection survive compaction');
 
 const manyRepresentations = Array.from(
 	{ length: 105 },
