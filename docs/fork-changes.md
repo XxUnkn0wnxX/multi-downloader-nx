@@ -57,7 +57,11 @@ Keep the corresponding [root lockfile](../pnpm-lock.yaml) and [GUI lockfile](../
 
 Newer transitive esbuild binaries caused `_SecTrustCopyCertificateChain` loader failures on Big Sur despite the direct pin. See upstream [issue #1303](https://github.com/anidl/multi-downloader-nx/issues/1303). Do not remove the overrides merely because the direct dependency is pinned.
 
-An upstream replacement must cover root, GUI, and generated `lib` dependencies. Check both lockfiles, resolved transitive versions, and native esbuild/tsx execution on Big Sur before replacing the compatibility approach. The fork's initial checks passed for frozen lockfiles and native esbuild/tsx smoke tests; a full GUI build was not validated.
+Keep `esbuild` at `0.26.0` throughout this fork, including root, GUI, and generated `lib` dependencies. Do not replace or advance this pin during upstream merges or dependency updates. Check both lockfiles, resolved transitive versions, and native esbuild/tsx execution on Big Sur. The fork's initial checks passed for frozen lockfiles and native esbuild/tsx smoke tests; a full GUI build was not validated at that time.
+
+### Pin patched proxy and shell quoting dependencies
+
+The root and GUI workspace overrides pin transitive `proxy-addr` to `2.0.8` for [GHSA-jqcg-44mw-7w3h](https://github.com/advisories/GHSA-jqcg-44mw-7w3h). The GUI override also pins `shell-quote` to `1.11.0` for [GHSA-pqg4-j6r4-53mv](https://github.com/advisories/GHSA-pqg4-j6r4-53mv). Express and `launch-editor` already allow these patched versions, so their direct dependency versions remain unchanged. Keep both lockfiles consistent with the overrides. Remove an override only after verifying that the relevant dependency chain resolves to a patched version without it.
 
 ### Accept Crunchyroll cookies exports for `--token`
 
