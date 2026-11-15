@@ -4,6 +4,14 @@ Changes specific to this fork are grouped below with their implementation commit
 
 ## 2026-11-15
 
+### Service overview and manual Nightly releases
+
+Commits: [df5309f](../../../commit/df5309f182abaed4844db025f1426f7f1e92886d), [347250e](../../../commit/347250e4fde96e9d59d8eff60756002e60aba8aa).
+
+- Reorganize the README around Crunchyroll, HIDIVE, and ADN, with shared setup, compact service details, and fewer command blocks.
+- Add main-only manual Nightly builds that can reuse passing source tests across documentation-only descendants while publishing the current commit. Changed source, build, workflow, test, or dependency inputs still need fresh Tests.
+- Keep built and tested revisions distinct in artifact provenance. Block newer failed or pending attempts, detect reruns during proof selection, and recheck source proof and main before final publication.
+
 ### Fork CLI builds and rolling release
 
 Commit: [26657a9](../../../commit/26657a9ee8e24d160fadbf3118d949c4ff0e08e1).
