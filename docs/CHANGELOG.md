@@ -4,6 +4,13 @@ Changes specific to this fork are grouped below with their implementation commit
 
 ## 2026-11-15
 
+### Normal Nightly release and visible build targets
+
+Commit: [8d33e89](../../../commit/8d33e89abf389c4bc3442136e8f513022c4b3f6a).
+
+- Keep the same Nightly Fork page and tag as a normal Latest release while replacing its CLI assets.
+- Name each architecture job with its Windows, macOS, Linux, and Alpine targets, and expose four packaging steps while retaining shared setup and caching.
+
 ### Service overview and manual Nightly releases
 
 Commits: [df5309f](../../../commit/df5309f182abaed4844db025f1426f7f1e92886d), [347250e](../../../commit/347250e4fde96e9d59d8eff60756002e60aba8aa).
