@@ -2,11 +2,20 @@
 
 Read and follow [docs/fork-changes.md](docs/fork-changes.md) before changing this fork or integrating upstream updates. It defines the behavior that `develop` must retain and when an upstream implementation can replace a fork change.
 
-- Keep fork code, this file, and `docs/fork-changes.md` tracked on `develop`.
-- Keep `master-upstream` an exact upstream mirror: fast-forward it from `upstream/master`, then merge `master-upstream` into `develop`. Never merge fork changes back into `master-upstream`.
-- Maintain only `master-upstream` and `develop` on the fork's `origin`; upstream feature and Dependabot branches do not need to be copied there.
+- Keep fork code, this file, and `docs/fork-changes.md` tracked on `develop` and `main`.
+- Use `develop` for working changes and `main` as the stable default branch. Promote reviewed changes by fast-forward and preserve the release workflow's tested-source requirements.
+- Keep `master-upstream` an exact upstream mirror: sync from `upstream/master` and push to `origin/master-upstream`. This mirror-only sync requires no adaptation or fork-integration plan. Never merge fork changes back into the mirror.
+- Maintain `master-upstream`, `develop`, and `main` on the fork's `origin`; upstream feature and Dependabot branches do not need to be copied there.
 - Preserve the active changes in the guide during merges and dependency updates. Retire a workaround only after verifying equivalent upstream behavior, and update the guide with that evidence.
 - Keep local audit files, credentials, dependency directories, and generated outputs out of commits and generated application files as described in the guide.
+
+## Upstream integration reviews
+
+- These rules apply to bringing upstream changes into the custom fork branches, not to synchronizing the exact upstream mirror.
+- Prepare a detailed integration plan before each upstream integration review and before merging or adapting upstream changes into `develop` or `main`. Pin the fork baseline and upstream target SHAs, inventory the proposed changes, and map them to the active contracts in `docs/fork-changes.md`.
+- Classify changes for adoption, careful adaptation, or exclusion. Take upstream changes that preserve the fork's behavior; plan overlapping adaptations explicitly and leave unresolved conflicting changes out. Retire a fork repair only after verifying an equivalent upstream implementation with concrete evidence.
+- Include dependency and shared-file ordering, compatibility risks, affected CLI/GUI and provider paths, validation gates, documentation updates, rollback steps, and unresolved decisions. Preserve Big Sur compatibility and the documented root, GUI, and generated-application dependency constraints.
+- Keep the plan and acceptance evidence current during integration. Verify the final diff and required checks against the planned contracts before promotion or publication, and update the fork guide with what was adopted, adapted, excluded, or retired.
 
 ## Provider maintenance and investigation
 

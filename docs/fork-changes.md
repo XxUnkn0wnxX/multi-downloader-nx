@@ -12,7 +12,7 @@ This fork follows [anidl/multi-downloader-nx](https://github.com/anidl/multi-dow
 | `develop` | `origin/develop` | `origin/develop` | Working fork changes and merges from `master-upstream`. |
 | `main` | `origin/main` | `origin/main` | Stable fork and default branch; tested CLI releases. |
 
-These are the expected local tracking settings. Keep these three maintenance branches on the fork's `origin`; fetching upstream branches does not require publishing them to the fork. Fast-forward `master-upstream` from upstream, then merge it into `develop`. Never merge fork changes into `master-upstream`.
+These are the expected local tracking settings. Keep these three maintenance branches on the fork's `origin`; fetching upstream branches does not require publishing them to the fork. Sync `master-upstream` from `upstream/master` and push it to `origin/master-upstream` as an independent mirror operation. This requires no adaptation or fork-integration plan. Never merge fork changes into `master-upstream`.
 
 Promote reviewed `develop` revisions to `main` by fast-forward after Tests passes. The release workflow packages the current `main` revision with passing Tests for its source inputs; a manual release can reuse that proof across documentation-only descendants. Keep the upstream mirror free of fork changes.
 
@@ -125,4 +125,6 @@ The Android TV client credentials and User-Agent update from fork commit 78ea053
 
 ## Maintaining this guide
 
-For each upstream integration, compare the remaining diff with these active changes. Preserve behavior even when upstream reorganizes the affected files. When upstream replaces a change, remove only redundant fork code after the relevant checks pass, then record the upstream commit and validation here. Keep unresolved compatibility work listed as active.
+Prepare a detailed plan before every review to integrate upstream changes into the custom fork branches and before merging or adapting those changes. The exact `master-upstream` mirror is exempt. Pin the fork baseline and upstream target, inventory the incoming changes, and map each to the active contracts above. Classify compatible changes for adoption, overlapping changes for careful adaptation, and unresolved conflicts for exclusion. Include dependency/shared-file ordering, affected providers and CLI/GUI behavior, Big Sur compatibility, validation, documentation, rollback, and required decisions.
+
+Keep that plan and its acceptance evidence current through integration, then compare the final diff with these active changes. Preserve behavior even when upstream reorganizes files. When upstream replaces a change, remove only redundant fork code after equivalent behavior and the relevant checks are verified, then record the upstream commit and evidence here. Document what was adopted, adapted, excluded, or retired; keep unresolved compatibility work listed as active.
