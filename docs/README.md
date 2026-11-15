@@ -1,90 +1,93 @@
 # 🎬 Anime Downloader NX
 
-**AniDL** downloads episodes from Crunchyroll, HIDIVE, and AnimationDigitalNetwork. This fork of [anidl/multi-downloader-nx](https://github.com/anidl/multi-downloader-nx) includes CLI and GUI workflows; [Fork changes](fork-changes.md) tracks its additions.
+**AniDL** downloads episodes from **Crunchyroll**, **HIDIVE**, and **AnimationDigitalNetwork (ADN)** through a command-line interface or GUI. This is a fork of [anidl/multi-downloader-nx](https://github.com/anidl/multi-downloader-nx); its additions and compatibility fixes are documented in [Fork changes](fork-changes.md).
 
-[![Tests](../../../actions/workflows/test.yml/badge.svg)](../../../actions/workflows/test.yml) [![Discord](https://img.shields.io/discord/884479461997805568?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/qEpbWen5vq)
+[![Tests](../../../actions/workflows/test.yml/badge.svg?branch=main)](../../../actions/workflows/test.yml) [![Discord](https://img.shields.io/discord/884479461997805568?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/qEpbWen5vq)
 
-**Browse:** [Getting started](GET-STARTED.md) · [CLI options](DOCUMENTATION.md) · [Fork changes](fork-changes.md) · [Changelog](CHANGELOG.md) · [Build from source](#build-from-source) · [Issues](../../../issues) · [Releases](../../../releases)
+**Browse:** [Setup](#setup) · [Services](#services) · [CLI options](DOCUMENTATION.md) · [GUI guide](GET-STARTED.md) · [Changelog](CHANGELOG.md) · [Releases](../../../releases) · [Issues](../../../issues)
 
-## Legal warning
+- Search catalogs and select individual episodes, ranges, or whole seasons/shows.
+- Choose available dub and subtitle languages, including multiple audio tracks.
+- Select video quality, customize filenames, and mux downloads into MKV or MP4.
+- Preview a download's qualities and stream URLs with `--dry-run`.
 
-This application is not endorsed by or affiliated with *Crunchyroll*, *Hidive* or *AnimationDigitalNetwork*. This application enables you to download videos for offline viewing which may be forbidden by law in your country. The usage of this application may also cause a violation of the *Terms of Service* between you and the stream provider. This tool is not responsible for your actions; please make an informed decision before using this application.
+Available titles, languages, and qualities depend on the provider, region, and account.
 
-## Quick start
+## Setup
 
-Obtain a CLI archive from [Releases](../../../releases) when available, or [build from source](#build-from-source), then install the tools listed under [Requirements](#requirements). The examples assume `aniDL` is available on your `PATH`; after a source build, use `node lib/index.js` in its place.
+Obtain a CLI archive from [Releases](../../../releases) when available, or [build from source](#build-from-source). Automated CLI builds target Windows, macOS, Linux, and Alpine, each for x64 and arm64. The GUI is built from source; the [Windows GUI guide](GET-STARTED.md) walks through its setup and use.
+
+- **Media tools:** install [ffmpeg](https://www.videohelp.com/software/ffmpeg) and [MKVToolNix](https://www.videohelp.com/software/MKVToolNix). DRM decryption also needs [Bento4's `mp4decrypt`](https://www.bento4.com/downloads/) or [Shaka Packager](https://github.com/stratumadev/shaka-packager/releases).
+- **CDM files:** these are not included. Supported Widevine files belong in `widevine/` and PlayReady files in `playready/`; see the [supported formats](GET-STARTED.md#cdm-files). CDM acquisition is outside this guide.
+- **Source builds:** install [Node.js](https://nodejs.org/) 22 or newer and [pnpm](https://pnpm.io/) 10 or newer. Standalone CLI packages include their own runtime: Node 22 for macOS to retain the Big Sur baseline, and Node 24 for other targets.
+
+Set executable locations in [`config/bin-path.yml`](../config/bin-path.yml) and save preferred options in [`config/cli-defaults.yml`](../config/cli-defaults.yml). The [CLI reference](DOCUMENTATION.md) lists supported settings and defaults.
+
+## Services
+
+The commands below assume `aniDL` is on your `PATH`. After a source build, use `node lib/index.js` in its place.
+
+### Crunchyroll
+
+**Log in:** `aniDL --service crunchy --device`, then approve the displayed code in your browser. Existing browser-cookie workflows remain documented under [`--token`](DOCUMENTATION.md#--token).
+
+Search for a series, list its seasons, and select episodes with the dubs and subtitles you want. For raw DASH streams, this fork can compare compatible current and legacy video across language versions while selecting the requested audio separately.
+
+Legacy availability varies by episode and dub; advertised bandwidth is not measured file-average bitrate. Timing checks cannot prove identical edits or decoded synchronization, and `--forcevideo` bypasses those checks with a risk of desynchronization. See [Crunchyroll streams and quality](GET-STARTED.md#crunchyroll-streams-and-quality) for the quality labels, selection rules, and timing limits.
+
+### HIDIVE
+
+**Log in:** `aniDL --service hidive --auth`, then enter your username/email and password when prompted.
+
+Search the catalog, choose episodes from a season, or select an individual episode by ID. Available audio tracks and subtitles can be chosen by language. The current HIDIVE implementation does not support the `--new` listing option.
+
+### AnimationDigitalNetwork (ADN)
+
+**Log in:** `aniDL --service adn --auth`, then enter your username/email and password when prompted.
+
+Search for a show and select its episodes, audio versions, and subtitles. ADN supports the French, German, and Polish catalog locales through `--locale fr`, `--locale de`, and `--locale pl`; French is the default. Available languages depend on the title and catalog.
+
+## Search and preview
+
+After logging in, replace `SERVICE` with `crunchy`, `hidive`, or `adn`. Use a season ID for Crunchyroll or HIDIVE, or a show ID for ADN:
 
 ```sh
-# Crunchyroll CLI login
-aniDL --service crunchy --device
-
-# Search for a series
-aniDL --service crunchy --search "show name"
-
-# Download episodes from a season
-aniDL --service crunchy -s SEASON_ID -e 1,2
+aniDL --service SERVICE --search "show name"
+aniDL --service SERVICE -s ID -e 1,2 --dry-run
 ```
 
-For other services, use `--auth` when prompted. Crunchyroll CLI login uses `--device`; the old `--auth`, username/password, and `--silentAuth` paths direct CLI users to device login. The browser-cookie `--token` option remains for existing workflows. See [the option reference](DOCUMENTATION.md#--token) for its accepted inputs.
+Remove `--dry-run` to download. Use the [CLI reference](DOCUMENTATION.md#downloading) to adjust episode selection, quality, audio languages, and subtitles.
 
-## Crunchyroll quality selection
-
-For raw DASH streams, the numbered quality list can include compatible video from the current and legacy manifests. Each entry shows `[Current M]` or `[Legacy M]` and its video source language, such as `[V:eng]` or `[V:jpn]`. Resolution headings group the list; quality numbers continue across groups. The default `-q 0` selects the highest dimensions, then the highest advertised bandwidth; explicit numbers select individual entries. The highest current audio rendition is selected independently for each requested dub.
-
-The chosen row ends with `<-- Selected`. If it is replaced during fallback, only the old row marked `<-- Discarded` and the replacement marked `<-- Re-selected` are printed, alongside the short reason. The full list is not repeated.
-
-Audio quality rows show their own language, such as `[A:eng]` or `[A:jpn]`, with the chosen row marked `<-- Selected` and its audio server directly underneath. The audio language is independent of the video's `[V:…]` source tag.
-
-Quality-list rates use decimal `kb/s` (1 kb/s = 1,000 bits/s). `KiB/s` measures 1,024 bytes/s.
-
-Cross-language choices are checked against declared video timing. A failed or incomplete check falls back to the requested version. The check does not prove decoded synchronization or identical edits. A short notice names the fallback video language and reason; `--debug` keeps the full check details. Legacy discovery relies on older manifest families that Crunchyroll may stop serving. Availability varies by episode, dub, and stream, and advertised bandwidth is not a file's average bitrate.
-
-`--forcevideo` (alias `--forcevid`) bypasses timing eligibility and may cause audio/video desynchronization. `--noaudio` skips the timing check because no audio will be muxed. Subtitle cue times are not used for timing.
-
-## Preview a download
-
-Use `--dry-run` to inspect available qualities and stream URLs without requesting licenses or downloading media, subtitles, fonts, or chapter files. It also skips decryption, muxing, and completed-download archive writes.
-
-```sh
-aniDL --service crunchy -s SEASON_ID -e 1 --dry-run
-```
-
-Authentication and token refresh, metadata requests, required HEAD checks, logging, and GUI queue progression may still occur. Add `--debug` to see full request and manifest diagnostics.
-
-## Requirements
-
-Install [Node.js](https://nodejs.org/) 22 or newer and [pnpm](https://pnpm.io/) 10 or newer to run or build from source. Download and install [ffmpeg](https://www.videohelp.com/software/ffmpeg) and [MKVToolNix](https://www.videohelp.com/software/MKVToolNix) for media processing. For DRM decryption, install either [Bento4's `mp4decrypt`](https://www.bento4.com/downloads/) or [Shaka Packager](https://github.com/stratumadev/shaka-packager/releases).
-
-Standalone CLI binaries include their own Node runtime. macOS CLI packages use Node 22 to retain the macOS 11 Big Sur baseline; other CLI targets use Node 24. Building and running JavaScript from source uses your installed Node instead.
-
-The application does not include CDM files. Supported Widevine files belong in `widevine/`; supported PlayReady files belong in `playready/`. CDM acquisition is outside this guide. Executable paths can be set in [`config/bin-path.yml`](../config/bin-path.yml).
-
-CLI defaults can be stored in [`config/cli-defaults.yml`](../config/cli-defaults.yml); the [option reference](DOCUMENTATION.md) shows which settings are available there.
+Preview mode works across all three services. It stops before license requests, media/subtitle/font downloads, chapter output, decryption, muxing, and completed-download archive writes. Authentication and token refresh, metadata requests, required HEAD checks, logging, and GUI queue progression may still occur. `--debug` adds full request and manifest diagnostics.
 
 ## Build from source
 
-Use the **Code** menu on this repository page to copy its clone URL. Replace `<repository-clone-url>` below with that URL:
+Copy this fork's clone URL from the **Code** menu, then install dependencies. The final command runs the CLI directly from TypeScript using your installed Node:
 
 ```sh
 git clone <repository-clone-url>
 cd multi-downloader-nx
-pnpm install
-```
-
-Run the CLI from TypeScript:
-
-```sh
+pnpm install --frozen-lockfile
 pnpm exec tsx index.ts --help
 ```
 
-Build JavaScript with `pnpm run prebuild-cli` or `pnpm run prebuild-gui`. After the CLI build, run `node lib/index.js --help`; after the GUI build, run `node lib/gui.js`. Package a target with `pnpm run build-{platform}-{arch}-{type}`; the available targets are listed in [`package.json`](../package.json). Use `main` for the stable fork or `develop` for ongoing changes; upstream builds may not include the fork features. This repository's release archives are listed on its [Releases page](../../../releases).
+| Interface | Build JavaScript        | Run from the checkout      |
+| --------- | ----------------------- | -------------------------- |
+| CLI       | `pnpm run prebuild-cli` | `node lib/index.js --help` |
+| GUI       | `pnpm run prebuild-gui` | `node lib/gui.js`          |
 
-See [Getting started](GET-STARTED.md) for the Windows GUI walkthrough and [the CLI option reference](DOCUMENTATION.md) for all flags and defaults.
+To package a standalone application, use a `build-{platform}-{arch}-{type}` script from [`package.json`](../package.json).
 
 ## Fork builds and releases
 
-`main` is the stable default branch, and `develop` is the working branch. Successful [Tests](../../../actions/workflows/test.yml) runs on `main` can trigger the CLI builder. Tests also run for `develop` and `main` pushes, pull requests, and manual dispatches. Markdown-only and `docs/`-only pushes and pull requests are skipped; manually dispatch Tests on the current `main` commit to build such a revision.
+`main` is the stable default branch, `develop` is the working branch, and `master-upstream` mirrors upstream. [Tests](../../../actions/workflows/test.yml) checks Node 22 and 24. After a successful Tests run on `main`, [Nightly Fork](../../../actions/workflows/release-matrix.yml) builds that exact revision and checks that it is still current before publishing.
 
-The builder packages Windows, macOS, Linux, and Alpine CLI archives for x64 and arm64, then replaces the assets in one **Nightly Fork** release. It builds the exact tested `main` commit and checks that it is still current before publishing. GUI packages are built from source. Release notes link to the [fork changelog](CHANGELOG.md), where related implementation commits are grouped by change.
+For a manual build of the current `main` commit, open **Actions → Nightly Fork → Run workflow** and select `main`. Documentation-only revisions can reuse the latest applicable passing Tests run on `main` when application, build, workflow, test, and dependency inputs are unchanged. Changed inputs require fresh passing Tests; a newer applicable failed or pending run blocks the manual build. Markdown-only and `docs/`-only changes skip automatic Tests, so this manual path can release those revisions without repeating unchanged source tests.
+
+The workflow replaces eight `.7z` CLI archives and their checksums in one rolling **Nightly Fork** release under the fixed `nightly-fork` tag. Release notes identify the released commit and the source revision validated by Tests separately, with links to the [fork changelog](CHANGELOG.md), Tests, and build run. GitHub also provides source ZIP and tar.gz downloads for the release tag. GUI packages remain a source-build option.
+
+## Legal warning
+
+This application is not endorsed by or affiliated with _Crunchyroll_, _HIDIVE_ or _AnimationDigitalNetwork_. This application enables you to download videos for offline viewing which may be forbidden by law in your country. The usage of this application may also cause a violation of the _Terms of Service_ between you and the stream provider. This tool is not responsible for your actions; please make an informed decision before using this application.
 
 Released under the [MIT license](../LICENSE.md).
