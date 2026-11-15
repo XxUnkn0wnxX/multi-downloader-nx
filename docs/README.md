@@ -84,7 +84,7 @@ To package a standalone application, use a `build-{platform}-{arch}-{type}` scri
 
 For a manual build of the current `main` commit, open **Actions → Nightly Fork → Run workflow** and select `main`. Documentation-only revisions can reuse the latest applicable passing Tests run on `main` when application, build, workflow, test, and dependency inputs are unchanged. Changed inputs require fresh passing Tests; a newer applicable failed or pending run blocks the manual build. Markdown-only and `docs/`-only changes skip automatic Tests, so this manual path can release those revisions without repeating unchanged source tests.
 
-The workflow replaces eight `.7z` CLI archives and their checksums in one rolling **Nightly Fork** release under the fixed `nightly-fork` tag. Release notes identify the released commit and the source revision validated by Tests separately, with links to the [fork changelog](CHANGELOG.md), Tests, and build run. GitHub also provides source ZIP and tar.gz downloads for the release tag. GUI packages remain a source-build option.
+The workflow replaces eight `.7z` CLI archives and their checksums on the same **Nightly Fork** release page under the fixed `nightly-fork` tag. It is a normal release marked **Latest**. Release notes identify the released commit and the source revision validated by Tests separately, with links to the [fork changelog](CHANGELOG.md), Tests, and build run. GitHub also provides source ZIP and tar.gz downloads for the release tag. GUI packages remain a source-build option.
 
 ## Legal warning
 

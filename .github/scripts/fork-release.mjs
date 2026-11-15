@@ -315,7 +315,7 @@ export async function publish(
 			name: 'Nightly Fork',
 			body: 'Asset upload in progress.',
 			draft: true,
-			prerelease: true
+			prerelease: false
 		});
 	}
 	if (!positiveInteger(release.id)) throw new Error('Invalid release ID');
@@ -328,7 +328,7 @@ export async function publish(
 	const url = `${server}/${repository}`;
 	const testedCommit = provenance.testedSha === provenance.sha ? '' : ` (tested ancestor: [${provenance.testedSha}](${url}/commit/${provenance.testedSha}))`;
 	const body = `Source: [${provenance.sha}](${url}/commit/${provenance.sha})\n\nTests: [run ${provenance.testsRunId}, attempt ${provenance.testsAttempt}](${url}/actions/runs/${provenance.testsRunId}/attempts/${provenance.testsAttempt})${testedCommit}\n\nBuild: [run ${provenance.buildRunId}](${url}/actions/runs/${provenance.buildRunId}) (publication attempt ${provenance.buildAttempt})\n\n[Changelog](${url}/blob/${provenance.sha}/docs/CHANGELOG.md)`;
-	await api('PATCH', `${base}/releases/${release.id}`, { tag_name: 'nightly-fork', name: 'Nightly Fork', body, prerelease: true, draft: false });
+	await api('PATCH', `${base}/releases/${release.id}`, { tag_name: 'nightly-fork', name: 'Nightly Fork', body, prerelease: false, draft: false, make_latest: 'true' });
 }
 
 function uploadReleaseAssets(files, repository) {

@@ -35,6 +35,7 @@ jobs:
               run: node .github/scripts/fork-release.mjs gate
 
     build:
+        name: CLI ${{ matrix.arch }} (Windows, macOS, Linux, Alpine)
         needs: gate
         if: needs.gate.outputs.eligible == 'true'
         strategy:
@@ -48,6 +49,7 @@ jobs:
         runs-on: ${{ matrix.runner }}
         timeout-minutes: 30
         env:
+            BUILD_ARCH: ${{ matrix.arch }}
             TARGET_SHA: ${{ needs.gate.outputs.sha }}
             TESTED_SHA: ${{ needs.gate.outputs.tested_sha }}
             TESTS_RUN_ID: ${{ needs.gate.outputs.tests_run_id }}
@@ -88,15 +90,18 @@ jobs:
               run: |
                   pnpm install --frozen-lockfile
                   pnpm run prebuild-cli
-            - name: Build four CLI archives
+            - name: Package Windows CLI
               working-directory: source/lib
-              env:
-                  BUILD_ARCH: ${{ matrix.arch }}
-              run: |
-                  node modules/build "windows-$BUILD_ARCH"
-                  node modules/build "macos-$BUILD_ARCH"
-                  node modules/build "linuxstatic-$BUILD_ARCH"
-                  node modules/build "alpine-$BUILD_ARCH"
+              run: node modules/build "windows-$BUILD_ARCH"
+            - name: Package macOS CLI
+              working-directory: source/lib
+              run: node modules/build "macos-$BUILD_ARCH"
+            - name: Package Linux CLI
+              working-directory: source/lib
+              run: node modules/build "linuxstatic-$BUILD_ARCH"
+            - name: Package Alpine CLI
+              working-directory: source/lib
+              run: node modules/build "alpine-$BUILD_ARCH"
             - name: Validate and record bundle
               env:
                   BUILD_ARCH: ${{ matrix.arch }}

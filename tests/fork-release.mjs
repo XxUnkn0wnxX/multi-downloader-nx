@@ -263,6 +263,9 @@ try {
 	assert.equal(uploadCalls[0].requestsBeforeUpload, 2);
 	assert.equal(requests[4].body.sha, sha);
 	assert.equal(requests[5].endpoint, '/repos/owner/repository/releases/44');
+	assert.equal(requests[5].body.prerelease, false);
+	assert.equal(requests[5].body.make_latest, 'true');
+	assert.equal(requests[5].body.tag_name, 'nightly-fork');
 	assert.match(requests[5].body.body, /tests|Tests/);
 	assert.equal(uploadCalls[0].files.length, 16);
 	assert.match(requests[5].body.body, new RegExp(sha));
@@ -338,6 +341,7 @@ try {
 	};
 	await assert.rejects(publish(path.join(root, 'bundles'), provenance, repo, draftApi, failedUpload, 'https://github.com', proof), /upload failed/);
 	assert.equal(draft.draft, true);
+	assert.equal(draft.prerelease, false);
 	assert.equal(draft.target_commitish, sha);
 	assert.equal(draftCalls.filter((call) => call.method !== 'GET').length, 1);
 	draftCalls.length = 0;
@@ -358,6 +362,8 @@ try {
 	assert.equal(draftCalls.filter((call) => call.method === 'POST' && call.endpoint.endsWith('/releases')).length, 0);
 	assert.equal(draftCalls.at(-1).endpoint, '/repos/owner/repository/releases/55');
 	assert.equal(draftCalls.at(-1).body.draft, false);
+	assert.equal(draftCalls.at(-1).body.prerelease, false);
+	assert.equal(draftCalls.at(-1).body.make_latest, 'true');
 
 	requests.length = 0;
 	const staleRest = async (method, endpoint, body) => {
