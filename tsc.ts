@@ -126,8 +126,10 @@ function readDir(dir: string): {
 		stats: fs.Stats;
 	}[] = [];
 	const content = fs.readdirSync(dir);
+	const rootToolsPath = path.join(__dirname, 'tools');
 	itemLoop: for (const item of content) {
 		const itemPath = path.join(dir, item);
+		if (itemPath === rootToolsPath || itemPath.startsWith(rootToolsPath + path.sep)) continue itemLoop;
 		for (const ignoreItem of ignore) {
 			if (ignoreItem.test(itemPath)) continue itemLoop;
 		}

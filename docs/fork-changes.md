@@ -60,7 +60,7 @@ Print one two-line notice with one tab before `Download updates:` and the config
 
 ### Ignore local files and generated output
 
-Preserve the categorized `##` sections in [.gitignore](../.gitignore) and its coverage of dependency/build directories, local configuration and credentials, runtime state, downloaded media, Android analysis artifacts, `.tmp/`, and `tmp/`. Local audit records and downloaded APK/DEX files must remain untracked.
+Preserve the categorized `##` sections in [.gitignore](../.gitignore) and its coverage of dependency/build directories, local configuration and credentials, runtime state, downloaded media, Android analysis artifacts, `.tmp/`, and `tmp/`. Local audit records and downloaded APK/DEX files must remain untracked. Keep root `.tmp/` excluded in ESLint too: its flat configuration does not automatically apply `.gitignore`.
 
 Keep the intended exceptions for environment examples, the tracked GUI `.env` defaults, and `.gitkeep` placeholders. Ordinary source files and shared configuration defaults must remain visible to Git.
 
@@ -73,6 +73,7 @@ An upstream replacement must retain these exclusions and intended exceptions; ve
 - Keep both filters. A `.gitignore` exception must not override an existing build exclusion; overlapping rules do not need a separate de-duplication pass.
 - Use the `ignore` parser, declared as a development dependency in [package.json](../package.json) and resolved in [pnpm-lock.yaml](../pnpm-lock.yaml). It handles comments, including `##` headers, wildcards, and `!` exceptions.
 - Match normalized repository-relative paths and mark directories with a trailing slash so directory-only rules work.
+- Exclude the complete root `tools/` tree from the application copy, including tracked maintenance source and its local work. Preserve similarly named application paths outside that directory.
 - Preserve the explicit GUI bundle copy. Keep required runtime defaults and the root package/workspace configuration available to the generated application.
 
 The current filter reads the root `.gitignore`; it does not load nested ignore files, global Git excludes, or `.git/info/exclude`. Private build exclusions must therefore be covered by the root file or the existing build filter.
@@ -167,7 +168,7 @@ Both MKVToolNix and FFmpeg set video-track language metadata to `und`. Preserve 
 
 ### Run development checks
 
-The **Tests** workflow in [.github/workflows/test.yml](../.github/workflows/test.yml) runs on pushes and pull requests targeting `develop` and `main`, with manual dispatch available. Push/PR workflows skip changes limited to Markdown or `docs/`; mixed code/documentation changes still run.
+The **Tests** workflow in [.github/workflows/test.yml](../.github/workflows/test.yml) runs on pushes and pull requests targeting `develop` and `main`, with manual dispatch available. Push/PR workflows skip changes limited to Markdown, `docs/` and/or `tools/`; mixed changes outside those areas still run. Keep the root maintenance `tools/` area excluded from TypeScript input discovery, ESLint and Prettier scans, and the application build-copy traversal. Tool-specific dependencies, setup and tests remain local to `tools/` and are not run by the downloader pipeline. Changes to CI/build configuration still require normal checks. Preserve the release proof rules below.
 
 Keep only Tests and the main-only Nightly Fork build/publish workflow. The inherited Docker and automatic documentation publishing workflows are removed. Regenerate the CLI reference locally with `pnpm run docs` and commit its output; Tests checks that the committed reference matches the generator without publishing documentation changes.
 

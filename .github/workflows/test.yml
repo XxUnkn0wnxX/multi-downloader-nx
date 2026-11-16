@@ -3,10 +3,10 @@ name: Tests
 on:
     push:
         branches: [develop, main]
-        paths-ignore: ['**/*.md', 'docs/**']
+        paths-ignore: ['**/*.md', 'docs/**', 'tools/**']
     pull_request:
         branches: [develop, main]
-        paths-ignore: ['**/*.md', 'docs/**']
+        paths-ignore: ['**/*.md', 'docs/**', 'tools/**']
     workflow_dispatch:
 
 permissions:

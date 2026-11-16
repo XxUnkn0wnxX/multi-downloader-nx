@@ -91,7 +91,9 @@ To package a standalone application, use a `build-{platform}-{arch}-{type}` scri
 
 `main` is the stable default branch, `develop` is the working branch, and `master-upstream` mirrors upstream. [Tests](../../../actions/workflows/test.yml) checks Node 22 and 24. After a successful Tests run on `main`, [Nightly Fork](../../../actions/workflows/release-matrix.yml) builds that exact revision and checks that it is still current before publishing.
 
-For a manual build of the current `main` commit, open **Actions → Nightly Fork → Run workflow** and select `main`. Documentation-only revisions can reuse the latest applicable passing Tests run on `main` when application, build, workflow, test, and dependency inputs are unchanged. Changed inputs require fresh passing Tests; a newer applicable failed or pending run blocks the manual build. Markdown-only and `docs/`-only changes skip automatic Tests, so this manual path can release those revisions without repeating unchanged source tests.
+For a manual build of the current `main` commit, open **Actions → Nightly Fork → Run workflow** and select `main`. Documentation-only revisions can reuse the latest applicable passing Tests run on `main` when application, build, workflow, test, and dependency inputs are unchanged. Changed inputs require fresh passing Tests; a newer applicable failed or pending run blocks the manual build. This manual path can release documentation-only revisions without repeating unchanged source tests.
+
+Automatic Tests skips changes limited to Markdown, `docs/` and/or `tools/`. Changes to downloader source, dependencies, build configuration or workflows still run the normal checks. The separate maintenance tools stay outside the application’s TypeScript, ESLint, Prettier and packaging scans; their tests run locally only.
 
 The workflow replaces eight `.7z` CLI archives and their checksums on the same release page under the fixed `nightly-fork` tag. Its title includes the manually maintained fork revision, for example **Nightly Fork (Rev4)**, and it remains a normal release marked **Latest**. Release notes identify the released commit and the source revision validated by Tests separately, with links to the [fork changelog](CHANGELOG.md), Tests, and build run. GitHub also provides source ZIP and tar.gz downloads for the release tag. GUI packages remain a source-build option.
 
@@ -121,7 +123,7 @@ Planned utilities in [`tools/`](../tools/) will help maintain Crunchyroll’s `b
 - Keeping ignored work folders and append-only token histories by app version/build, skipping identical entries.
 - Providing `--help`, a shared Python environment, dedicated docs and local-only tests.
 
-Only the folder and ignore rules are prepared; the scripts are not implemented yet.
+The folder, ignore rules and separation from application checks/builds are prepared; the scripts are not implemented yet.
 
 </details>
 
