@@ -575,12 +575,12 @@ assert(
 );
 assert.equal((requestedDashDisplay.match(/\[Legacy M\]/g) ?? []).length, 6, 'both available legacy families remain visible when only two exist per height');
 assert.equal((requestedDashDisplay.match(/\[Current M\]/g) ?? []).length, 2);
-assert(requestedDashDisplay.includes('(6 qualities hidden; use --qall to show all)'));
+assert.doesNotMatch(requestedDashDisplay, /qualit(?:y|ies) hidden|use --qall/);
 assert(requestedDashDisplay.includes('[14]') && requestedDashDisplay.includes('<-- Selected'), 'q0 selected marker keeps the original full-catalogue number');
 const fullRequestedDash = await preview(0, false, false, 1, { qall: true });
 const fullRequestedDashDisplay = String(fullRequestedDash.logs.find((entry) => String(entry[0]).startsWith('Available Video Qualities:'))?.[0]);
 assert.equal(fullRequestedDashDisplay.split('\n').filter((line) => /^\s+\[\d+\]/.test(line)).length, 14);
-assert(!fullRequestedDashDisplay.includes('qualities hidden'));
+assert.doesNotMatch(fullRequestedDashDisplay, /qualit(?:y|ies) hidden|use --qall/);
 assert(fullRequestedDashDisplay.includes('[8]') && fullRequestedDashDisplay.includes('[13]') && fullRequestedDashDisplay.includes('[14]'));
 assert(fullRequestedDashDisplay.includes('<-- Selected'));
 assert.equal(high.requests.filter(([target, method]) => method === 'DELETE' && !target.endsWith('/old/old-token')).length, 4);

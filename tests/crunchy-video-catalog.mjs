@@ -395,15 +395,15 @@ assert(compactDisplay.includes('        [12] 2160p current'));
 assert(compactDisplay.includes('        [13] 2160p legacy') && compactDisplay.includes('        [14] 2160p legacy collapsed'));
 assert(compactDisplay.includes('        [15] 360p selected outside top groups <-- Selected'), 'a chosen row outside the top three remains visible with its original number');
 assert(compactDisplay.includes('        [16] unknown height'), 'unknown-height rows remain visible');
-assert(compactDisplay.includes('(3 qualities hidden; use --qall to show all)'));
+assert.doesNotMatch(compactDisplay, /qualit(?:y|ies) hidden|use --qall/);
 const fullDisplay = catalog.formatGroupedVideoQualities(compactEntries, 14, { compact: false });
 assert.equal(fullDisplay.split('\n').filter((line) => /^\s+\[\d+\]/.test(line)).length, compactEntries.length);
-assert(!fullDisplay.includes('qualities hidden'));
+assert.doesNotMatch(fullDisplay, /qualit(?:y|ies) hidden|use --qall/);
 assert(fullDisplay.includes('        [15] 360p selected outside top groups <-- Selected'));
 const collapsedSelected = catalog.formatGroupedVideoQualities(compactEntries, 4, { compact: true });
 assert(collapsedSelected.includes('        [5] 720p legacy wide lower bandwidth <-- Selected'), 'a selected fourth-or-lower legacy row remains visible');
 assert(collapsedSelected.includes('        [6] 720p legacy higher bandwidth'));
-assert.match(collapsedSelected, /\(\d+ qualities hidden; use --qall to show all\)/);
+assert.doesNotMatch(collapsedSelected, /qualit(?:y|ies) hidden|use --qall/);
 const sparseLegacy = catalog.formatGroupedVideoQualities(
 	[
 		{ height: 720, text: '720 legacy A', family: 'Legacy 0', bandwidth: 1200 },
@@ -450,7 +450,7 @@ assert.equal(
 	24,
 	'10-language, 140-row catalogues compact to four Current plus four Legacy per retained height'
 );
-assert(representativeCompact.includes('(116 qualities hidden; use --qall to show all)'));
+assert.doesNotMatch(representativeCompact, /qualit(?:y|ies) hidden|use --qall/);
 assert(representativeCompact.includes('[140] Legacy 0 9 2160p <-- Selected'), 'the original last quality number and q0 selection survive compaction');
 
 const manyRepresentations = Array.from(

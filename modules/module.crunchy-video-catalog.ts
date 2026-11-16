@@ -563,7 +563,5 @@ export function formatGroupedVideoQualities(
 		}
 		lines.push(formatVideoQualityRow(index + 1, entry.text, index === selectedIndex ? 'Selected' : undefined));
 	}
-	const hiddenCount = entries.length - visible.length;
-	if (hiddenCount > 0) lines.push(`    (${hiddenCount} ${hiddenCount === 1 ? 'quality' : 'qualities'} hidden; use --qall to show all)`);
 	return lines.join('\n');
 }
