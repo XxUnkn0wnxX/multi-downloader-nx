@@ -27,6 +27,16 @@ fonts
 *.aab
 *.dex
 
+## Maintenance tools: local work and outputs
+/tools/.cr/
+/tools/.hd/
+/tools/.venv/
+/tools/cr_tokens.txt
+/tools/hd_tokens.txt
+/tools/**/__pycache__/
+/tools/**/*.py[cod]
+/tools/.pytest_cache/
+
 ## Credentials and local configuration
 .env
 .env.*

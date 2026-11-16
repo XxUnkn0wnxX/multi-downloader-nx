@@ -112,6 +112,19 @@ Fork update available: 5.8.8 (Nightly) [Rev3] -> 5.8.8 (Nightly) [Rev4]
 
 A newer base version takes precedence; Rev is compared only when the base version is equal. The check follows the completed release built from `main`, so an in-progress build does not create an early notice. See [fork update maintenance](fork-changes.md#fork-update-notices) for lookup and cache behavior.
 
+<details>
+<summary>⭐ TODO: Maintenance tools</summary>
+
+Planned utilities in [`tools/`](../tools/) will help maintain Crunchyroll’s `basic_auth_token` and HIDIVE’s `hd_new_apiKey` / `hd_apikey` by:
+
+- Downloading the latest suitable Crunchyroll or HIDIVE Android APK with `--dl`, or reusing one cached APK per service, then decompiling and extracting current app authentication tokens.
+- Keeping ignored work folders and append-only token histories by app version/build, skipping identical entries.
+- Providing `--help`, a shared Python environment, dedicated docs and local-only tests.
+
+Only the folder and ignore rules are prepared; the scripts are not implemented yet.
+
+</details>
+
 ## Legal warning
 
 This application is not endorsed by or affiliated with _Crunchyroll_, _HIDIVE_ or _AnimationDigitalNetwork_. This application enables you to download videos for offline viewing which may be forbidden by law in your country. The usage of this application may also cause a violation of the _Terms of Service_ between you and the stream provider. This tool is not responsible for your actions; please make an informed decision before using this application.
