@@ -1,4 +1,4 @@
-# multi-downloader-nx v5.8.8 (Nightly) [Rev3]
+# multi-downloader-nx v5.8.8 (Nightly) [Rev4]
 
 If you find any bugs in this documentation or in the program itself, please report them on [GitHub issues](../../../issues).
 

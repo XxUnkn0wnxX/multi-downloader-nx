@@ -27,11 +27,16 @@ Keep the base semver in `version` and the fork display metadata in the root [pac
 ```json
 {
   "version": "5.8.8",
-  "fork": { "channel": "Nightly", "revision": 3 }
+  "fork": {
+    "channel": "Nightly",
+    "revision": 4,
+    "repository": "XxUnkn0wnxX/multi-downloader-nx",
+    "releaseTag": "nightly-fork"
+  }
 }
 ```
 
-The [shared formatter](../modules/module.fork-display.ts) supplies provider banners, GUI startup/version responses and the generated CLI reference. Displays use `5.8.8 (Nightly) [Rev3]`; CLI `--version` and updater comparisons retain the raw base semver. Existing build copies carry this metadata into `lib` and archives.
+The [shared formatter](../modules/module.fork-display.ts) supplies provider banners, GUI startup/version responses and the generated CLI reference. Displays use `5.8.8 (Nightly) [Rev4]`; CLI `--version` retains the raw base semver. Fork update notices compare semantic base versions first and revisions only at equal version precedence. Existing build copies carry this metadata into `lib` and archives.
 
 Increment `fork.revision` manually when releasing a new fork revision, then regenerate the reference with `pnpm run docs`. CI never increments it. The publisher reads the manifest at the immutable target source SHA, validates it before any release mutation, and uses one `Nightly Fork (RevN)` title for draft creation and final publication. Never use the workflow-controller checkout’s metadata for a different target. Preserve the fixed `nightly-fork` tag/URL and asset names. A package metadata change requires fresh Tests and is outside the documentation/controller-only proof-reuse exception.
 
@@ -43,7 +48,15 @@ Keep `--update` recognized so a manual request receives the fork-specific releas
 Updates disabled on this fork. Download updates: https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork
 ```
 
-This applies with `--dry-run` too. Normal automatic update checks remain separate and are still controlled by `--skipUpdate`; keep the updater mechanism and its existing startup behavior intact.
+This applies with `--dry-run` too. Derive the manual notice, CLI help and automatic notice destination from the same `fork.repository` and `fork.releaseTag` metadata. Preserve the existing refusal and nonzero exit.
+
+### Fork update notices
+
+Both source and packaged CLI startup use the [fork notifier](../modules/module.fork-update.ts) before archive or episode processing. Keep the existing `--skipUpdate`, `skipUpdate: true`, preview and status guards; the code default for `skipUpdate` remains `false`. One batch invokes the check once. Preserve upstream’s updater implementation in [module.updater.ts](../modules/module.updater.ts), but route on the presence of fork metadata before its packaged-build guard. Invalid fork metadata or a failed check must never fall through to upstream’s updater.
+
+Query the configured published rolling release, require its immutable source commit and eight uploaded CLI archive/checksum pairs, then read `package.json` at that commit. The main-only release workflow publishes after successful builds; neither mutable `main` metadata nor the release title determines the available version. The installed CLI already carries its version and revision; an embedded local commit is unnecessary. A newer base version qualifies even if its revision is lower. At equal semantic version precedence, only a higher revision qualifies; an older base version never wins through a higher revision. Same-version, same-revision rebuilds do not create an update notice.
+
+Print one two-line notice with one tab before `Download updates:` and the configured Nightly link. Fetch only public release/package metadata: never download update payloads, install changes or replace application files. Successful checks use a 24-hour cache in the `fork` entry of `config/updates.json`, bound to installed version/revision and repository/tag; preserve unrelated legacy cache fields. A cached newer result may print once at the next startup without an HTTP request. Use one five-second deadline across both metadata requests and body reads. Lookup and cache-persistence failures are nonfatal, with diagnostics restricted to debug mode; a cache write failure must not suppress a validated notice. Replace the cache atomically and exclude `updates.json.*.tmp` from Git and build copies.
 
 ### Ignore local files and generated output
 

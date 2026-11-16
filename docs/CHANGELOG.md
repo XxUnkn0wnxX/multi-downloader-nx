@@ -4,6 +4,16 @@ Changes specific to this fork are grouped below with their implementation commit
 
 ## 2026-11-16
 
+### Nightly Rev4: fork update notices
+
+Implementation: [901f783](../../../commit/901f783802beeb057132d98c6d167f25576cc3c8).
+
+- Notify source and packaged CLI users when the published Nightly release has a newer base version, or a higher revision at the same base version. Read the release’s immutable source metadata and preserve the fixed release URL.
+- Honor `skipUpdate` and existing preview/status guards, check once before batches, and retain the daily successful-check cache. Fetch metadata only; preserve upstream’s updater code while preventing this fork from entering its installation path.
+- Keep lookup failures nonfatal with a shared five-second request budget, and print the download link on a separate line indented by one tab.
+- Remove the misleading hidden-quality footer from compact lists ([7259f2c](../../../commit/7259f2c0cf7f87e57ef6b732c50dc5752677a5d0)); preserve quality rows, selection markers and numbering.
+- Focus the GitHub About description on CLI support while retaining the README’s GUI support statement.
+
 ### Nightly Rev3: discovery pacing and TSD recovery
 
 Implementation: [f997444](../../../commit/f9974441993ea46106a1ec1329432c33967c6cbb).

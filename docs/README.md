@@ -93,9 +93,24 @@ To package a standalone application, use a `build-{platform}-{arch}-{type}` scri
 
 For a manual build of the current `main` commit, open **Actions → Nightly Fork → Run workflow** and select `main`. Documentation-only revisions can reuse the latest applicable passing Tests run on `main` when application, build, workflow, test, and dependency inputs are unchanged. Changed inputs require fresh passing Tests; a newer applicable failed or pending run blocks the manual build. Markdown-only and `docs/`-only changes skip automatic Tests, so this manual path can release those revisions without repeating unchanged source tests.
 
-The workflow replaces eight `.7z` CLI archives and their checksums on the same release page under the fixed `nightly-fork` tag. Its title includes the manually maintained fork revision, for example **Nightly Fork (Rev3)**, and it remains a normal release marked **Latest**. Release notes identify the released commit and the source revision validated by Tests separately, with links to the [fork changelog](CHANGELOG.md), Tests, and build run. GitHub also provides source ZIP and tar.gz downloads for the release tag. GUI packages remain a source-build option.
+The workflow replaces eight `.7z` CLI archives and their checksums on the same release page under the fixed `nightly-fork` tag. Its title includes the manually maintained fork revision, for example **Nightly Fork (Rev4)**, and it remains a normal release marked **Latest**. Release notes identify the released commit and the source revision validated by Tests separately, with links to the [fork changelog](CHANGELOG.md), Tests, and build run. GitHub also provides source ZIP and tar.gz downloads for the release tag. GUI packages remain a source-build option.
 
-Provider banners and the GUI display the base version, channel and revision, for example `5.8.8 (Nightly) [Rev3]`. CLI `--version` keeps the base version for compatibility. Maintainers update the shared metadata in [package.json](../package.json); see [fork revision maintenance](fork-changes.md#nightly-revision-metadata).
+Provider banners and the GUI display the base version, channel and revision, for example `5.8.8 (Nightly) [Rev4]`. CLI `--version` keeps the base version for compatibility. Maintainers update the shared metadata in [package.json](../package.json); see [fork revision maintenance](fork-changes.md#nightly-revision-metadata).
+
+## Fork update notices
+
+Source and packaged CLI runs check for a newer published Nightly version at startup. The check reads GitHub release/package metadata and prints a download link; it does not install updates or download update packages. Successful lookups are cached for 24 hours, and a batch checks once before processing its episodes.
+
+Use `--skipUpdate` or set `skipUpdate: true` in `config/cli-defaults.yml` to disable the check. The code default is `false`; previews and playback-status commands also skip it. Explicit `--update` prints the Nightly link and exits instead of installing anything.
+
+For example, an installed Rev3 detecting published Rev4 prints:
+
+```text
+Fork update available: 5.8.8 (Nightly) [Rev3] -> 5.8.8 (Nightly) [Rev4]
+	Download updates: https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork
+```
+
+A newer base version takes precedence; Rev is compared only when the base version is equal. The check follows the completed release built from `main`, so an in-progress build does not create an early notice. See [fork update maintenance](fork-changes.md#fork-update-notices) for lookup and cache behavior.
 
 ## Legal warning
 

@@ -56,6 +56,8 @@ On first launch, set an optional application password or leave it blank, then ch
 
 Open **SETTINGS → Open advanced options** to edit `config/cli-defaults.yml`, or open that file directly in the application's `config/` directory. The [option reference](DOCUMENTATION.md) lists each supported setting. In its **CLI default** column, `—` means the option is not available in `cli-defaults.yml`.
 
+For CLI runs, `skipUpdate: true` disables the [startup update notice check](README.md#fork-update-notices); `--skipUpdate` does the same for one invocation. Source and packaged CLIs otherwise check published Nightly metadata, with successful lookups cached for 24 hours. The notifier prints a link and never installs updates.
+
 ![Open advanced options](./imgs/open_adv_config.png)
 
 For example, set the default audio endpoint and dub language in YAML:
