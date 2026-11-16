@@ -7,6 +7,8 @@ Changes specific to this fork are grouped below with their implementation commit
 ### Nightly Rev5: check requested audio before video discovery
 
 - Reject missing selected audio versions before quality discovery or video download, for every dub, including previews and audio-only requests. Keep the GUI-selected language authoritative and preserve the legacy path when version metadata is absent.
+- Support multiple `--dubLang` selections and `--allDubs` with Crunchyroll `-s`, using the same per-episode multi-audio flow as `--srz` while preserving season episode selection. HIDIVE selection remains unchanged.
+- Report missing requested dubs together by full language name. Accept spaces, commas and mixed separators in `--dubLang`; reject invalid CLI/config language tags together before provider requests.
 - Require every explicitly requested `--dubLang` language before starting a multi-audio episode; let `--allDubs` download whatever dubs are available without failing for missing configured or expected languages. Preserve that distinction through CLI/config and GUI selection.
 - Warn once for more than two explicitly selected dubs or any `--allDubs` request, using "Multi-stream discovery" wording. Keep the "Full stream discovery" warning for `--qall`, without duplication.
 - Reuse the all-language discovery scheduler for multi-dub requests, including 700–1100 ms per-request pacing and explicit timer overrides, while retaining compact output and the selected-language source pool.

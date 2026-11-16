@@ -51,6 +51,7 @@ export type CrunchyDownloadOptions = {
 	originalFontSize: boolean;
 	fontSize: number;
 	dubLang: string[];
+	requestedDubLang?: string[];
 	allDubs?: boolean;
 	// Subtitle Fix Options
 	noASSConv: boolean;

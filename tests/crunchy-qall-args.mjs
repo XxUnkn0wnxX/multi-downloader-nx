@@ -14,7 +14,7 @@ const languages = [
 	{ code: 'eng', cr_locale: 'en-US' },
 	{ code: 'jpn', cr_locale: 'ja-JP' }
 ];
-const languageData = { dubLanguageCodes: ['jpn'], languages, searchLocales: ['en-US'], subtitleLanguagesFilter: ['all', 'eng', 'jpn'] };
+const languageData = { dubLanguageCodes: ['eng', 'hin', 'zho', 'chi', 'jpn'], languages, searchLocales: ['en-US'], subtitleLanguagesFilter: ['all', 'eng', 'jpn'] };
 const enums = { CrunchyVideoPlayStreams: {}, CrunchyAudioPlayStreams: {} };
 const compiledSources = new Map();
 
@@ -59,19 +59,20 @@ assert.match(qallOption.docDescribe, /may trigger rate limits/);
 const yamlConfig = YAML.parse(fs.readFileSync(path.join(root, 'config/cli-defaults.yml'), 'utf8'));
 assert.equal(yamlConfig.qall, false, 'the shared CLI defaults set qall to false');
 
-function parse(argv, config = {}, override) {
+function parse(argv, config = {}, override, directOverride = false, isGUI = false) {
+	const errors = [];
 	const mockProcess = {
 		argv: ['node', 'aniDL', '--service', 'crunchy', ...argv],
 		platform: 'darwin',
 		exit: (code) => {
-			throw Error(`unexpected exit ${code}`);
+			throw Error(`exit ${code}: ${errors.join('; ')}`);
 		}
 	};
 	const appArgs = compile(
 		'modules/module.app-args.ts',
 		{
 			'./module.args': { args, groups, configuredDefault },
-			'./log': { console: output },
+			'./log': { console: { ...output, error: (message) => errors.push(message) } },
 			'./module.langsData': languageData,
 			'../@types/enums': enums,
 			'../package.json': { description: 'fixture CLI', version: '1.0.0' },
@@ -79,11 +80,31 @@ function parse(argv, config = {}, override) {
 		},
 		{ process: mockProcess }
 	);
-	const parsed = appArgs.appArgv(config, false);
+	if (directOverride) {
+		appArgs.overrideArguments(config, override, isGUI);
+		return appArgs.argvC;
+	}
+	const parsed = appArgs.appArgv(config, isGUI);
 	if (!override) return parsed;
-	appArgs.overrideArguments(config, override);
+	appArgs.overrideArguments(config, override, isGUI);
 	return appArgs.argvC;
 }
+
+for (const input of [['eng', 'jpn', 'hin'], ['eng,jpn,hin'], ['eng,', 'jpn,', 'hin'], ['eng,jpn', 'hin']]) {
+	assert.deepEqual(Array.from(parse(['--dubLang', ...input]).dubLang), ['eng', 'jpn', 'hin']);
+}
+assert.deepEqual(Array.from(parse([], { dubLang: ['eng,jpn', 'hin'] }).dubLang), ['eng', 'jpn', 'hin']);
+assert.deepEqual(Array.from(parse(['--dubLang', 'zho,chi'], { dubLang: ['hindi'] }).dubLang), ['zho', 'chi']);
+assert.deepEqual(Array.from(parse([], { dubLang: ['hindi'] }, { dubLang: ['eng', 'jpn'] }, true).dubLang), ['eng', 'jpn']);
+assert.throws(() => parse(['--dubLang', 'eng,hindi', 'jpn,chin', 'hindi']), /exit 1: Invalid language tags for --dubLang: hindi, chin/);
+assert.throws(() => parse([], { dubLang: ['hindi', 'chin'] }), /Invalid language tags for --dubLang: hindi, chin/);
+assert.throws(() => parse([], {}, { dubLang: ['hindi', 'chin'] }, true), /Invalid language tags for --dubLang: hindi, chin/);
+assert.throws(() => parse(['--dubLang', ' , ']), /Invalid language tags for --dubLang: <empty>/);
+assert.deepEqual(Array.from(parse(['--downloadArchive'], { dubLang: ['hindi'] }, { dubLang: ['eng', 'jpn'] }).dubLang), ['eng', 'jpn']);
+assert.deepEqual(Array.from(parse([], { dubLang: ['hindi'] }, undefined, false, true).dubLang), ['hindi'], 'stale GUI defaults do not preempt the queue selection');
+assert.deepEqual(Array.from(parse(['--dubLang', 'eng,jpn', 'hin'], { dubLang: ['hindi'] }, undefined, false, true).dubLang), ['eng', 'jpn', 'hin']);
+assert.deepEqual(Array.from(parse([], { dubLang: ['hindi'] }, { dubLang: ['eng', 'jpn'] }, false, true).dubLang), ['eng', 'jpn']);
+assert.deepEqual(Array.from(parse([], { dubLang: ['hindi'] }, { dubLang: ['hindi', 'chin'] }, false, true).dubLang), ['hindi', 'chin']);
 
 const parser = compile(
 	'modules/module.app-args.ts',

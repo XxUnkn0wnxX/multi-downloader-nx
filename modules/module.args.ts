@@ -196,7 +196,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		group: 'dl',
 		type: 'string',
 		describe: 'Set the season ID',
-		docDescribe: 'Used to set the season ID to download from. Crunchyroll -s alone uses the first selected dub; combine --srz with -s for multiple dubs within one season.',
+		docDescribe: 'Used to set the season ID to download from. Crunchyroll -s supports multiple --dubLang selections and --allDubs. Combine --srz with -s to limit a series request to one season.',
 		service: ['all'],
 		usage: '${ID}'
 	},
@@ -584,7 +584,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 				.map((a) => a.code)
 				.join(
 					', '
-				)}\nCrunchyroll: use --srz with multiple languages, for example --dubLang eng jpn hin; -s keeps only the first dub. Every explicitly requested dub must be available for the episode; --allDubs downloads the available dubs instead. --noaudio skips this requirement. Selecting more than two dubs prints a multi-stream discovery warning.`,
+				)}\nSeparate language tags with spaces, commas or a mixture, for example --dubLang eng,jpn hin. Invalid tags are listed and rejected before provider requests. Crunchyroll: both -s and --srz support multiple languages. Direct episode-ID and --extid requests use only the first dub. Every explicitly requested dub must be available for the episode; --allDubs downloads the available dubs instead. --noaudio skips this requirement. Selecting more than two dubs prints a multi-stream discovery warning.`,
 		docDescribe: true,
 		group: 'dl',
 		choices: dubLanguageCodes,

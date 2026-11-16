@@ -7,10 +7,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { createRequire } from 'node:module';
-import { fileURLToPath, URL } from 'node:url';
+import { fileURLToPath, URL, URLSearchParams } from 'node:url';
 import ts from 'typescript';
 
-const { AbortController, Response, Headers, queueMicrotask } = globalThis;
+const { AbortController, Response, Headers, queueMicrotask, structuredClone } = globalThis;
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const packageMetadata = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 let statusNow;
@@ -51,6 +51,7 @@ function compile(file, deps = {}, overrides = {}) {
 			exports: module.exports,
 			require: (id) => deps[id] ?? require(id),
 			URL,
+			URLSearchParams,
 			AbortController,
 			setTimeout,
 			clearTimeout,
@@ -2004,6 +2005,10 @@ assert.equal(await service.downloadEpisode(missingSelectedJapanese, { ...mediaOp
 assert(mediaLogs.some((entry) => /jpn|Japanese/i.test(String(entry[0]))));
 assert.equal(mediaRequests.length, 0, 'Japanese selection is required before video discovery too');
 resetGlobal();
+resetGlobal();
+assert.equal(await service.downloadEpisode({ ...missingSelectedEnglish, requiredDubLang: [] }, { ...mediaOptions, tsd: true }), false);
+assert(mediaLogs.some((entry) => String(entry[0]) === 'Selected audio languages were not found: English'));
+assert.equal(mediaRequests.length, 0, 'empty required list cannot bypass the selected version guard');
 const mixedSelection = { ...mediaData, data: [mediaData.data[0], { ...mediaData.data[0], mediaId: 'JA', lang: languageItems[1], versions: [versions[0]] }] };
 assert.equal(await service.downloadEpisode(mixedSelection, { ...mediaOptions }), false);
 assert.equal(mediaRequests.length, 0, 'one missing item stops the batch before any download');
@@ -2123,6 +2128,144 @@ const hindi = { code: 'hin', cr_locale: 'hi-IN', locale: 'hi', name: 'Hindi', la
 const hindiVersion = { guid: 'HI', media_guid: 'media-hi', audio_locale: 'hi-IN', original: false };
 languageItems.push(hindi);
 try {
+	// Aggregate missing names in requested order, deduplicate, and retain available Japanese.
+	service.listSeriesID = async () => ({ data: seriesEpisodes([episode('JA', 1, [versions[1]])], [languageItems[1]]) });
+	const missing = await selectSeries(['eng', 'jpn', 'hin', 'eng']);
+	resetGlobal();
+	assert.equal(await service.downloadEpisode(missing.value[0], { ...mediaOptions, tsd: true }), false);
+	assert.deepEqual(
+		mediaLogs.map((entry) => String(entry[0])).filter((line) => line.startsWith('Selected audio languages')),
+		['Selected audio languages were not found: English, Hindi']
+	);
+	assert.equal(mediaRequests.length, 0);
+	const unavailableFallback = { ...missing.value[0], data: [{ ...missing.value[0].data[0], versions: [{ ...versions[1], media_guid: '' }] }] };
+	resetGlobal();
+	assert.equal(await service.downloadEpisode(unavailableFallback, mediaOptions), false);
+	assert.deepEqual(
+		mediaLogs.map((entry) => String(entry[0])).filter((line) => line.startsWith('Selected audio languages')),
+		['Selected audio languages were not found: English, Japanese, Hindi']
+	);
+	resetGlobal();
+	assert.equal(await service.downloadEpisode({ ...unavailableFallback, requiredDubLang: ['eng'] }, mediaOptions), false);
+	assert.deepEqual(
+		mediaLogs.map((entry) => String(entry[0])).filter((line) => line.startsWith('Selected audio languages')),
+		['Selected audio languages were not found: English']
+	);
+	const brokenVersions = [{ ...versions[0], media_guid: '' }, versions[1], { ...hindiVersion, guid: '' }];
+	service.listSeriesID = async () => ({
+		data: seriesEpisodes([episode('EN', 1, brokenVersions), episode('JA', 1, brokenVersions), episode('HI', 1, brokenVersions)], languageItems)
+	});
+	const broken = await selectSeries(['eng', 'jpn', 'hin']);
+	resetGlobal();
+	assert.equal(await service.downloadEpisode(broken.value[0], mediaOptions), false);
+	assert.deepEqual(
+		mediaLogs.map((entry) => String(entry[0])).filter((line) => line.startsWith('Selected audio languages')),
+		['Selected audio languages were not found: English, Hindi']
+	);
+	assert.equal(mediaRequests.length, 0);
+	const savedGetObject = service.getObjectById;
+	service.getObjectById = async () => [{ ...missingSelectedEnglish }];
+	try {
+		resetGlobal();
+		cliArgs = { ...mediaOptions, e: 'ABCDEFGHI', locale: 'en-US', dubLang: ['eng', 'jpn', 'hin'], tsd: true };
+		assert.equal(await service.cli(), false);
+		assert.deepEqual(
+			mediaLogs.map((entry) => String(entry[0])).filter((line) => line.startsWith('Selected audio languages')),
+			['Selected audio languages were not found: English, Hindi']
+		);
+		assert.equal(mediaRequests.length, 0);
+		resetGlobal();
+		service.getObjectById = async () => [mediaData];
+		cliArgs = { ...mediaOptions, e: 'ABCDEFGHI', locale: 'en-US', dubLang: ['eng', 'jpn', 'hin'], dryRun: true, qall: false };
+		assert.equal(await service.cli(), true, 'direct episode first-dub success does not require discarded dubs');
+	} finally {
+		service.getObjectById = savedGetObject;
+	}
+	// The actual season builder consumes three metadata responses, then shares the series selection guard.
+	const savedReq = service.req;
+	const savedLogObject = service.logObject;
+	service.logObject = async () => {};
+	let seasonRows, seasonCalls;
+	function seasonFixture(rows) {
+		seasonRows = rows;
+		seasonCalls = 0;
+		service.req = {
+			...savedReq,
+			getData: async (target, opts) => {
+				if (seasonCalls < 3) {
+					const position = seasonCalls++;
+					const data =
+						position === 0
+							? { data: [{}] }
+							: position === 1
+								? { total: seasonRows.length, items: structuredClone(seasonRows) }
+								: { total: seasonRows.length, data: structuredClone(seasonRows) };
+					return { ok: true, res: { json: async () => data } };
+				}
+				return savedReq.getData(target, opts);
+			}
+		};
+	}
+	try {
+		const jpOnly = episode('JA', 1, [versions[1]]);
+		seasonFixture([jpOnly]);
+		resetGlobal();
+		cliArgs = { ...mediaOptions, s: 'ABCDEFGHI', e: '1', locale: 'en-US', dubLang: ['eng', 'jpn', 'hin'], tsd: true };
+		assert.equal(await service.cli(), false);
+		assert.equal(seasonCalls, 3);
+		assert.equal(mediaRequests.length, 0, 'missing season audio fails before playback');
+		assert(mediaLogs.some((entry) => String(entry[0]) === 'Selected audio languages were not found: English, Hindi'));
+		seasonFixture([episode('EN', 1)]);
+		resetGlobal();
+		cliArgs = { ...mediaOptions, s: 'ABCDEFGHI', e: '1', locale: 'en-US', dubLang: ['eng', 'jpn'], qall: false };
+		assert.equal(await service.cli(), true);
+		assert.equal(seasonCalls, 3);
+		assert.equal(downloads.length, 3, 'season CLI downloads one video and both requested audio tracks');
+		for (const mode of [{ noaudio: true }, { novids: true, dryRun: true, qall: true }]) {
+			seasonFixture([jpOnly]);
+			const selected = await service.getSeasonById('ABCDEFGHI', 1, '1', false, false, { dubLang: ['eng', 'jpn'] });
+			resetGlobal();
+			assert.equal(await service.downloadEpisode(selected.value[0], { ...mediaOptions, ...mode }), !!mode.noaudio);
+		}
+		seasonFixture([episode('EN', 1, [...versions, hindiVersion, { ...versions[1], guid: 'JA2' }])]);
+		const three = await service.getSeasonById('ABCDEFGHI', 1, '1', false, false, { dubLang: ['hin', 'eng', 'jpn'] });
+		assert.deepEqual(
+			Array.from(three.value[0].data, (entry) => entry.lang.code),
+			['hin', 'eng', 'jpn'],
+			'season audio ordering follows the requested languages'
+		);
+		assert.equal(three.value[0].data[0].versions.length, 4, 'same-language video variants remain available');
+		seasonFixture([episode('JA', 1, [versions[1]]), episode('EN', 2)]);
+		const available = await service.getSeasonById('ABCDEFGHI', 1, undefined, false, true, { dubLang: ['eng'], allDubs: true });
+		assert.deepEqual(
+			Array.from(available.value, (entry) => entry.data.length),
+			[1, 2]
+		);
+		assert(available.value.every((entry) => entry.allDubs && entry.requiredDubLang === undefined));
+		seasonFixture([episode('EN', 1), { ...episode('JA', 2), episode: 'special' }]);
+		const special = await service.getSeasonById('ABCDEFGHI', 1, 'S1', false, false, { dubLang: ['jpn'] });
+		assert.equal(special.value.length, 1);
+		assert.equal(special.value[0].e, 'S1');
+		assert.equal(special.value[0].episodeNumber, 'special');
+		seasonFixture([{ ...episode('JA', 1, null), audio_locale: 'ja-JP' }]);
+		const legacy = await service.getSeasonById('ABCDEFGHI', 1, '1', false, false, { dubLang: ['jpn'] });
+		assert.equal(legacy.value[0].data[0].versions, null);
+		assert.equal(legacy.value[0].data[0].lang.code, 'jpn');
+		resetGlobal();
+		assert.equal(await service.downloadEpisode(legacy.value[0], { ...mediaOptions, dubLang: ['jpn'], novids: true, dryRun: true }), true);
+		seasonFixture([episode('EN', 1)]);
+		const single = await service.getSeasonById('ABCDEFGHI', 1, '1', false, false, { dubLang: ['eng'] });
+		assert.deepEqual(
+			Array.from(single.value[0].data, (entry) => entry.lang.code),
+			['eng']
+		);
+		service.req = { ...savedReq, getData: async () => ({ ok: false }) };
+		cliArgs = { ...mediaOptions, s: 'ABCDEFGHI', e: '1', locale: 'en-US', dubLang: ['eng'] };
+		assert.equal(await service.cli(), false, 'season metadata failure propagates to CLI');
+	} finally {
+		service.req = savedReq;
+		service.logObject = savedLogObject;
+	}
 	const threeDubVersions = [...versions, hindiVersion];
 	service.listSeriesID = async () => ({
 		data: seriesEpisodes([episode('EN', 1, threeDubVersions), episode('JA', 1, threeDubVersions), episode('HI', 1, threeDubVersions)], languageItems)

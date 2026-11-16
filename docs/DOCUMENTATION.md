@@ -142,7 +142,7 @@ Use a Crunchyroll series ID, not a season ID. This path supports multiple --dubL
 | --- | --- | --- | --- | --- | ---|
 | All | `-s ${ID}` | `string` | `No`| `—` | `—` |
 
-Used to set the season ID to download from. Crunchyroll -s alone uses the first selected dub; combine --srz with -s for multiple dubs within one season.
+Used to set the season ID to download from. Crunchyroll -s supports multiple --dubLang selections and --allDubs. Combine --srz with -s to limit a series request to one season.
 #### `-e`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
@@ -335,7 +335,7 @@ Skip downloading subtitles
 
 Set the language to download: 
 Crunchy Only: und, eng, eng, spa, spa-419, spa-ES, por, por, fra, deu, ara-ME, ara, ita, rus, tur, hin, zho, chi, zh-HK, kor, cat, pol, tha, tam, may, vie, ind, tel, jpn
-Crunchyroll: use --srz with multiple languages, for example --dubLang eng jpn hin; -s keeps only the first dub. Every explicitly requested dub must be available for the episode; --allDubs downloads the available dubs instead. --noaudio skips this requirement. Selecting more than two dubs prints a multi-stream discovery warning.
+Separate language tags with spaces, commas or a mixture, for example --dubLang eng,jpn hin. Invalid tags are listed and rejected before provider requests. Crunchyroll: both -s and --srz support multiple languages. Direct episode-ID and --extid requests use only the first dub. Every explicitly requested dub must be available for the episode; --allDubs downloads the available dubs instead. --noaudio skips this requirement. Selecting more than two dubs prints a multi-stream discovery warning.
 #### `--all`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|

@@ -203,6 +203,27 @@ const normalizeParsed = (program: Command, parsed: ArgvType) => {
 	}
 };
 
+// Normalize and validate only the effective dub language input, after CLI/config precedence.
+const normalizeDubLang = (parsed: ArgvType, validate: boolean) => {
+	const values: unknown[] = Array.isArray(parsed.dubLang) ? parsed.dubLang : [parsed.dubLang];
+	const codes = values.flatMap((value) =>
+		typeof value === 'string'
+			? value
+					.trim()
+					.split(/[\s,]+/)
+					.filter(Boolean)
+			: [String(value)]
+	);
+	const choices = args.find((item) => item.name === 'dubLang')?.choices ?? [];
+	const invalid = [...new Set(codes.filter((code) => !choices.includes(code)))];
+	if (!codes.length || values.some((value) => typeof value === 'string' && !value.trim())) invalid.push('<empty>');
+	if (validate && invalid.length) {
+		console.error(`Invalid language tags for --dubLang: ${invalid.join(', ')}`);
+		process.exit(1);
+	}
+	parsed.dubLang = codes;
+};
+
 /** Validate raw status arguments before Commander can exit for help or version. */
 export function statusInvocation(argv: string[]): 'none' | 'valid' | 'invalid' {
 	if (!argv.some((arg) => arg === '--check-status' || arg.startsWith('--check-status='))) return 'none';
@@ -232,6 +253,7 @@ const appArgv = (
 	const argv = getCommander(cfg, isGUI).parse(processArgv());
 	const parsed = argv.opts() as ArgvType;
 
+	normalizeDubLang(parsed, !isGUI && !(parsed.downloadArchive && argv.getOptionValueSource('dubLang') !== 'cli'));
 	normalizeParsed(argv, parsed);
 	markActionSelection(argv, parsed);
 
@@ -268,6 +290,7 @@ const overrideArguments = (cfg: { [key: string]: unknown }, override: Partial<ty
 	const data = argv.parse(baseArgv);
 	const parsed = data.opts() as ArgvType;
 
+	normalizeDubLang(parsed, !isGUI);
 	normalizeParsed(data, parsed);
 	markActionSelection(data, parsed);
 
@@ -324,6 +347,8 @@ const getCommander = (cfg: Record<string, unknown>, isGUI: boolean) => {
 				if (value === 'false') return false;
 				return Boolean(value);
 			}
+
+			if (item.name === 'dubLang') return value;
 
 			if (item.type === 'array') {
 				if (typeof value === 'string' && value.includes(',')) {
