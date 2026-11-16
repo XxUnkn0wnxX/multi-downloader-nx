@@ -84,6 +84,8 @@ export class DiscoveryScheduler {
 	private retryKind: 'manifest' | 'playback' = 'manifest';
 	private readonly window: PlaybackWindow;
 	private readonly scale: number;
+	private recoveryCredit = 0;
+	private slowNotified = false;
 	observedRateLimit = false;
 	constructor(
 		maxCalls: number,
@@ -91,7 +93,9 @@ export class DiscoveryScheduler {
 		private readonly signal?: AbortSignal,
 		private readonly waiting?: (retry: number, ms: number, kind: 'manifest' | 'playback') => void,
 		private readonly fixedPauseMs?: number,
-		window?: PlaybackWindow
+		window?: PlaybackWindow,
+		private readonly qall = false,
+		private readonly onSlow?: () => void
 	) {
 		if (fixedPauseMs !== undefined && (!Number.isSafeInteger(fixedPauseMs) || fixedPauseMs < 0)) throw new Error('discovery timer must be a nonnegative safe integer');
 		this.window = window ?? { started: clock.now(), creditedSleep: 0, admittedSleep: 0 };
@@ -99,10 +103,14 @@ export class DiscoveryScheduler {
 		this.scale = boundaries ? Math.min(1, limits.discoveryNormalWaitBudgetMs / (limits.discoveryGapMaxMs * boundaries)) : 1;
 	}
 	remaining(): number {
-		return limits.discoveryTimeoutMs - (this.clock.now() - this.window.started - this.window.creditedSleep);
+		return (this.qall ? limits.qallDiscoveryTimeoutMs : limits.discoveryTimeoutMs) - (this.clock.now() - this.window.started - this.window.creditedSleep);
 	}
 	check(): void {
 		if (this.signal?.aborted) throw new Error('discovery cancelled');
+		if (this.qall && !this.slowNotified && this.clock.now() - this.window.started - this.window.creditedSleep >= limits.qallDiscoverySlowNoticeMs) {
+			this.slowNotified = true;
+			this.onSlow?.();
+		}
 		if (this.remaining() <= 0) throw new Error('discovery deadline exceeded');
 	}
 	getWindow(): PlaybackWindow {
@@ -116,7 +124,9 @@ export class DiscoveryScheduler {
 		this.window.admittedSleep += ms;
 		const before = this.clock.now();
 		await this.clock.sleep(ms, this.signal);
-		this.window.creditedSleep += Math.min(ms, Math.max(0, this.clock.now() - before));
+		const elapsed = Math.min(ms, Math.max(0, this.clock.now() - before));
+		this.window.creditedSleep += elapsed;
+		this.recoveryCredit += elapsed;
 		this.check();
 	}
 	reservePlaybackRetry(): void {
@@ -137,6 +147,14 @@ export class DiscoveryScheduler {
 		this.waiting?.(this.retries, remaining, 'playback');
 		if (remaining) await this.playbackSleep(remaining);
 		this.waiting?.(0, 0, 'playback');
+	}
+	serverDelayAvailable(headers: Headers, refusedAt: number, refusedWall: number): boolean {
+		const delay = retryAfterMs(headers.get('retry-after'), headers.get('date'), refusedWall);
+		if (delay === undefined) return false;
+		if (!Number.isFinite(delay) || delay > 60000) throw singlePlaybackWaitError(delay, true);
+		const remaining = Math.max(0, refusedAt + delay - this.clock.now());
+		if (this.window.admittedSleep + remaining > 120000) throw totalPlaybackWaitError(remaining, this.window.admittedSleep);
+		return true;
 	}
 	async waitServerDelay(headers: Headers, refusedAt: number, refusedWall = this.clock.wallNow()): Promise<void> {
 		const delay = retryAfterMs(headers.get('retry-after'), headers.get('date'), refusedWall) ?? 0;
@@ -161,7 +179,11 @@ export class DiscoveryScheduler {
 			const normal =
 				this.retries || this.fixedPauseMs !== undefined ? boundaryWait : Math.min(boundaryWait, Math.max(0, limits.discoveryNormalWaitBudgetMs - this.normalWait));
 			const cooldown = Math.max(0, this.cooldownUntil - this.clock.now());
-			const wait = Math.max(normal, cooldown);
+			const qallDelay = this.qall
+				? (this.fixedPauseMs ?? limits.qallDiscoveryGapMinMs + Math.floor(this.clock.random() * (limits.qallDiscoveryGapMaxExclusiveMs - limits.qallDiscoveryGapMinMs)))
+				: 0;
+			const wait = Math.max(this.qall ? Math.max(0, qallDelay - this.recoveryCredit, this.retries ? normal : 0) : normal, cooldown);
+			this.recoveryCredit = 0;
 			if (wait >= this.remaining()) throw new Error('discovery deadline exceeded');
 			if (slotDeadline !== undefined && wait >= slotDeadline - this.clock.now()) {
 				const left = Math.max(0, slotDeadline - this.clock.now());

@@ -82,6 +82,8 @@ export type PlaybackRecoveryState = {
 	permitClear: boolean;
 	preflightChecked: boolean;
 	resetPerformed: boolean;
+	owned?: boolean;
+	ownedOrdinal?: number;
 	noticeShown: boolean;
 	ordinal: number;
 	initial?: { scheduler: DiscoveryScheduler; controller: AbortController; indicator: WorkingIndicator; release: () => void };

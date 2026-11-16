@@ -51,6 +51,7 @@ const lang = { findLang: () => ({ code: 'en' }), languages: [] };
 const mpd = compile('modules/module.transform-mpd.ts', { './module.langsData': lang, './log': { console: log }, './module.fetch': { Req: class {} } });
 const catalogModule = compile('modules/module.crunchy-video-catalog.ts', {});
 const recoveryModule = compile('modules/module.crunchy-playback-recovery.ts', {});
+const forkDisplay = compile('modules/module.fork-display.ts', {});
 let fakeNow = 0;
 const schedulerModule = compile('modules/module.crunchy-discovery-scheduler.ts', { './module.crunchy-video-catalog': catalogModule }, { performance: { now: () => fakeNow } });
 schedulerModule.defaultDiscoveryClock.sleep = async (ms) => {
@@ -330,6 +331,7 @@ function dubFamily(family, bandwidth, server, sourceUrl) {
 const audioMap = { 'audio.example.test': { video: [], audio: [originalAudio] } };
 currentMap['current.example.test'].audio = [originalAudio];
 const deps = {
+	'./modules/module.fork-display': forkDisplay,
 	'./package.json': {},
 	'./modules/module.crunchy-video-catalog': catalogModule,
 	'./modules/module.working-indicator': {

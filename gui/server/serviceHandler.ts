@@ -8,6 +8,7 @@ import HidiveHandler from './services/hidive';
 import ADNHandler from './services/adn';
 import WebSocketHandler from './websocket';
 import packageJson from '../../package.json';
+import { displayVersion } from '../../modules/module.fork-display';
 
 export default class ServiceHandler {
 	private service: MessageHandler | undefined = undefined;
@@ -50,7 +51,7 @@ export default class ServiceHandler {
 			respond(await this.service.auth(data));
 		});
 		this.ws.events.on('version', async (_, respond) => {
-			respond(packageJson.version);
+			respond(displayVersion(packageJson));
 		});
 		this.ws.events.on('type', async (_, respond) => respond(this.service === undefined ? undefined : (this.service.name as 'hidive' | 'crunchy' | 'adn')));
 		this.ws.events.on('checkToken', async (_, respond) => {

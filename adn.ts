@@ -1,5 +1,6 @@
 // Package Info
 import packageJson from './package.json';
+import { displayVersion } from './modules/module.fork-display';
 
 // Node
 import path from 'path';
@@ -70,7 +71,7 @@ export default class AnimationDigitalNetwork implements ServiceClass {
 	}
 
 	public async cli() {
-		console.info(`\n=== Multi Downloader NX ${packageJson.version} ===\n`);
+		console.info(`\n=== Multi Downloader NX ${displayVersion(packageJson)} ===\n`);
 		const argv = yargs.appArgv(this.cfg.cli);
 		if (['fr', 'de', 'pl'].includes(argv.locale)) this.locale = argv.locale;
 		if (argv.debug) this.debug = true;

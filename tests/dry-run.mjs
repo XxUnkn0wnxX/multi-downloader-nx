@@ -40,6 +40,10 @@ function compile(file, requireFn, extra = {}) {
 	return module.exports;
 }
 
+const forkDisplay = compile(path.join(root, 'modules/module.fork-display.ts'), () => {
+	throw new Error('Unexpected fork display helper dependency');
+});
+
 function fakeFs() {
 	return {
 		existsSync: () => false,
@@ -54,6 +58,7 @@ function fakeFs() {
 function loadHidive(mpd = hidiveManifest, canDecrypt = false) {
 	const stubs = {
 		'./package.json': { version: 'test' },
+		'./modules/module.fork-display': forkDisplay,
 		'./modules/log': { console: fakeConsole },
 		'./modules/hls-download': {
 			default: class {
@@ -161,6 +166,7 @@ const adnManifests = {
 function loadAdn(allowOutputPath = false) {
 	const stubs = {
 		'./package.json': { version: 'test' },
+		'./modules/module.fork-display': forkDisplay,
 		'./modules/log': { console: fakeConsole },
 		'./modules/hls-download': {
 			default: class {

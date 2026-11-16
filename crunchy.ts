@@ -4,6 +4,7 @@ import fs from 'fs';
 
 // package program
 import packageJson from './package.json';
+import { displayVersion } from './modules/module.fork-display';
 
 // plugins
 import { console } from './modules/log';
@@ -147,6 +148,7 @@ export default class Crunchy implements ServiceClass {
 		context?: {
 			checkOnly?: boolean;
 			snapshot?: PlaybackSession[];
+			availableBelow?: number;
 			budget?: PlaybackRecoveryBudget;
 			signal?: AbortSignal;
 			timeoutMs?: number;
@@ -220,7 +222,7 @@ export default class Crunchy implements ServiceClass {
 					}
 					phase('Checking remaining sessions…');
 					const remaining = (await list()).length;
-					return { ok: remaining === 0, closed, remaining };
+					return { ok: context?.availableBelow === undefined ? remaining === 0 : remaining < context.availableBelow, closed, remaining };
 				},
 				undefined,
 				controller.signal,
@@ -302,10 +304,13 @@ export default class Crunchy implements ServiceClass {
 			let capacity = await this.inspectPlaybackCapacity(headers, scheduler, signal, state);
 			let didReset = false;
 			let polled = false;
+			const full = capacity.limit !== undefined && !!capacity.sessions && capacity.sessions.length >= capacity.limit;
+			if (refusal && state.permitClear && (state.owned || full)) scheduler.serverDelayAvailable(refusal.headers, refusal.at, refusal.wall);
 			if (capacity.limit !== undefined && capacity.sessions && capacity.sessions.length >= capacity.limit) {
 				if (state.permitClear && !state.budget.used && allowClear) {
 					const result = await this.resetPlaybackSessions(headers, {
 						snapshot: capacity.sessions,
+						availableBelow: capacity.limit,
 						budget: state.budget,
 						signal,
 						timeoutMs: scheduler.remaining(),
@@ -318,7 +323,9 @@ export default class Crunchy implements ServiceClass {
 						return false;
 					}
 					didReset = true;
+					state.owned = true;
 				} else {
+					if (state.permitClear) state.owned = true;
 					const slotDeadline = (scheduler.getWindow().slotDeadline ??= scheduler.clock.now() + 60000);
 					polled = true;
 					while (capacity.limit !== undefined && capacity.sessions && capacity.sessions.length >= capacity.limit) {
@@ -341,10 +348,20 @@ export default class Crunchy implements ServiceClass {
 					}
 				}
 			}
+			if (!refusal && state.permitClear && polled && (capacity.limit === undefined || !capacity.sessions || capacity.sessions.length >= capacity.limit)) {
+				console.error('Playback recovery stopped: unable to verify available capacity');
+				return false;
+			}
 			if (refusal) {
-				if (didReset || (polled && capacity.limit !== undefined && capacity.sessions && capacity.sessions.length < capacity.limit)) {
+				const recovered = didReset || (polled && capacity.limit !== undefined && capacity.sessions && capacity.sessions.length < capacity.limit);
+				if (state.owned) {
+					state.ordinal = state.ownedOrdinal = (state.ownedOrdinal ?? 0) + 1;
+					if (state.ordinal > 2 || (state.resetPerformed && refusal.ordinal > 2)) return false;
+					const serverWait = scheduler.serverDelayAvailable(refusal.headers, refusal.at, refusal.wall);
+					if (!recovered && !serverWait) return false;
 					await scheduler.waitServerDelay(refusal.headers, refusal.at, refusal.wall);
-				} else await scheduler.waitPlayback(refusal.headers, refusal.ordinal, refusal.at, refusal.wall);
+				} else if (recovered) await scheduler.waitServerDelay(refusal.headers, refusal.at, refusal.wall);
+				else await scheduler.waitPlayback(refusal.headers, refusal.ordinal, refusal.at, refusal.wall);
 			}
 			return true;
 		} catch (error) {
@@ -477,7 +494,7 @@ export default class Crunchy implements ServiceClass {
 	}
 
 	public async cli() {
-		console.info(`\n=== Multi Downloader NX ${packageJson.version} ===\n`);
+		console.info(`\n=== Multi Downloader NX ${displayVersion(packageJson)} ===\n`);
 		const argv = yargs.appArgv(this.cfg.cli);
 		if (argv.checkStatus) return this.playbackStatus(!!argv.debug);
 		const authError = validateCrunchyAuthModes({ ...argv, service: 'crunchy' });
@@ -1928,7 +1945,7 @@ export default class Crunchy implements ServiceClass {
 		);
 		const selectedLocales = new Set(requested.filter((version): version is NonNullable<typeof version> => !!version).map((version) => version.audio_locale));
 		const activeVersions = options.qall ? versions : requested.every(Boolean) ? versions?.filter((version) => selectedLocales.has(version.audio_locale)) : [];
-		const discoveryPause = options.discoveryTimmer ?? (options.qall ? VIDEO_SELECTION_DEFAULTS.qallDiscoveryPauseMs : undefined);
+		const discoveryPause = options.discoveryTimmer;
 		if (options.qall && !state.budget.qallWarned) {
 			console.warn('Full language discovery scans more sources, is slower, and can trigger rate limits affecting normal viewing.');
 			state.budget.qallWarned = true;
@@ -1965,8 +1982,11 @@ export default class Crunchy implements ServiceClass {
 				sourceCount * (options.vstream === 'android' || options.vstream === 'androidtab' ? 7 : 5),
 				undefined,
 				controller.signal,
-				(retry, ms, kind) => indicator.waiting(retry, ms, kind, state.ordinal, state.resetPerformed ? 2 : 3),
-				discoveryPause
+				(retry, ms, kind) => indicator.waiting(retry, ms, kind, state.ordinal, state.owned || state.resetPerformed ? 2 : 3),
+				discoveryPause,
+				undefined,
+				!!options.qall,
+				() => indicator.extraTime()
 			);
 			state.initial = { scheduler, controller, indicator, release };
 			state.preflightChecked = true;
@@ -2035,7 +2055,8 @@ export default class Crunchy implements ServiceClass {
 					try {
 						discovery = await discoverVideoCandidates({
 							signal: controller.signal,
-							onWaiting: (retry, ms, kind, playbackRetry) => indicator.waiting(retry, ms, kind, playbackRetry, state.resetPerformed ? 2 : 3),
+							onWaiting: (retry, ms, kind, playbackRetry) =>
+								indicator.waiting(retry, ms, kind, state.owned ? state.ordinal : playbackRetry, state.owned || state.resetPerformed ? 2 : 3),
 							scheduler: initial?.scheduler,
 							replayLimit: () => (state.resetPerformed ? 2 : 3),
 							recoveryBudget: options.queueRecovery,
@@ -2062,6 +2083,13 @@ export default class Crunchy implements ServiceClass {
 								return ok;
 							},
 							fixedPauseMs: discoveryPause,
+							qall: !!options.qall,
+							onSlow: () => indicator.extraTime(),
+							onAcquired: () => {
+								state.owned = false;
+								state.ownedOrdinal = 0;
+								state.ordinal = 0;
+							},
 							req: this.req,
 							headers,
 							sources,
@@ -2832,7 +2860,7 @@ export default class Crunchy implements ServiceClass {
 			}
 
 			acquisitionIndicator = initial?.indicator ?? new WorkingIndicator(process.env.isGUI !== 'true' && !this.debug && !this.req.argv?.debug && !!process.stdout.isTTY && !!process.env.TERM && process.env.TERM !== 'dumb');
-			acquisitionScheduler = initial?.scheduler ?? new DiscoveryScheduler(7, undefined, acquisitionController.signal, (retry, ms, kind) => acquisitionIndicator!.waiting(retry, ms, kind, replay + 1, state.resetPerformed ? 2 : 3), 0);
+			acquisitionScheduler = initial?.scheduler ?? new DiscoveryScheduler(7, undefined, acquisitionController.signal, (retry, ms, kind) => acquisitionIndicator!.waiting(retry, ms, kind, state.owned ? state.ordinal : replay + 1, state.owned || state.resetPerformed ? 2 : 3), 0);
 			if (state.permitClear && !state.preflightChecked) {
 				acquisitionIndicator.start();
 				state.preflightChecked = true;
@@ -3000,6 +3028,7 @@ export default class Crunchy implements ServiceClass {
 				pbData.apb = pbData.vpb;
 			}
 
+				state.owned = false; state.ownedOrdinal = 0; state.ordinal = 0;
 				break;
 			} catch (error) {
 				if (!(error instanceof PlaybackRefusal)) { if (this.debug) console.debug(`[DEBUG] Playback acquisition failed: ${String(error)}`); return undefined; }

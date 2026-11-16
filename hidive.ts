@@ -4,6 +4,7 @@ import fs from 'fs';
 
 // package program
 import packageJson from './package.json';
+import { displayVersion } from './modules/module.fork-display';
 
 // plugins
 import { console } from './modules/log';
@@ -51,7 +52,7 @@ export default class Hidive implements ServiceClass {
 	}
 
 	public async cli() {
-		console.info(`\n=== Multi Downloader NX ${packageJson.version} ===\n`);
+		console.info(`\n=== Multi Downloader NX ${displayVersion(packageJson)} ===\n`);
 		const argv = yargs.appArgv(this.cfg.cli);
 		if (argv.debug) this.debug = true;
 

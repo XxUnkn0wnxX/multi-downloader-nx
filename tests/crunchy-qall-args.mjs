@@ -208,7 +208,7 @@ for (const [argv, cfg, crunchy] of [
 	assert(text.includes('--dry-run'));
 	assert(text.includes('--update'));
 	assert(text.replace(/\s+/g, ' ').includes('Updates disabled on this fork. Download updates: https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork'));
-	if (crunchy) assert(text.includes('unset uses automatic 250–400 ms'));
+	if (crunchy) assert(text.includes('automatic per batch, or per request with --qall'));
 	assert(text.includes('--help') && text.includes('--version'));
 	assert(!text.includes('--no-qall'));
 	if (!crunchy) assert(!text.includes('Crunchyroll CLI: use --device'));

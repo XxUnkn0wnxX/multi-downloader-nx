@@ -7,6 +7,7 @@ import fs from 'fs';
 import { PublicWebSocket } from './websocket';
 import { console } from '../../modules/log';
 import packageJson from '../../package.json';
+import { displayVersion } from '../../modules/module.fork-display';
 
 process.title = 'AniDL';
 
@@ -32,7 +33,7 @@ const buildDir = buildDirs.find((dir) => fs.existsSync(path.join(dir, 'index.htm
 
 app.use(express.static(buildDir, { maxAge: 1000 * 60 * 20 }));
 
-console.info(`\n=== Multi Downloader NX GUI ${packageJson.version} ===\n`);
+console.info(`\n=== Multi Downloader NX GUI ${displayVersion(packageJson)} ===\n`);
 
 const server = app.listen(cfg.gui.port, () => {
 	console.info(`GUI server started on port ${cfg.gui.port}`);

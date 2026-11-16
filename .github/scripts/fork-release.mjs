@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { Buffer } from 'node:buffer';
 import { createReadStream } from 'node:fs';
 import { appendFile, copyFile, lstat, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -188,6 +189,26 @@ export function assetNames(arch) {
 	return platforms.map((platform) => `multi-downloader-nx-${platform}-${arch}-cli.7z`);
 }
 
+export async function releaseTitleFromSource(repository, sha, api) {
+	if (!shaPattern.test(sha ?? '')) throw new Error('Invalid target source SHA for release metadata');
+	const manifest = await api('GET', `/repos/${repository}/contents/package.json?ref=${sha}`, undefined, true);
+	if (manifest?.type !== 'file' || manifest.encoding !== 'base64' || typeof manifest.content !== 'string') throw new Error('Cannot read target package.json at source SHA');
+	const encoded = manifest.content.replace(/\s/g, '');
+	if (!encoded || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) throw new Error('Target package.json content is not valid base64');
+	const decoded = Buffer.from(encoded, 'base64');
+	if (decoded.toString('base64') !== encoded) throw new Error('Target package.json content is not valid base64');
+	let packageMetadata;
+	try {
+		packageMetadata = JSON.parse(decoded.toString('utf8'));
+	} catch {
+		throw new Error('Target package.json is not valid JSON');
+	}
+	const revision = packageMetadata?.fork?.revision;
+	if (typeof packageMetadata?.version !== 'string' || !packageMetadata.version.trim() || packageMetadata.fork?.channel !== 'Nightly' || !positiveInteger(revision))
+		throw new Error('Target package.json has invalid Nightly fork revision metadata');
+	return `Nightly Fork (Rev${revision})`;
+}
+
 async function checksum(file) {
 	const hash = createHash('sha256');
 	for await (const chunk of createReadStream(file)) hash.update(chunk);
@@ -309,6 +330,7 @@ export async function publish(
 ) {
 	const files = await verifyBundles(directory, provenance);
 	const base = `/repos/${repository}`;
+	const releaseTitle = await releaseTitleFromSource(repository, provenance.sha, api);
 	const oldRelease = await findRelease(base, api);
 	await proof(repository, provenance.sha, api);
 	await requireCurrentMain(repository, provenance.sha, api);
@@ -319,7 +341,7 @@ export async function publish(
 	const release = await api('POST', `${base}/releases`, {
 		tag_name: 'nightly-fork',
 		target_commitish: provenance.sha,
-		name: 'Nightly Fork',
+		name: releaseTitle,
 		body: 'Asset upload in progress.',
 		draft: true,
 		prerelease: false
@@ -334,7 +356,7 @@ export async function publish(
 	const url = `${server}/${repository}`;
 	const testedCommit = provenance.testedSha === provenance.sha ? '' : ` (tested ancestor: [${provenance.testedSha}](${url}/commit/${provenance.testedSha}))`;
 	const body = `Source: [${provenance.sha}](${url}/commit/${provenance.sha})\n\nTests: [run ${provenance.testsRunId}, attempt ${provenance.testsAttempt}](${url}/actions/runs/${provenance.testsRunId}/attempts/${provenance.testsAttempt})${testedCommit}\n\nBuild: [run ${provenance.buildRunId}](${url}/actions/runs/${provenance.buildRunId}) (publication attempt ${provenance.buildAttempt})\n\n[Changelog](${url}/blob/${provenance.sha}/docs/CHANGELOG.md)`;
-	await api('PATCH', `${base}/releases/${release.id}`, { tag_name: 'nightly-fork', name: 'Nightly Fork', body, prerelease: false, draft: false, make_latest: 'true' });
+	await api('PATCH', `${base}/releases/${release.id}`, { tag_name: 'nightly-fork', name: releaseTitle, body, prerelease: false, draft: false, make_latest: 'true' });
 }
 
 function uploadReleaseAssets(files, repository) {

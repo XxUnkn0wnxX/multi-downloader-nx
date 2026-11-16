@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import console from 'node:console';
+import { URL } from 'node:url';
 import {
 	assetNames,
 	reusableProofDescendant,
@@ -11,12 +13,15 @@ import {
 	latestApplicableProof,
 	publish,
 	recordBundle,
+	releaseTitleFromSource,
 	requireCurrentMain,
 	selectGate,
 	verifyBundles
 } from '../.github/scripts/fork-release.mjs';
 
 const repo = 'owner/repository';
+const packageMetadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+const targetRevision = packageMetadata.fork.revision + 1;
 const sha = 'a'.repeat(40);
 const base = {
 	action: 'completed',
@@ -211,6 +216,38 @@ await assert.rejects(
 
 const proof = async () => {};
 
+const sourceManifest = (revision = packageMetadata.fork.revision) => ({
+	type: 'file',
+	encoding: 'base64',
+	content: Buffer.from(JSON.stringify({ version: '5.8.8', fork: { channel: 'Nightly', revision } })).toString('base64')
+});
+assert.equal(
+	await releaseTitleFromSource(repo, sha, async (method, endpoint) => {
+		assert.equal(method, 'GET');
+		assert.equal(endpoint, `/repos/${repo}/contents/package.json?ref=${sha}`);
+		return sourceManifest(targetRevision);
+	}),
+	`Nightly Fork (Rev${targetRevision})`
+);
+for (const revision of [3, 12]) {
+	assert.equal(await releaseTitleFromSource(repo, sha, async () => sourceManifest(revision)), `Nightly Fork (Rev${revision})`);
+}
+for (const manifest of [
+	null,
+	{ type: 'dir', encoding: 'base64', content: 'e30=' },
+	{ type: 'file', encoding: 'utf8', content: '{}' },
+	{ type: 'file', encoding: 'base64', content: '%%%=' },
+	{ type: 'file', encoding: 'base64', content: Buffer.from('{').toString('base64') },
+	{ type: 'file', encoding: 'base64', content: Buffer.from(JSON.stringify({ version: '5.8.8', fork: { channel: 'Nightly', revision: 0 } })).toString('base64') },
+	{ type: 'file', encoding: 'base64', content: Buffer.from(JSON.stringify({ version: '5.8.8', fork: { channel: 'Nightly', revision: 1.5 } })).toString('base64') },
+	{ type: 'file', encoding: 'base64', content: Buffer.from(JSON.stringify({ version: '5.8.8', fork: { channel: 'Stable', revision: 3 } })).toString('base64') }
+]) {
+	await assert.rejects(
+		releaseTitleFromSource(repo, sha, async () => manifest),
+		/target package\.json/i
+	);
+}
+
 const root = await mkdtemp(path.join(os.tmpdir(), 'fork-release-test-'));
 const provenance = { ...selected, buildRunId: 202, buildAttempt: 3 };
 try {
@@ -238,6 +275,7 @@ try {
 		reusedProvenance,
 		repo,
 		async (method, endpoint, body) => {
+			if (endpoint.includes('/contents/package.json?ref=')) return sourceManifest(targetRevision);
 			if (endpoint.endsWith('/releases/tags/nightly-fork')) return { id: 44 };
 			if (endpoint.endsWith('/git/ref/heads/main')) return { object: { sha: otherSha } };
 			if (endpoint.endsWith('/git/ref/tags/nightly-fork')) return { object: { sha } };
@@ -266,6 +304,7 @@ try {
 	const uploadCalls = [];
 	const rest = async (method, endpoint, body) => {
 		requests.push({ method, endpoint, body });
+		if (endpoint.includes('/contents/package.json?ref=')) return sourceManifest(targetRevision);
 		if (endpoint.endsWith('/releases/tags/nightly-fork')) return { id: 44 };
 		if (endpoint.endsWith('/git/ref/tags/nightly-fork')) return { object: { sha: 'b'.repeat(40) } };
 		if (endpoint.endsWith('/git/ref/heads/main')) return { object: { sha } };
@@ -278,19 +317,51 @@ try {
 	await publish(path.join(root, 'bundles'), provenance, repo, rest, upload, 'https://github.com', proof);
 	assert.deepEqual(
 		requests.map((call) => call.method),
-		['GET', 'GET', 'DELETE', 'POST', 'GET', 'GET', 'PATCH', 'PATCH']
+		['GET', 'GET', 'GET', 'DELETE', 'POST', 'GET', 'GET', 'PATCH', 'PATCH']
 	);
-	assert.equal(requests[2].endpoint, '/repos/owner/repository/releases/44');
-	assert.equal(requests[3].body.draft, true);
-	assert.equal(uploadCalls[0].requestsBeforeUpload, 4);
-	assert.equal(requests[6].body.sha, sha);
-	assert.equal(requests[7].endpoint, '/repos/owner/repository/releases/55');
-	assert.equal(requests[7].body.prerelease, false);
-	assert.equal(requests[7].body.make_latest, 'true');
-	assert.equal(requests[7].body.tag_name, 'nightly-fork');
-	assert.match(requests[7].body.body, /tests|Tests/);
+	assert.equal(requests[0].endpoint, `/repos/${repo}/contents/package.json?ref=${sha}`);
+	assert.equal(requests[3].endpoint, '/repos/owner/repository/releases/44');
+	assert.equal(requests[4].body.draft, true);
+	assert.equal(requests[4].body.name, `Nightly Fork (Rev${targetRevision})`);
+	assert.equal(uploadCalls[0].requestsBeforeUpload, 5);
+	assert.equal(requests[7].body.sha, sha);
+	assert.equal(requests[8].endpoint, '/repos/owner/repository/releases/55');
+	assert.equal(requests[8].body.prerelease, false);
+	assert.equal(requests[8].body.make_latest, 'true');
+	assert.equal(requests[8].body.tag_name, 'nightly-fork');
+	assert.equal(requests[8].body.name, `Nightly Fork (Rev${targetRevision})`);
+	assert.match(requests[8].body.body, /tests|Tests/);
 	assert.equal(uploadCalls[0].files.length, 16);
-	assert.match(requests[7].body.body, new RegExp(sha));
+	assert.match(requests[8].body.body, new RegExp(sha));
+	requests.length = 0;
+	for (const [metadata, error] of [
+		[sourceManifest(0), /invalid Nightly fork revision/],
+		[null, /Cannot read target package\.json/]
+	]) {
+		requests.length = 0;
+		await assert.rejects(
+			publish(
+				path.join(root, 'bundles'),
+				provenance,
+				repo,
+				async (method, endpoint) => {
+					requests.push({ method, endpoint });
+					if (endpoint.includes('/contents/package.json?ref=')) return metadata;
+					throw new Error(`Unexpected release API call: ${method} ${endpoint}`);
+				},
+				async () => {
+					throw new Error('unexpected upload');
+				},
+				'https://github.com',
+				proof
+			),
+			error
+		);
+		assert.deepEqual(
+			requests.map((call) => call.method),
+			['GET']
+		);
+	}
 	requests.length = 0;
 	await assert.rejects(
 		publish(
@@ -311,7 +382,7 @@ try {
 	);
 	assert.deepEqual(
 		requests.map((call) => call.method),
-		['GET', 'GET']
+		['GET', 'GET', 'GET']
 	);
 	requests.length = 0;
 	await assert.rejects(
@@ -351,7 +422,7 @@ try {
 	);
 	assert.deepEqual(
 		requests.map((call) => call.method),
-		['GET', 'GET', 'DELETE', 'POST', 'GET']
+		['GET', 'GET', 'GET', 'DELETE', 'POST', 'GET']
 	);
 
 	requests.length = 0;
@@ -361,7 +432,7 @@ try {
 	await assert.rejects(publish(path.join(root, 'bundles'), provenance, repo, rest, failedUpload, 'https://github.com', proof), /upload failed/);
 	assert.deepEqual(
 		requests.map((call) => call.method),
-		['GET', 'GET', 'DELETE', 'POST']
+		['GET', 'GET', 'GET', 'DELETE', 'POST']
 	);
 	requests.length = 0;
 	let headChecks = 0;
@@ -375,7 +446,7 @@ try {
 	);
 	assert.deepEqual(
 		requests.map((call) => call.method),
-		['GET', 'GET', 'DELETE', 'POST', 'GET']
+		['GET', 'GET', 'GET', 'DELETE', 'POST', 'GET']
 	);
 
 	let draft;
@@ -383,6 +454,7 @@ try {
 	const draftCalls = [];
 	const draftApi = async (method, endpoint, body) => {
 		draftCalls.push({ method, endpoint, body });
+		if (endpoint.includes('/contents/package.json?ref=')) return sourceManifest();
 		if (endpoint.endsWith('/releases/tags/nightly-fork')) return null;
 		if (endpoint.includes('/releases?')) return draft ? [draft] : [];
 		if (endpoint.endsWith('/git/ref/heads/main')) return { object: { sha } };
@@ -401,6 +473,7 @@ try {
 	assert.equal(draft.draft, true);
 	assert.equal(draft.prerelease, false);
 	assert.equal(draft.target_commitish, sha);
+	assert.equal(draft.name, `Nightly Fork (Rev${packageMetadata.fork.revision})`);
 	assert.equal(draftCalls.filter((call) => call.method !== 'GET').length, 1);
 	draftCalls.length = 0;
 	await publish(
@@ -422,6 +495,7 @@ try {
 	assert.equal(draftCalls.at(-1).body.draft, false);
 	assert.equal(draftCalls.at(-1).body.prerelease, false);
 	assert.equal(draftCalls.at(-1).body.make_latest, 'true');
+	assert.equal(draftCalls.at(-1).body.name, `Nightly Fork (Rev${packageMetadata.fork.revision})`);
 
 	requests.length = 0;
 	const staleRest = async (method, endpoint, body) => {

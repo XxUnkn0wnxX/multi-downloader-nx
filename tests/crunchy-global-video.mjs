@@ -12,6 +12,7 @@ import ts from 'typescript';
 
 const { AbortController, Response, Headers, queueMicrotask } = globalThis;
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const packageMetadata = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 let statusNow;
 class StatusDate extends Date {
 	static now() {
@@ -259,7 +260,7 @@ const expired = await timed.discoverVideoCandidates({
 		}
 	}
 });
-assert.equal(expired.status, 'fallback');
+assert.equal(expired.status, 'rate-limited');
 assert.equal(abortSignal.aborted, true);
 assert.equal(timedClosed, 1);
 let clockReads = 0;
@@ -295,7 +296,7 @@ const noLease = await expiredBefore.discoverVideoCandidates({
 	},
 	close: async () => true
 });
-assert.equal(noLease.status, 'fallback');
+assert.equal(noLease.status, 'rate-limited');
 assert.equal(began, false);
 const unknown = await discoverVideoCandidates({
 	sources: [sources[0]],
@@ -553,6 +554,111 @@ for (const value of [null, -1, 1.5, Infinity, Number.MAX_SAFE_INTEGER + 1, '0', 
 	await assert.rejects(pace.dispatch(), /cancelled/);
 }
 
+{
+	const f = testClock();
+	const samples = [0, 0.999, 0.5];
+	f.clock.random = () => samples.shift() ?? 0;
+	let slow = 0;
+	const pace = new scheduler.DiscoveryScheduler(10, f.clock, undefined, undefined, undefined, undefined, true, () => slow++);
+	await pace.dispatch();
+	f.advance(2500); // ordinary response time does not credit the next delay
+	await pace.dispatch();
+	await pace.dispatch(true);
+	await pace.dispatch();
+	assert.deepEqual(f.waits, [600, 999, 800]);
+	await pace.playbackSleep(10000);
+	await pace.dispatch();
+	assert.deepEqual(f.waits, [600, 999, 800, 10000]);
+	f.advance(90000);
+	pace.check();
+	pace.check();
+	assert.equal(slow, 1);
+	assert(pace.remaining() > 0);
+	f.advance(90000);
+	assert.throws(() => pace.check(), /deadline/);
+}
+for (const fixed of [0, 1200]) {
+	const f = testClock();
+	const pace = new scheduler.DiscoveryScheduler(10, f.clock, undefined, undefined, fixed, undefined, true);
+	await pace.dispatch();
+	await pace.dispatch();
+	assert.deepEqual(f.waits, fixed ? [fixed, fixed] : []);
+}
+
+{
+	const f = testClock();
+	const pace = new scheduler.DiscoveryScheduler(20, f.clock, undefined, undefined, 0, undefined, true);
+	pace.reservePlaybackRetry();
+	for (let i = 0; i < 4; i++) await pace.dispatch();
+	await pace.dispatch();
+	assert.deepEqual(f.waits, [750], 'qall override zero retains the retry batch gap');
+}
+
+{
+	// Maximum admitted version scan uses the real discovery consumer and one shared fake clock.
+	const f = testClock(0.999);
+	const many = Array.from({ length: 32 }, (_, i) => ({ guid: `V${i}`, locale: 'en-US', languageCode: 'eng' }));
+	let requests = 0,
+		closes = 0,
+		notices = 0;
+	const result = await discoverVideoCandidates({
+		sources: many,
+		requested: ['V0'],
+		ordinal: 1,
+		ignoreTiming: false,
+		debug: false,
+		headers: {},
+		clock: f.clock,
+		qall: true,
+		onSlow: () => notices++,
+		acquire: async (source) => {
+			requests++;
+			return { token: source.guid, url: `https://example.test/static/${source.guid}/clean/dash/manifest.mpd` };
+		},
+		close: async () => {
+			closes++;
+			return true;
+		},
+		req: {
+			getData: async (url) => {
+				requests++;
+				return url.includes('/0/clean/') || url.includes('/1/clean/') ? { ok: false, res: new Response('', { status: 404 }) } : { ok: true, res: new Response(xml('EN')) };
+			}
+		}
+	});
+	assert.equal(result.status, 'ok');
+	assert.equal(requests, 128);
+	assert.equal(closes, 32);
+	assert.equal(f.waits.length, 128);
+	assert(f.waits.every((ms) => ms === 999));
+	assert.equal(notices, 1);
+}
+
+{
+	const f = testClock();
+	f.advance(179500);
+	let acquired = 0;
+	const pace = new scheduler.DiscoveryScheduler(5, f.clock, undefined, undefined, undefined, { started: 0, creditedSleep: 0, admittedSleep: 0 }, true);
+	const result = await discoverVideoCandidates({
+		sources: [sources[0]],
+		requested: ['EN'],
+		ordinal: 1,
+		ignoreTiming: false,
+		debug: false,
+		headers: {},
+		scheduler: pace,
+		acquire: async () => {
+			acquired++;
+			throw Error('must not acquire');
+		},
+		close: async () => true,
+		req: {}
+	});
+	assert.equal(result.status, 'rate-limited');
+	assert.equal(acquired, 0);
+	assert.equal(pace.remaining(), 500);
+}
+
 const httpBase = Date.parse('Sun, 06 Nov 1994 08:49:00 GMT');
 for (const value of ['Sun, 06 Nov 1994 08:49:37 GMT', 'Sunday, 06-Nov-94 08:49:37 GMT', 'Sun Nov  6 08:49:37 1994']) {
 	assert.equal(scheduler.retryAfterMs(value, 'Sun, 06 Nov 1994 08:49:00 GMT', 0), 37000);
@@ -717,6 +823,7 @@ async function retryProbe({ failClose = false, stallObserved = false, unsupporte
 		'modules/module.working-indicator.ts',
 		{
 			'./log': {
+				console: output,
 				setOutputClearHook: (value) => {
 					hook = value;
 				}
@@ -761,9 +868,19 @@ async function retryProbe({ failClose = false, stallObserved = false, unsupporte
 	indicatorNow += 1000;
 	callback();
 	assert(writes.at(-1).includes('Retrying playback (1/2 in 4s)'));
-	indicator.waiting(0, 0);
+	indicator.extraTime();
 	callback();
-	assert(writes.at(-1).endsWith('Discovering video qualities'));
+	assert(writes.at(-1).includes('Retrying playback'));
+	indicator.waiting(0, 0);
+	indicator.slot(2, 2, 5000);
+	callback();
+	assert(writes.at(-1).includes('Waiting for playback slot'));
+	indicator.phase('Checking remaining sessions…');
+	callback();
+	assert(writes.at(-1).includes('Checking remaining sessions…'));
+	indicator.phase('Discovering video qualities');
+	callback();
+	assert(writes.at(-1).endsWith('Discovering all qualities is taking extra time'));
 	hook();
 	assert(writes.join('').includes('\x1b[?25h'));
 	indicator.stop();
@@ -1104,12 +1221,22 @@ const realSelection = compile(
 	}
 );
 let cliArgs = {};
+const indicatorWaits = [];
+let sessionBarrier;
 let indicatorStarts = 0,
 	indicatorStops = 0;
+let stopAtCliArguments = false;
+const cliBannerSentinel = new Error('stop after CLI banner');
 const mediaDeps = {
-	'./modules/module.app-args': { appArgv: () => cliArgs },
+	'./modules/module.app-args': {
+		appArgv: () => {
+			if (stopAtCliArguments) throw cliBannerSentinel;
+			return cliArgs;
+		}
+	},
 	'./modules/module.crunchy-device-auth': { validateCrunchyAuthModes: () => undefined },
-	'./package.json': {},
+	'./package.json': packageMetadata,
+	'./modules/module.fork-display': compile('modules/module.fork-display.ts'),
 	fs: {
 		existsSync: () => true,
 		mkdirSync: () => {
@@ -1135,9 +1262,12 @@ const mediaDeps = {
 			stop() {
 				indicatorStops++;
 			}
+			extraTime() {}
 			phase() {}
 			slot() {}
-			waiting() {}
+			waiting(...args) {
+				indicatorWaits.push(args);
+			}
 		}
 	},
 	'./modules/module.cfg-loader': { workingDir: '', loadBinCfg: async () => ({ ffmpeg: 'fake', mp4decrypt: 'fake' }) },
@@ -1198,6 +1328,11 @@ service.cfg = { bin: { ffmpeg: 'fake', mp4decrypt: 'fake' }, dir: { content: '/s
 service.token = { access_token: 'synthetic' };
 service.cmsToken = { cms: {} };
 service.debug = false;
+const bannerLogStart = mediaLogs.length;
+stopAtCliArguments = true;
+await assert.rejects(service.cli(), (error) => error === cliBannerSentinel);
+stopAtCliArguments = false;
+assert.equal(mediaLogs[bannerLogStart][0], `\n=== Multi Downloader NX ${packageMetadata.version} (Nightly) [Rev${packageMetadata.fork.revision}] ===\n`);
 service.deviceHeaders = () => ({});
 service.refreshToken = async () => true;
 service.sleep = async () => {};
@@ -1206,7 +1341,11 @@ service.req = {
 	argv: { debug: false },
 	async getData(target, options = {}) {
 		mediaRequests.push({ target, method: options.method });
-		if (target === 'https://api.example.test/sessions')
+		if (target === 'https://api.example.test/sessions') {
+			if (sessionBarrier && mediaRequests.filter((r) => r.target === target).length === 2) {
+				sessionBarrier.verifyStarted();
+				await sessionBarrier.verify;
+			}
 			return {
 				ok: true,
 				res: new Response(
@@ -1221,7 +1360,12 @@ service.req = {
 					})
 				)
 			};
+		}
 		if (options.method === 'DELETE') {
+			if (sessionBarrier && target.endsWith('/other/other-token')) {
+				sessionBarrier.deleteStarted();
+				await sessionBarrier.delete;
+			}
 			if (target.endsWith('/old/old-token')) oldSessionActive = false;
 			if (control.failRecoveryClose && /token-EN-1$/.test(target)) return { ok: false, res: new Response('', { status: 503 }) };
 			if (control.failFirstDubClose && target.endsWith('/EN/token-EN-4')) return { ok: false, res: new Response('', { status: 503 }) };
@@ -1459,6 +1603,8 @@ assert(encryptedAudioClose >= 0 && encryptedAudioClose < encryptedAudioMedia);
 
 function resetGlobal(overrides = {}) {
 	mediaLogs.length = 0;
+	indicatorWaits.length = 0;
+	sessionBarrier = undefined;
 	selectedHeads.length = 0;
 	licenseCalls.length = 0;
 	downloads.length = 0;
@@ -1749,10 +1895,10 @@ assert.equal(muxCalls.length, 0);
 assert(mediaLogs.some((entry) => entry[0] === 'Video first media segment URL:' && String(entry[1]).includes('/JA/1/')));
 assert(mediaLogs.some((entry) => entry[0] === 'Audio first media segment URL:' && String(entry[1]).includes('/EN/current/high-')));
 for (const [fixedPause, expectedWait] of [
-	[undefined, 750],
+	[undefined, 4800],
 	[0, 0],
-	[50, 50],
-	[750, 750]
+	[50, 400],
+	[750, 6000]
 ]) {
 	resetGlobal();
 	const before = fakeNow;
@@ -2357,6 +2503,167 @@ assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/
 resetGlobal({ playbackRefusals: { EN: 1 }, nonzeroVerification: true });
 assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: true, queueRecovery: { used: false }, dryRun: true }), false);
 assert.equal(mediaRequests.filter((r) => r.target.includes('/video/play?queue=0')).length, 0);
+{
+	// The complete clear must precede fresh verification and a non-four allowance can admit a nonzero count.
+	resetGlobal({ capacityLimit: 2 });
+	const full = [
+		{ contentId: 'old', token: 'old-token' },
+		{ contentId: 'other', token: 'other-token' }
+	];
+	control.sessionSequence = [full, [{ contentId: 'new', token: 'new-token' }]];
+	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: true, queueRecovery: { used: false }, dryRun: true }), true);
+	const operations = mediaRequests.filter(
+		(r) =>
+			r.target === 'https://api.example.test/sessions' ||
+			r.target.endsWith('/old/old-token') ||
+			r.target.endsWith('/other/other-token') ||
+			r.target.includes('/video/play?queue=0')
+	);
+	assert.deepEqual(
+		operations.slice(0, 5).map((r) => (r.target === 'https://api.example.test/sessions' ? 'list' : r.method === 'DELETE' ? 'delete' : 'acquire')),
+		['list', 'delete', 'delete', 'list', 'acquire']
+	);
+}
+{
+	// A preflight clear owns the next complete group; an unchanged free refusal cannot replay blindly.
+	resetGlobal({ playbackRefusals: { EN: 1 } });
+	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: true, queueRecovery: { used: false }, dryRun: true }), false);
+	assert.equal(mediaRequests.filter((r) => r.target.includes('/EN/video/play?queue=0')).length, 1);
+}
+{
+	// A successful video subrequest does not release preflight ownership before dependent audio acquisition.
+	resetGlobal({ audioRefusals: 1, distinctAudio: true });
+	assert.equal(
+		await service.downloadEpisode(mediaData, {
+			...mediaOptions,
+			keepAllVideos: true,
+			vstream: 'androidtv',
+			astream: 'chrome',
+			tsd: true,
+			queueRecovery: { used: false },
+			dryRun: true
+		}),
+		false
+	);
+	assert.equal(mediaRequests.filter((r) => r.target.includes('/EN/audio/play?queue=1')).length, 1);
+}
+{
+	// An impossible server delay is rejected before clearing a full account.
+	resetGlobal({ playbackRefusals: { EN: 1 }, refusalRetryAfter: '61', capacityLimit: 2 });
+	control.sessionSequence = [
+		[],
+		[
+			{ contentId: 'old', token: 'old-token' },
+			{ contentId: 'other', token: 'other-token' }
+		]
+	];
+	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: true, queueRecovery: { used: false }, dryRun: true }), false);
+	assert(!mediaRequests.some((r) => r.target.endsWith('/old/old-token')));
+}
+{
+	// A spent-clear preflight that polls a full account must establish a known free slot.
+	resetGlobal();
+	control.sessionSequence = [[{ contentId: 'old', token: 'old-token' }], null];
+	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: true, queueRecovery: { used: true }, dryRun: true }), false);
+	assert(!mediaRequests.some((r) => r.target.includes('/video/play?queue=0') || r.method === 'DELETE'));
+}
+{
+	// Suspend the final DELETE and then verification, independently, to establish the barrier.
+	resetGlobal({ capacityLimit: 2 });
+	control.sessionSequence = [
+		[
+			{ contentId: 'old', token: 'old-token' },
+			{ contentId: 'other', token: 'other-token' }
+		],
+		[]
+	];
+	let releaseDelete, releaseVerify, markDelete, markVerify;
+	const deleteStarted = new Promise((resolve) => {
+		markDelete = resolve;
+	});
+	const verifyStarted = new Promise((resolve) => {
+		markVerify = resolve;
+	});
+	sessionBarrier = {
+		delete: new Promise((resolve) => {
+			releaseDelete = resolve;
+		}),
+		verify: new Promise((resolve) => {
+			releaseVerify = resolve;
+		}),
+		deleteStarted: markDelete,
+		verifyStarted: markVerify
+	};
+	const operation = service.downloadEpisode(mediaData, { ...mediaOptions, tsd: true, queueRecovery: { used: false }, dryRun: true });
+	await within(deleteStarted);
+	assert.equal(mediaRequests.filter((r) => r.method === 'DELETE').length, 2);
+	assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/sessions').length, 1);
+	assert(!mediaRequests.some((r) => r.target.includes('/video/play?queue=0')));
+	releaseDelete();
+	await within(verifyStarted);
+	assert(!mediaRequests.some((r) => r.target.includes('/video/play?queue=0')));
+	releaseVerify();
+	assert.equal(await within(operation), true);
+	sessionBarrier = undefined;
+}
+{
+	// Independent owned incidents restart their display sequence, but not the cumulative cap.
+	resetGlobal({ playbackRefusals: { EN: 1, JA: 2 }, refusalRetryAfter: '10' });
+	control.sessionSequence = [[{ contentId: 'old', token: 'old-token' }], [], [], [{ contentId: 'new', token: 'new-token' }], [], []];
+	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, discoveryTimmer: 0, tsd: true, queueRecovery: { used: false }, dryRun: true }), false);
+	assert.deepEqual(
+		indicatorWaits.filter((a) => a[0] && a[2] === 'playback').map((a) => [a[3], a[4]]),
+		[
+			[1, 2],
+			[1, 2]
+		]
+	);
+	assert.equal(mediaRequests.filter((r) => r.target.includes('/JA/video/play?queue=0')).length, 2);
+}
+{
+	// Two refusals within one owned incident show retry 1 then 2 when Retry-After authorizes replay.
+	resetGlobal({ playbackRefusals: { EN: 2 }, refusalRetryAfter: '10' });
+	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, discoveryTimmer: 0, tsd: true, queueRecovery: { used: false }, dryRun: true }), true);
+	assert.deepEqual(
+		indicatorWaits.filter((a) => a[0] && a[2] === 'playback').map((a) => [a[3], a[4]]),
+		[
+			[1, 2],
+			[2, 2]
+		]
+	);
+}
+{
+	// Successful download preparation is only a dependent subrequest, so the same owned incident keeps retry 2.
+	resetGlobal({ playbackRefusals: { EN: 2 }, refusalRetryAfter: '10' });
+	const partialResult = await service.downloadEpisode(mediaData, {
+		...mediaOptions,
+		discoveryTimmer: 0,
+		vstream: 'android',
+		astream: 'android',
+		tsd: true,
+		queueRecovery: { used: false },
+		dryRun: true
+	});
+	assert.equal(partialResult, true);
+	assert.deepEqual(
+		indicatorWaits.filter((a) => a[0] && a[2] === 'playback').map((a) => [a[3], a[4]]),
+		[
+			[1, 2],
+			[2, 2]
+		]
+	);
+	assert(mediaRequests.filter((r) => r.target.includes('/EN/phone/download')).length >= 3);
+}
+{
+	// Precreated scheduler reports a two-retry maximum after full-slot polling without a clear.
+	resetGlobal({ playbackRefusals: { EN: 1 }, refusalRetryAfter: '10' });
+	control.sessionSequence = [[{ contentId: 'old', token: 'old-token' }], [], []];
+	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, discoveryTimmer: 0, tsd: true, queueRecovery: { used: true }, dryRun: true }), true);
+	assert.deepEqual(
+		indicatorWaits.filter((a) => a[0] && a[2] === 'playback').map((a) => [a[3], a[4]]),
+		[[1, 2]]
+	);
+}
 resetGlobal({ downloadRefusals: 1, failRecoveryClose: true });
 assert.equal(
 	await service.downloadEpisode(mediaData, { ...mediaOptions, keepAllVideos: true, vstream: 'android', astream: 'chrome', tsd: false, queueRecovery: { used: false } }),
@@ -2516,7 +2823,7 @@ assert(!mediaRequests.some((r) => r.target === 'https://api.example.test/session
 	resetGlobal({ playbackRefusals: { JA: 3 }, capacityLimit: 2 });
 	const before = fakeNow;
 	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: false, dryRun: true }), true);
-	assert(fakeNow - before >= 100000 && fakeNow - before <= 104000, `three waits with pacing credit: ${fakeNow - before}`);
+	assert(fakeNow - before >= 100000 && fakeNow - before <= 107000, `three waits with pacing credit: ${fakeNow - before}`);
 	assert.equal(mediaRequests.filter((r) => r.target.endsWith('/old/old-token')).length, 0);
 }
 {
@@ -2537,7 +2844,7 @@ assert(!mediaRequests.some((r) => r.target === 'https://api.example.test/session
 	resetGlobal({ playbackRefusals: { EN: 1, JA: 1 }, capacityLimit: 2 });
 	const before = fakeNow;
 	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: false, dryRun: true }), true);
-	assert(fakeNow - before >= 40000 && fakeNow - before < 43000);
+	assert(fakeNow - before >= 40000 && fakeNow - before < 46000);
 }
 {
 	// A late full result cannot spend the one clear on the third discovery replay.
@@ -2554,7 +2861,7 @@ assert(!mediaRequests.some((r) => r.target === 'https://api.example.test/session
 	control.sessionSequence = [[{ contentId: 'old', token: 'old-token' }], null, [{ contentId: 'old', token: 'old-token' }]];
 	const before = fakeNow;
 	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: false, dryRun: true }), false);
-	assert(fakeNow - before >= 60000 && fakeNow - before < 62000, `slot interval restarted: ${fakeNow - before}`);
+	assert(fakeNow - before >= 60000 && fakeNow - before < 63000, `slot interval restarted: ${fakeNow - before}`);
 }
 // Exact 4294 permits one incident and resumes the failing discovery source only.
 for (const failures of [1, 2, 3]) {
@@ -2676,7 +2983,7 @@ assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/
 	resetGlobal({ playbackRefusals: { EN: 1 } });
 	const expiredAt = fakeNow;
 	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, tsd: false, queueRecovery: { used: false }, dryRun: true }), false);
-	assert(fakeNow - expiredAt >= 60000 && fakeNow - expiredAt < 61000);
+	assert(fakeNow - expiredAt >= 60000 && fakeNow - expiredAt < 63000);
 	assert.equal(mediaRequests.filter((r) => r.target.includes('/EN/video/play?queue=0')).length, 1);
 	assert.equal(mediaRequests.filter((r) => r.target.endsWith('/old/old-token')).length, 0);
 }

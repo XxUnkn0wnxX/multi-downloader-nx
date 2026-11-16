@@ -56,6 +56,7 @@ try {
 	const realHelper = compile(path.join(root, 'modules/module.crunchy-token.ts'), (id) => require(id));
 	const { parseCrunchyTokenInput } = realHelper;
 	const deviceHelper = compile(path.join(root, 'modules/module.crunchy-device-auth.ts'), (id) => require(id));
+	const forkDisplay = compile(path.join(root, 'modules/module.fork-display.ts'), (id) => require(id));
 	const same = (actual, expected) => assert.deepEqual(JSON.parse(JSON.stringify(actual)), expected);
 	const sourceError = (input, source, fragment) => {
 		try {
@@ -127,6 +128,7 @@ try {
 		'./modules/module.helper': { default: { question: async () => (helperPrompts++, 'prompt input') }, __esModule: true },
 		'./modules/module.crunchy-token': realHelper,
 		'./modules/module.crunchy-device-auth': deviceHelper,
+		'./modules/module.fork-display': forkDisplay,
 		'./modules/module.working-indicator': {
 			WorkingIndicator: class {
 				start() {}

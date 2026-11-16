@@ -250,10 +250,10 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		group: 'dl',
 		service: ['crunchy'],
 		type: 'number',
-		describe: 'Discovery pause in ms: unset uses automatic 250–400 ms or 750 ms with --qall; set a fixed pause or 0 for none.',
+		describe: 'Discovery pause in ms: automatic per batch, or per request with --qall; set an exact pause or 0.',
 		defaultLabel: 'automatic',
 		docDescribe:
-			'Set an exact additional pause in milliseconds between normal eight-request discovery batches. Unset uses automatic 250–400 ms gaps with response-time credit and a six-second added-wait budget, or a fixed 750 ms pause with --qall. Zero disables normal pauses. Fixed pauses are not capped at six seconds; discovery and request deadlines and 429 recovery still apply.',
+			'Set an exact pause in milliseconds between normal eight-request discovery batches, or before each request with --qall. Unset uses automatic 250–400 ms batch gaps with response-time credit and a six-second added-wait budget, or 600–999 ms per request with --qall. Zero disables normal pacing; discovery and request deadlines and 429 recovery still apply.',
 		default: { default: undefined },
 		usage: '${milliseconds}',
 		transformer: (value) => {

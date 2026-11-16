@@ -131,6 +131,9 @@ type ProbeInput = {
 	replayLimit?: () => number;
 	recover?: (attempt: number, scheduler: DiscoveryScheduler, signal: AbortSignal | undefined, headers: Headers, refusedAt: number, refusedWall: number) => Promise<boolean>;
 	fixedPauseMs?: number;
+	qall?: boolean;
+	onSlow?: () => void;
+	onAcquired?: () => void;
 	acquire: (source: VideoSource, signal: AbortSignal) => Promise<PlaybackLease>;
 	close: (source: VideoSource, token: string, signal: AbortSignal) => Promise<boolean>;
 	prepareDownload?: (source: VideoSource, signal: AbortSignal) => Promise<{ status: 'ok'; token?: string; url?: string } | { status: 'unavailable' }>;
@@ -164,7 +167,10 @@ export async function discoverVideoCandidates(input: ProbeInput): Promise<Discov
 			input.clock,
 			input.signal,
 			(retry, ms, kind) => input.onWaiting?.(retry, ms, kind, playbackRetry),
-			input.fixedPauseMs
+			input.fixedPauseMs,
+			undefined,
+			input.qall,
+			input.onSlow
 		);
 	const entries: CatalogVideo[] = [];
 	const references: CatalogVideo[] = [];
@@ -227,6 +233,7 @@ export async function discoverVideoCandidates(input: ProbeInput): Promise<Discov
 					}
 				);
 				if (!lease?.token || !lease.url) throw new Error('invalid playback lease');
+				input.onAcquired?.();
 				if (downloadUrl && input.resolve) lease = { ...lease, url: input.resolve(source, lease, downloadUrl) };
 				if (!/\.mpd(?:[?#]|$)/i.test(lease.url)) throw new Error('unsupported playback manifest');
 				const candidates: { family: VideoFamily; url: string }[] = [{ family: 'Current', url: lease.url }];
@@ -335,15 +342,14 @@ export async function discoverVideoCandidates(input: ProbeInput): Promise<Discov
 				if (cleanupFailed || unsafe) return { status: 'unsafe', reason: cleanupFailed ? 'session cleanup failed' : fallbackReason };
 				if (input.signal?.aborted) return { status: 'cancelled' };
 				const expired = scheduler.remaining() <= 0;
-				if (scheduler.observedRateLimit && (terminalRateFailure || expired)) return { status: 'rate-limited', reason: expired ? 'discovery timed out' : fallbackReason };
+				if (terminalRateFailure || expired) return { status: 'rate-limited', reason: expired ? 'discovery timed out' : fallbackReason };
 				return { status: 'fallback', reason: fallbackReason };
 			}
 			break;
 		}
 	}
 	if (input.signal?.aborted) return { status: 'cancelled' };
-	if (scheduler.remaining() <= 0)
-		return scheduler.observedRateLimit ? { status: 'rate-limited', reason: 'discovery timed out' } : { status: 'fallback', reason: 'discovery timed out' };
+	if (scheduler.remaining() <= 0) return { status: 'rate-limited', reason: 'discovery timed out' };
 	if (references.length !== new Set(input.requested).size) return { status: 'fallback', reason: 'metadata unavailable' };
 	const ranked = rankVideoCandidates([...new Map(entries.map((entry) => [entry.representationKey, entry])).values()], input.requested);
 	const eligible = ranked.filter((item) => {
