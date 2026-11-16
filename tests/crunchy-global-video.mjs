@@ -1232,6 +1232,24 @@ let indicatorStarts = 0,
 	indicatorStops = 0;
 let stopAtCliArguments = false;
 const cliBannerSentinel = new Error('stop after CLI banner');
+let fakeMergeResult = false;
+let fakeMuxerPresent = true;
+let muxCleanupCount = 0;
+class MergerFixture {
+	static makeFontsList() {
+		return [];
+	}
+	static checkMerger() {
+		return fakeMuxerPresent ? { FFmpeg: 'fake' } : {};
+	}
+	async createDelays() {}
+	async merge() {
+		return fakeMergeResult;
+	}
+	cleanUp() {
+		muxCleanupCount++;
+	}
+}
 const mediaDeps = {
 	'./modules/module.app-args': {
 		appArgv: () => {
@@ -1315,6 +1333,7 @@ const mediaDeps = {
 	},
 	'./modules/module.parseSelect': compile('modules/module.parseSelect.ts', { './log': { console: output } }),
 	'./modules/module.downloadArchive': { downloaded: (...args) => archiveWrites.push(args) },
+	'./modules/module.merger': { default: MergerFixture, __esModule: true },
 	'./modules/module.filename': {
 		default: (name, variables) => [name.replace('${height}', String(variables.find((item) => item.name === 'height')?.replaceWith))],
 		__esModule: true
@@ -1325,7 +1344,6 @@ const mediaDeps = {
 const ignored = new Set([
 	'./modules/module.fontsData',
 	'./modules/module.app-args',
-	'./modules/module.merger',
 	'./modules/module.fetch',
 	'./modules/module.parseSelect',
 	'./modules/module.args',
@@ -1701,6 +1719,42 @@ function resetGlobal(overrides = {}) {
 		},
 		overrides
 	);
+}
+// Failed or missing mux results must not trigger source cleanup; valid output may clean up.
+{
+	const originalMux = service.muxStreams;
+	service.muxStreams = Crunchy.prototype.muxStreams.bind(service);
+	const source = [{ type: 'Video', path: '/synthetic/source.mp4', lang: languageItems[0] }];
+	const options = {
+		...mediaOptions,
+		output: '/synthetic/output',
+		defaultAudio: languageItems[0],
+		defaultSub: languageItems[0],
+		ffmpegOptions: [],
+		mkvmergeOptions: []
+	};
+	muxCleanupCount = 0;
+	fakeMuxerPresent = true;
+	fakeMergeResult = false;
+	assert.equal(await service.muxStreams(source, options), false);
+	assert.equal(muxCleanupCount, 0, 'failed mux preserves source tracks');
+	fakeMergeResult = true;
+	assert.equal(await service.muxStreams(source, options), true);
+	assert.equal(muxCleanupCount, 1, 'successful mux cleans source tracks');
+	fakeMuxerPresent = false;
+	assert.equal(await service.muxStreams(source, options), false);
+	assert.equal(muxCleanupCount, 1, 'missing muxer preserves source tracks');
+	service.muxStreams = originalMux;
+}
+// A failed mux leaves downloaded tracks recoverable and never records the episode as complete.
+{
+	resetGlobal();
+	const originalMux = service.muxStreams;
+	service.muxStreams = async () => false;
+	assert.equal(await service.downloadEpisode(mediaData, mediaOptions), false);
+	assert(downloads.length > 0, 'media was downloaded before mux failure');
+	assert.equal(archiveWrites.length, 0, 'mux failure is not recorded in the download archive');
+	service.muxStreams = originalMux;
 }
 // Real subtitle collection and subtitle-only chapter cleanup use isolated in-memory files.
 {
@@ -2947,6 +3001,7 @@ for (const [reason, tsd] of [
 				releaseMux = resolve;
 			});
 		}
+		return true;
 	};
 	service.logSeriesById = async () => {};
 	service.downloadFromSeriesID = async () => ({ isOk: true, value: [mediaData, mediaData] });

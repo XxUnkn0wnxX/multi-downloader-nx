@@ -397,7 +397,16 @@ class Merger {
 		return fontsList;
 	}
 
-	public async merge(type: 'ffmpeg' | 'mkvmerge', bin: string) {
+	private outputState(): { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number } | undefined {
+		try {
+			const stat = fs.statSync(this.options.output);
+			return stat.isFile() && stat.size > 0 ? { dev: stat.dev, ino: stat.ino, size: stat.size, mtimeMs: stat.mtimeMs, ctimeMs: stat.ctimeMs } : undefined;
+		} catch {
+			return undefined;
+		}
+	}
+
+	public async merge(type: 'ffmpeg' | 'mkvmerge', bin: string): Promise<boolean> {
 		let command: string | undefined = undefined;
 		switch (type) {
 			case 'ffmpeg':
@@ -409,18 +418,42 @@ class Merger {
 		}
 		if (command === undefined) {
 			console.warn('Unable to merge files.');
-			return;
+			return false;
 		}
 		console.info(`[${type}] Started merging`);
-		const res = Helper.exec(type, `"${bin}"`, command);
+		const previousOutput = this.outputState();
+		let res: ReturnType<typeof Helper.exec>;
+		try {
+			res = Helper.exec(type, `"${bin}"`, command);
+		} catch (error) {
+			console.error(error);
+			console.error(`[${type}] Merging failed`);
+			return false;
+		}
+		const acceptedExit = res.isOk || (type === 'mkvmerge' && !res.isOk && res.err.code === 1);
 		if (!res.isOk && type === 'mkvmerge' && res.err.code === 1) {
 			console.info(`[${type}] Mkvmerge finished with at least one warning`);
 		} else if (!res.isOk) {
 			console.error(res.err);
 			console.error(`[${type}] Merging failed with exit code ${res.err.code}`);
-		} else {
-			console.info(`[${type} Done]`);
+			return false;
 		}
+		if (!acceptedExit) return false;
+		const output = this.outputState();
+		const changed =
+			!!output &&
+			(!previousOutput ||
+				output.dev !== previousOutput.dev ||
+				output.ino !== previousOutput.ino ||
+				output.size !== previousOutput.size ||
+				output.mtimeMs !== previousOutput.mtimeMs ||
+				output.ctimeMs !== previousOutput.ctimeMs);
+		if (!changed) {
+			console.error(`[${type}] Merging failed: output is missing, empty, or unchanged`);
+			return false;
+		}
+		if (res.isOk) console.info(`[${type} Done]`);
+		return true;
 	}
 
 	public cleanUp() {

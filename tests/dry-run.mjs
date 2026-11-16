@@ -349,6 +349,23 @@ try {
 		assert.equal(effects.path, 1);
 	});
 
+	await test('HIDIVE episode and single-episode mux failures do not archive completion', async () => {
+		for (const single of [false, true]) {
+			const service = loadHidive();
+			service.cfg.bin = { ffmpeg: '/ffmpeg' };
+			service.apiReq = async () => ({ ok: true, res: { text: async () => JSON.stringify(episodeData) } });
+			service.req = hd.req;
+			service.downloadMPD = async () => ({ data: [], fileName: 'episode' });
+			service.muxStreams = async () => false;
+			service.getSeason = async () => ({ isOk: true, value: { title: 'Season', series: { title: 'Series' } } });
+			const result = single
+				? await service.downloadSingleEpisode(55, hidiveOptions({ dryRun: false }))
+				: await service.downloadEpisode(selectedHidiveEpisode(), hidiveOptions({ dryRun: false }));
+			assert.equal(result.isOk, false);
+			assert.equal(effects.archive, 0);
+		}
+	});
+
 	await test('ADN preview lists all selected-language quality URLs without fetching rendition playlists', async () => {
 		const service = loadAdn();
 		const req = adnRequests();
@@ -362,6 +379,15 @@ try {
 		assert(logs.some(([, line]) => line.includes('https://cdn.example/deu/720.m3u8?cdn=deu')));
 		assert.equal(req.calls.filter(({ url }) => url.includes('/720.m3u8')).length, 0);
 		assert.deepEqual(effects, { bin: 0, cdm: 0, download: 0, mux: 0, archive: 0, path: 0, files: 0 });
+	});
+
+	await test('ADN mux failure does not archive completion', async () => {
+		const service = loadAdn();
+		service.downloadEpisode = async () => ({ data: [], fileName: 'episode' });
+		service.muxStreams = async () => false;
+		const result = await service.getEpisode(adnVideo(), adnOptions({ dryRun: false }));
+		assert.equal(result.isOk, false);
+		assert.equal(effects.archive, 0);
 	});
 
 	await test('ADN multi-dub preview simulates video-once selection without fetching variants', async () => {

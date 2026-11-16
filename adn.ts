@@ -362,11 +362,17 @@ export default class AnimationDigitalNetwork implements ServiceClass {
 		return { isOk: true, value: selEpsArr };
 	}
 
-	public async muxStreams(data: DownloadedMedia[], options: yargs.ArgvType) {
+	public async muxStreams(data: DownloadedMedia[], options: yargs.ArgvType): Promise<boolean> {
 		this.cfg.bin = await yamlCfg.loadBinCfg();
 		let hasAudioStreams = false;
-		if (options.novids || data.filter((a) => a.type === 'Video').length === 0) return console.info('Skip muxing since no vids are downloaded');
-		if (options.subdlfailed && options.skipMuxOnSubFail) return console.info('Skip muxing since some subtitles failed to download');
+		if (options.novids || data.filter((a) => a.type === 'Video').length === 0) {
+			console.info('Skip muxing since no vids are downloaded');
+			return true;
+		}
+		if (options.subdlfailed && options.skipMuxOnSubFail) {
+			console.info('Skip muxing since some subtitles failed to download');
+			return true;
+		}
 		if (data.some((a) => a.type === 'Audio')) {
 			hasAudioStreams = true;
 		}
@@ -451,15 +457,18 @@ export default class AnimationDigitalNetwork implements ServiceClass {
 		if (options.syncTiming) {
 			await merger.createDelays();
 		}
+		let merged: boolean;
 		if (bin.MKVmerge) {
-			await merger.merge('mkvmerge', bin.MKVmerge);
+			merged = await merger.merge('mkvmerge', bin.MKVmerge);
 		} else if (bin.FFmpeg) {
-			await merger.merge('ffmpeg', bin.FFmpeg);
+			merged = await merger.merge('ffmpeg', bin.FFmpeg);
 		} else {
-			console.info('\nDone!\n');
-			return;
+			console.error('Unable to mux files: no supported muxer is available.');
+			return false;
 		}
+		if (!merged) return false;
 		if (!options.nocleanup) merger.cleanUp();
+		return true;
 	}
 
 	public async getEpisode(data: ADNVideo, options: yargs.ArgvType) {
@@ -472,7 +481,7 @@ export default class AnimationDigitalNetwork implements ServiceClass {
 			return { isOk: true, dryRun: true };
 		} else {
 			if (!options.skipmux) {
-				await this.muxStreams(res.data, { ...options, output: res.fileName });
+				if (!(await this.muxStreams(res.data, { ...options, output: res.fileName }))) return { isOk: false, reason: new Error('Muxing failed') };
 			} else {
 				console.info('Skipping mux');
 			}

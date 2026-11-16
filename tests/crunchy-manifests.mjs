@@ -460,7 +460,10 @@ async function preview(q, sameToken = false, failAudio = false, count = 1, extra
 	service.debug = !extraOptions.testGuiDebug;
 	service.deviceHeaders = () => ({});
 	service.refreshToken = async () => true;
-	service.muxStreams = async () => sideEffects.push('mux');
+	service.muxStreams = async () => {
+		sideEffects.push('mux');
+		return true;
+	};
 	service.req = {
 		argv: { debug: !!extraOptions.testGuiDebug },
 		async getData(target, opts = {}) {
@@ -627,7 +630,10 @@ assert.equal(hard.result, true);
 assert.equal(hard.optionalCalls, 0);
 const serviceControl = Object.create(Crunchy.prototype);
 serviceControl.downloadMediaList = async () => ({ error: false, data: [], fileName: 'unused' });
-serviceControl.muxStreams = async () => sideEffects.push('mux');
+serviceControl.muxStreams = async () => {
+	sideEffects.push('mux');
+	return true;
+};
 sideEffects.length = 0;
 assert.equal(await serviceControl.downloadEpisode({ e: '1', seasonID: 'test' }, { skipmux: false }), true);
 assert.deepEqual(sideEffects, ['mux', 'archive']);
