@@ -238,7 +238,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		group: 'dl',
 		describe: 'Scan all Crunchyroll languages and show all video qualities (slower; may cause rate limits)',
 		docDescribe:
-			'Scan all languages and show every eligible Crunchyroll video quality. This sends more requests and may trigger rate limits affecting normal viewing. Quality numbers remain stable within the active catalogue; switching --qall can change them.',
+			'Scan all languages and show every eligible Crunchyroll video quality. Default pacing samples 600–999 ms before each discovery request; an explicit discovery timer replaces it. Active discovery work is limited to 180 seconds, with an extra-time message on the existing status row after 90 seconds. This sends more requests and may trigger rate limits affecting normal viewing. Quality numbers remain stable within the active catalogue; switching --qall can change them.',
 		default: { default: false },
 		service: ['crunchy'],
 		type: 'boolean',
@@ -253,7 +253,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		describe: 'Discovery pause in ms: automatic per batch, or per request with --qall; set an exact pause or 0.',
 		defaultLabel: 'automatic',
 		docDescribe:
-			'Set an exact pause in milliseconds between normal eight-request discovery batches, or before each request with --qall. Unset uses automatic 250–400 ms batch gaps with response-time credit and a six-second added-wait budget, or 600–999 ms per request with --qall. Zero disables normal pacing; discovery and request deadlines and 429 recovery still apply.',
+			'Set an exact pause in milliseconds between normal eight-request discovery batches, or before each request with --qall. Unset uses automatic 250–400 ms batch gaps with response-time credit and a six-second added-wait budget, or 600–999 ms per request with --qall. Zero disables normal pacing. Fixed pauses are not capped at six seconds; discovery and request deadlines and 429 recovery still apply.',
 		default: { default: undefined },
 		usage: '${milliseconds}',
 		transformer: (value) => {
@@ -373,7 +373,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		group: 'dl',
 		describe: 'Check playback capacity before episodes; explicitly reset sessions with standalone --tsd.',
 		docDescribe:
-			'Before each episode, assess account playback capacity and clear the validated session list only when full and the command clear allowance is available. Explicit standalone --tsd force-clears and verifies listed sessions. Exact qualifying playback refusals can trigger bounded capacity checks, waits and acquisition retries. This does not log out and may not clear a rate limit.',
+			'Before each episode, assess account playback capacity and clear the validated session list only when full and the command clear allowance is available. Finish all planned deletions and fresh verification before resuming below the API-derived account limit. Explicit standalone --tsd force-clears listed sessions and requires verified zero. For qualifying playback refusals, actual TSD intervention uses bounded recovery instead of ordinary retry tiers for that unresolved acquisition group; otherwise ordinary recovery remains available. This does not log out and may not clear a rate limit. See [Crunchyroll playback recovery](CRUNCHYROLL-RECOVERY.md).',
 		service: ['crunchy'],
 		type: 'boolean',
 		usage: '',

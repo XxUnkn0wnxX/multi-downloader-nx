@@ -1,4 +1,4 @@
-# multi-downloader-nx (v5.8.8)
+# multi-downloader-nx v5.8.8 (Nightly) [Rev3]
 
 If you find any bugs in this documentation or in the program itself, please report them on [GitHub issues](../../../issues).
 
@@ -169,13 +169,13 @@ Use the listed quality number; 0 selects the maximum quality. Crunchyroll ranks 
 | --- | --- | --- | --- | --- | --- | ---|
 | Crunchyroll | `--qall ` | `boolean` | `No`| `—` | `false`| `qall: ` |
 
-Scan all languages and show every eligible Crunchyroll video quality. This sends more requests and may trigger rate limits affecting normal viewing. Quality numbers remain stable within the active catalogue; switching --qall can change them.
+Scan all languages and show every eligible Crunchyroll video quality. Default pacing samples 600–999 ms before each discovery request; an explicit discovery timer replaces it. Active discovery work is limited to 180 seconds, with an extra-time message on the existing status row after 90 seconds. This sends more requests and may trigger rate limits affecting normal viewing. Quality numbers remain stable within the active catalogue; switching --qall can change them.
 #### `--discovery-timmer`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
 | Crunchyroll | `--discovery-timmer ${milliseconds}` | `number` | `No`| `--disctmr` | `automatic`| `discovery-timmer: ` or `disctmr: ` |
 
-Set an exact additional pause in milliseconds between normal eight-request discovery batches. Unset uses automatic 250–400 ms gaps with response-time credit and a six-second added-wait budget, or a fixed 750 ms pause with --qall. Zero disables normal pauses. Fixed pauses are not capped at six seconds; discovery and request deadlines and 429 recovery still apply.
+Set an exact pause in milliseconds between normal eight-request discovery batches, or before each request with --qall. Unset uses automatic 250–400 ms batch gaps with response-time credit and a six-second added-wait budget, or 600–999 ms per request with --qall. Zero disables normal pacing. Fixed pauses are not capped at six seconds; discovery and request deadlines and 429 recovery still apply.
 #### `--dlVideoOnce`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
@@ -230,7 +230,7 @@ Select a specific Crunchyroll audio playback endpoint by device. Available rendi
 | --- | --- | --- | --- | --- | --- | ---|
 | Crunchyroll | `--tsd ` | `boolean` | `No`| `—` | `false`| `tsd: ` |
 
-Before each episode, assess account playback capacity and clear the validated session list only when full and the command clear allowance is available. Explicit standalone --tsd force-clears and verifies listed sessions. Exact qualifying playback refusals can trigger bounded capacity checks, waits and acquisition retries. This does not log out and may not clear a rate limit.
+Before each episode, assess account playback capacity and clear the validated session list only when full and the command clear allowance is available. Finish all planned deletions and fresh verification before resuming below the API-derived account limit. Explicit standalone --tsd force-clears listed sessions and requires verified zero. For qualifying playback refusals, actual TSD intervention uses bounded recovery instead of ordinary retry tiers for that unresolved acquisition group; otherwise ordinary recovery remains available. This does not log out and may not clear a rate limit. See [Crunchyroll playback recovery](CRUNCHYROLL-RECOVERY.md).
 #### `--hslang`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | --- | ---|

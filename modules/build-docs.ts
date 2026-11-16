@@ -2,6 +2,7 @@ import packageJSON from '../package.json';
 import fs from 'fs';
 import path from 'path';
 import { args, groups } from './module.args';
+import { displayVersion } from './module.fork-display';
 
 const transformService = (str: Array<'crunchy' | 'hidive' | 'adn' | 'all'>) => {
 	const services: string[] = [];
@@ -24,7 +25,7 @@ const transformService = (str: Array<'crunchy' | 'hidive' | 'adn' | 'all'>) => {
 	return services.join(', ');
 };
 
-let docs = `# ${packageJSON.name} (v${packageJSON.version})
+let docs = `# ${packageJSON.name} v${displayVersion(packageJSON)}
 
 If you find any bugs in this documentation or in the program itself, please report them on [GitHub issues](../../../issues).
 

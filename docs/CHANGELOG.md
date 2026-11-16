@@ -2,6 +2,18 @@
 
 Changes specific to this fork are grouped below with their implementation commits. See [Fork changes](fork-changes.md) for maintenance requirements and the [README](README.md) for usage.
 
+## 2026-11-16
+
+### Nightly Rev3: discovery pacing and TSD recovery
+
+Implementation: [f997444](../../../commit/f9974441993ea46106a1ec1329432c33967c6cbb).
+
+- Pace every all-language discovery request with a fresh 600–999 ms delay. Keep normal selected-language batch pacing and exact fixed timer overrides, including zero, in both modes.
+- Allow 180 seconds of active work for qall discovery and update the existing status row after 90 seconds. Stop after cleanup when discovery or its next required wait cannot fit the budget.
+- Keep TSD recovery within the affected complete acquisition group, without ordinary retry-tier delays for the same unresolved problem or replenished shared limits. Finish the whole clear and fresh verification before resuming; episode recovery accepts capacity below the account’s API-derived limit, while standalone reset still requires zero.
+- Store the Nightly revision alongside the base version in package metadata. Show it in provider/GUI displays and use the exact released source’s revision for the rolling release title. Keep raw CLI version output, the release tag, URLs and assets compatible.
+- Update the recovery and getting-started guides, fork maintenance notes, CLI help and regenerated reference.
+
 ## 2026-11-15
 
 ### Normal Nightly release and visible build targets

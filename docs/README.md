@@ -36,7 +36,7 @@ The commands below assume `aniDL` is on your `PATH`. After a source build, use `
 
 **Log in:** `aniDL --service crunchy --device`, then approve the displayed code in your browser. Existing browser-cookie workflows remain documented under [`--token`](DOCUMENTATION.md#--token).
 
-Search for a series, list its seasons, and select episodes with the dubs and subtitles you want. For raw DASH streams, discovery defaults to the selected audio languages and keeps their available video variants. `--qall` expands discovery to all available languages and shows the full quality list. It adds a default 750 ms after each normal batch, making the scan slower; its additional requests can trigger rate limits that affect normal viewing.
+Search for a series, list its seasons, and select episodes with the dubs and subtitles you want. For raw DASH streams, discovery defaults to the selected audio languages and keeps their available video variants. `--qall` expands discovery to all available languages and shows the full quality list, with a fresh 600–999 ms pause before each discovery request. The scan is slower and sends more requests; those additional requests can trigger rate limits that affect normal viewing.
 
 Legacy availability varies by episode and dub; advertised bandwidth is not measured file-average bitrate. Timing checks cannot prove identical edits or decoded synchronization, and `--bypasssync` skips video/audio timing checks with a risk of desynchronization. See [Crunchyroll streams and quality](GET-STARTED.md#crunchyroll-streams-and-quality) for quality labels, selection scope, and timing limits.
 
@@ -93,7 +93,9 @@ To package a standalone application, use a `build-{platform}-{arch}-{type}` scri
 
 For a manual build of the current `main` commit, open **Actions → Nightly Fork → Run workflow** and select `main`. Documentation-only revisions can reuse the latest applicable passing Tests run on `main` when application, build, workflow, test, and dependency inputs are unchanged. Changed inputs require fresh passing Tests; a newer applicable failed or pending run blocks the manual build. Markdown-only and `docs/`-only changes skip automatic Tests, so this manual path can release those revisions without repeating unchanged source tests.
 
-The workflow replaces eight `.7z` CLI archives and their checksums on the same **Nightly Fork** release page under the fixed `nightly-fork` tag. It is a normal release marked **Latest**. Release notes identify the released commit and the source revision validated by Tests separately, with links to the [fork changelog](CHANGELOG.md), Tests, and build run. GitHub also provides source ZIP and tar.gz downloads for the release tag. GUI packages remain a source-build option.
+The workflow replaces eight `.7z` CLI archives and their checksums on the same release page under the fixed `nightly-fork` tag. Its title includes the manually maintained fork revision, for example **Nightly Fork (Rev3)**, and it remains a normal release marked **Latest**. Release notes identify the released commit and the source revision validated by Tests separately, with links to the [fork changelog](CHANGELOG.md), Tests, and build run. GitHub also provides source ZIP and tar.gz downloads for the release tag. GUI packages remain a source-build option.
+
+Provider banners and the GUI display the base version, channel and revision, for example `5.8.8 (Nightly) [Rev3]`. CLI `--version` keeps the base version for compatibility. Maintainers update the shared metadata in [package.json](../package.json); see [fork revision maintenance](fork-changes.md#nightly-revision-metadata).
 
 ## Legal warning
 

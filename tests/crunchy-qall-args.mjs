@@ -235,8 +235,9 @@ serverOption.default.name = 'server';
 let generated = '';
 try {
 	compile('modules/build-docs.ts', {
-		'../package.json': { name: 'fixture', version: '1' },
+		'../package.json': { name: 'fixture', version: '1', fork: { channel: 'Nightly', revision: 12 } },
 		'./module.args': { args, groups },
+		'./module.fork-display': compile('modules/module.fork-display.ts'),
 		fs: {
 			writeFileSync: (_path, text) => {
 				generated = text;
@@ -248,6 +249,7 @@ try {
 	delete serverOption.default.name;
 }
 const generatedServer = generated.split('#### `-x`')[1].split('#### `')[0];
+assert(generated.startsWith('# fixture v1 (Nightly) [Rev12]'));
 assert.equal((generatedServer.match(/`server: `/g) ?? []).length, 1, 'matching canonical and alias keys render only once');
 
 assert.equal(parse([], { tsd: true }).tsd, true);
