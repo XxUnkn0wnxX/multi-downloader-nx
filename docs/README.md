@@ -23,7 +23,7 @@ Available titles, languages, and qualities depend on the provider, region, and a
 Obtain a CLI archive from [Releases](../../../releases) when available, or [build from source](#build-from-source). Automated CLI builds target Windows, macOS, Linux, and Alpine, each for x64 and arm64. The GUI is built from source; the [Windows GUI guide](GET-STARTED.md) walks through its setup and use.
 
 - **Media tools:** install [ffmpeg](https://www.videohelp.com/software/ffmpeg) and [MKVToolNix](https://www.videohelp.com/software/MKVToolNix). DRM decryption also needs [Bento4's `mp4decrypt`](https://www.bento4.com/downloads/) or [Shaka Packager](https://github.com/stratumadev/shaka-packager/releases).
-- **CDM files:** these are not included. Supported Widevine files belong in `widevine/` and PlayReady files in `playready/`; see the [supported formats](GET-STARTED.md#cdm-files). CDM acquisition is outside this guide.
+- **CDM files:** these are not included. Supported Widevine files belong in `widevine/` and PlayReady files in `playready/`; see the [supported formats](GET-STARTED.md#cdm-files). For Widevine key setup, see [Widevine keys](../widevine/README.md).
 - **Source builds:** install [Node.js](https://nodejs.org/) 22 or newer and [pnpm](https://pnpm.io/) 10 or newer. Standalone CLI packages include their own runtime: Node 22 for macOS to retain the Big Sur baseline, and Node 24 for other targets.
 
 Set executable locations in [`config/bin-path.yml`](../config/bin-path.yml) and save preferred options in [`config/cli-defaults.yml`](../config/cli-defaults.yml). The [CLI reference](DOCUMENTATION.md) lists supported settings and defaults.
