@@ -35,12 +35,12 @@ mp4decrypt --help
 
 ## CDM files
 
-CDM files are not included, and this guide does not cover how to obtain them. Supported file formats are:
+CDM files are not included. For Widevine key setup, see [Widevine keys](../widevine/README.md). Supported file formats are:
 
 - **Widevine:** a `.wvd` file, or `client_id.bin` with `private_key.pem`; the application also accepts `device_client_id_blob` with `device_private_key`.
 - **PlayReady:** a `.prd` file, or `bgroupcert.dat` with `zgpriv.dat`. The supported security levels are SL2000 and SL3000. When renaming a pair of blobs, the certificate file is `bgroupcert.dat` (usually around 1 KiB) and the 32-byte key file is `zgpriv.dat`; [MediaInfo](https://mediaarea.net/en/MediaInfo) can show file sizes.
 
-Place Widevine files in `widevine/` and PlayReady files in `playready/` beside the application. For Widevine key setup, see [Widevine keys](../widevine/README.md). If using Shaka Packager for PlayReady, use a build compatible with this application; see its [release page](https://github.com/stratumadev/shaka-packager/releases).
+Place Widevine files in `widevine/` and PlayReady files in `playready/` beside the application. If using Shaka Packager for PlayReady, use a build compatible with this application; see its [release page](https://github.com/stratumadev/shaka-packager/releases).
 
 ## Start the GUI
 
