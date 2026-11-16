@@ -163,7 +163,7 @@ Allows you to download or view legacy Crunchyroll Ids
 | --- | --- | --- | --- | --- | --- | ---|
 | All | `-q ${qualityLevel}` | `number` | `No`| `—` | `0`| `q: ` |
 
-Use the listed quality number; 0 selects the maximum quality. Crunchyroll ranks by dimensions, then advertised bitrate, and compares compatible current and legacy video within the selected audio languages, also checking Japanese video when English audio is selected, while keeping the highest current audio for the requested dubs. Use --qall to include all languages. Crunchyroll reports a short reason when checks force video fallback. Its compact quality list shows up to four Current and four Legacy entries in each of the top three resolution groups, with stable full-catalogue numbers; compact view may have gaps where rows are hidden. Use --qall to show every eligible video quality. Short manifest and video-source language tags such as [V:jpn] identify each row, which marks the selected entry. Its audio quality list uses independent [A:eng] language tags and shows the selected audio server below the row. A fallback prints only the discarded and re-selected rows, when applicable.
+Use the listed quality number; 0 selects the maximum quality. Crunchyroll ranks by dimensions, then advertised bitrate, and compares compatible current and legacy video within exactly the selected audio languages while keeping the highest current audio for the requested dubs. Use --qall to include all languages. Crunchyroll reports a short reason when checks force video fallback. Its compact quality list shows up to four Current and four Legacy entries in each of the top three resolution groups, with stable full-catalogue numbers; compact view may have gaps where rows are hidden. Use --qall to show every eligible video quality. Short manifest and video-source language tags such as [V:jpn] identify each row, which marks the selected entry. Its audio quality list uses independent [A:eng] language tags and shows the selected audio server below the row. A fallback prints only the discarded and re-selected rows, when applicable.
 #### `--qall`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
@@ -335,7 +335,7 @@ Skip downloading subtitles
 
 Set the language to download: 
 Crunchy Only: und, eng, eng, spa, spa-419, spa-ES, por, por, fra, deu, ara-ME, ara, ita, rus, tur, hin, zho, chi, zh-HK, kor, cat, pol, tha, tam, may, vie, ind, tel, jpn
-Crunchyroll: use --srz with multiple languages, for example --dubLang eng jpn hin; -s keeps only the first dub. Every explicitly requested dub must be available for the episode; --allDubs downloads the available dubs instead. --noaudio skips this requirement.
+Crunchyroll: use --srz with multiple languages, for example --dubLang eng jpn hin; -s keeps only the first dub. Every explicitly requested dub must be available for the episode; --allDubs downloads the available dubs instead. --noaudio skips this requirement. Selecting more than two dubs prints a multi-stream discovery warning.
 #### `--all`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
@@ -360,7 +360,7 @@ If selected, will prevent a line from shifting downwards
 | --- | --- | --- | --- | --- | ---|
 | All | `--allDubs ` | `boolean` | `No`| `—` | `—` |
 
-If selected, all available dubs will get downloaded
+Download the audio dubs actually available for each episode; a missing configured or expected language does not stop the download. For example, Japanese can download even when English is unavailable. For each episode independently, Crunchyroll compares video manifests for the found audio languages and uses the same multi-audio timing checks and compact quality output. This option always prints a multi-stream discovery warning, even when only one or two dubs are available. --qall instead uses the full-stream warning; warnings are printed only once per command.
 #### `--timeout`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|

@@ -231,7 +231,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 			default: 0
 		},
 		docDescribe:
-			'Use the listed quality number; 0 selects the maximum quality. Crunchyroll ranks by dimensions, then advertised bitrate, and compares compatible current and legacy video within the selected audio languages, also checking Japanese video when English audio is selected, while keeping the highest current audio for the requested dubs. Use --qall to include all languages. Crunchyroll reports a short reason when checks force video fallback. Its compact quality list shows up to four Current and four Legacy entries in each of the top three resolution groups, with stable full-catalogue numbers; compact view may have gaps where rows are hidden. Use --qall to show every eligible video quality. Short manifest and video-source language tags such as [V:jpn] identify each row, which marks the selected entry. Its audio quality list uses independent [A:eng] language tags and shows the selected audio server below the row. A fallback prints only the discarded and re-selected rows, when applicable.',
+			'Use the listed quality number; 0 selects the maximum quality. Crunchyroll ranks by dimensions, then advertised bitrate, and compares compatible current and legacy video within exactly the selected audio languages while keeping the highest current audio for the requested dubs. Use --qall to include all languages. Crunchyroll reports a short reason when checks force video fallback. Its compact quality list shows up to four Current and four Legacy entries in each of the top three resolution groups, with stable full-catalogue numbers; compact view may have gaps where rows are hidden. Use --qall to show every eligible video quality. Short manifest and video-source language tags such as [V:jpn] identify each row, which marks the selected entry. Its audio quality list uses independent [A:eng] language tags and shows the selected audio server below the row. A fallback prints only the discarded and re-selected rows, when applicable.',
 		service: ['all'],
 		type: 'number',
 		usage: '${qualityLevel}'
@@ -584,7 +584,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 				.map((a) => a.code)
 				.join(
 					', '
-				)}\nCrunchyroll: use --srz with multiple languages, for example --dubLang eng jpn hin; -s keeps only the first dub. Every explicitly requested dub must be available for the episode; --allDubs downloads the available dubs instead. --noaudio skips this requirement.`,
+				)}\nCrunchyroll: use --srz with multiple languages, for example --dubLang eng jpn hin; -s keeps only the first dub. Every explicitly requested dub must be available for the episode; --allDubs downloads the available dubs instead. --noaudio skips this requirement. Selecting more than two dubs prints a multi-stream discovery warning.`,
 		docDescribe: true,
 		group: 'dl',
 		choices: dubLanguageCodes,
@@ -631,7 +631,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	{
 		name: 'allDubs',
 		describe: 'If selected, all available dubs will get downloaded',
-		docDescribe: true,
+		docDescribe:
+			'Download the audio dubs actually available for each episode; a missing configured or expected language does not stop the download. For example, Japanese can download even when English is unavailable. For each episode independently, Crunchyroll compares video manifests for the found audio languages and uses the same multi-audio timing checks and compact quality output. This option always prints a multi-stream discovery warning, even when only one or two dubs are available. --qall instead uses the full-stream warning; warnings are printed only once per command.',
 		group: 'dl',
 		service: ['all'],
 		type: 'boolean',

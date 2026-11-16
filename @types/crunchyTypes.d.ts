@@ -51,6 +51,7 @@ export type CrunchyDownloadOptions = {
 	originalFontSize: boolean;
 	fontSize: number;
 	dubLang: string[];
+	allDubs?: boolean;
 	// Subtitle Fix Options
 	noASSConv: boolean;
 	noSubFix: boolean;
@@ -91,6 +92,7 @@ export type CrunchyMuxOptions = {
 
 export type CrunchyEpMeta = {
 	requiredDubLang?: string[];
+	allDubs?: boolean;
 	data: {
 		mediaId: string;
 		lang?: LanguageItem;

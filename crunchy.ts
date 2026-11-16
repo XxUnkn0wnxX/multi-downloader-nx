@@ -1978,15 +1978,17 @@ export default class Crunchy implements ServiceClass {
 			}
 		}
 		const selectedLocales = new Set<string>(requested.filter((version): version is EpisodeVersion => !!version).map((version) => version.audio_locale));
-		const activeVersions = options.qall
-			? versions
-			: requested.every(Boolean)
-				? versions?.filter((version) => selectedLocales.has(version.audio_locale) || (selectedLocales.has('en-US') && version.audio_locale === 'ja-JP'))
-				: [];
+		const allDubs = data.allDubs ?? options.allDubs;
+		const activeVersions = options.qall ? versions : requested.every(Boolean) ? versions?.filter((version) => selectedLocales.has(version.audio_locale)) : [];
 		const perRequestDiscovery = !!options.qall || selectedLocales.size > 1;
 		const discoveryPause = options.discoveryTimmer;
-		if (options.qall && !state.budget.qallWarned) {
-			console.warn('Full stream discovery scans more sources, is slower, and can trigger rate limits affecting normal viewing.');
+		const broadDiscoveryWarning = options.qall || !!allDubs || new Set(data.requiredDubLang ?? []).size > 2 || selectedLocales.size > 2;
+		if (broadDiscoveryWarning && !state.budget.qallWarned) {
+			console.warn(
+				options.qall
+					? 'Full stream discovery scans more sources, is slower, and can trigger rate limits affecting normal viewing.'
+					: 'Multi-stream discovery scans more sources, is slower, and can trigger rate limits affecting normal viewing.'
+			);
 			state.budget.qallWarned = true;
 		}
 		if (state.permitClear) {
@@ -4579,6 +4581,7 @@ export default class Crunchy implements ServiceClass {
 		const selected = this.itemSelectMultiDub(episodes, data.dubLang, data.but, data.all, data.e, data.absolute, data.allDubs);
 		for (const key of Object.keys(selected)) {
 			const item = selected[key];
+			item.allDubs = !!data.allDubs;
 			if (!data.allDubs) item.requiredDubLang = [...data.dubLang];
 			console.info(
 				`[S${item.season}E${item.episodeNumber}] - ${item.episodeTitle} [${item.data
