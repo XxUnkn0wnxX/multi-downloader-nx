@@ -1,3 +1,5 @@
+import packageJson from '../package.json';
+import { forkReleaseUrl } from './module.fork-display';
 import { dubLanguageCodes, languages, searchLocales, subtitleLanguagesFilter } from './module.langsData';
 import { CrunchyVideoPlayStreams, CrunchyAudioPlayStreams } from '../@types/enums';
 
@@ -821,8 +823,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	{
 		name: 'update',
 		group: 'util',
-		describe: 'Updates disabled on this fork. Download updates: https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork',
-		docDescribe: 'Updates disabled on this fork. Download updates: https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork',
+		describe: `Updates disabled on this fork. Download updates: ${forkReleaseUrl(packageJson.fork)}`,
+		docDescribe: `Updates disabled on this fork. Download updates: ${forkReleaseUrl(packageJson.fork)}`,
 		service: ['all'],
 		type: 'boolean',
 		usage: ''

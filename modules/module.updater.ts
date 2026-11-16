@@ -1,3 +1,4 @@
+import { checkForkUpdate } from './module.fork-update';
 import { GithubTag, TagCompare } from '../@types/github';
 import path from 'path';
 import { UpdateFile } from '../@types/updateFile';
@@ -43,6 +44,14 @@ export type ApplyItem = {
 };
 
 export default async (force = false) => {
+	if (Object.prototype.hasOwnProperty.call(packageJson, 'fork')) {
+		try {
+			await checkForkUpdate(packageJson, force);
+		} catch {
+			/* Fork checks must never invoke the legacy updater. */
+		}
+		return;
+	}
 	const isPackaged = (
 		process as NodeJS.Process & {
 			pkg?: unknown;

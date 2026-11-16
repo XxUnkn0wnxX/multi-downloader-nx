@@ -4,7 +4,9 @@
 	"version": "5.8.8",
 	"fork": {
 		"channel": "Nightly",
-		"revision": 3
+		"revision": 4,
+		"repository": "XxUnkn0wnxX/multi-downloader-nx",
+		"releaseTag": "nightly-fork"
 	},
 	"description": "Downloader for Crunchyroll, Hidive, and AnimationDigitalNetwork with CLI and GUI",
 	"keywords": [

@@ -46,7 +46,9 @@ function compile(file, deps = {}, overrides = {}) {
 
 const { args, groups, configuredDefault, getDefault } = compile('modules/module.args.ts', {
 	'./module.langsData': languageData,
-	'../@types/enums': enums
+	'../@types/enums': enums,
+	'../package.json': JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')),
+	'./module.fork-display': compile('modules/module.fork-display.ts')
 });
 const qallOption = args.find((arg) => arg.name === 'qall');
 assert.equal(qallOption.default.default, false);

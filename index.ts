@@ -1,3 +1,5 @@
+import packageJson from './package.json';
+import { forkReleaseUrl } from './modules/module.fork-display';
 import { console } from './modules/log';
 import { appArgv, overrideArguments, statusInvocation } from './modules/module.app-args';
 import * as yamlCfg from './modules/module.cfg-loader';
@@ -28,7 +30,7 @@ const SERVICES: Record<string, any> = {
 	const cfg = yamlCfg.loadCfg(status === 'valid' || manualUpdateRequested);
 	const argv = appArgv(cfg.cli);
 	if (argv.update) {
-		console.warn('Updates disabled on this fork. Download updates: https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork');
+		console.warn(`Updates disabled on this fork. Download updates: ${forkReleaseUrl(packageJson.fork)}`);
 		process.exitCode = 1;
 		return;
 	}

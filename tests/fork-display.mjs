@@ -14,7 +14,7 @@ const code = ts.transpileModule(fs.readFileSync(modulePath, 'utf8'), {
 }).outputText;
 const module = { exports: {} };
 vm.runInNewContext(code, { module, exports: module.exports, console: output }, { filename: modulePath });
-const { displayVersion } = module.exports;
+const { displayVersion, forkReleaseUrl } = module.exports;
 
 assert.equal(typeof packageMetadata.version, 'string');
 assert.equal(packageMetadata.fork.channel, 'Nightly');
@@ -31,4 +31,11 @@ for (const fork of [
 	assert.throws(() => displayVersion({ version: '5.8.8', fork }), /Invalid fork display metadata/);
 }
 
+assert.equal(forkReleaseUrl(packageMetadata.fork), 'https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork');
+for (const value of [undefined, null, 123, '', '.', '..']) {
+	assert.throws(() => forkReleaseUrl({ ...packageMetadata.fork, releaseTag: value }), /Invalid fork release metadata/);
+}
+for (const value of [undefined, null, 123, '', './repo', 'owner/..', '/repo', 'owner/']) {
+	assert.throws(() => forkReleaseUrl({ ...packageMetadata.fork, repository: value }), /Invalid fork release metadata/);
+}
 output.log('fork-display fixtures passed');

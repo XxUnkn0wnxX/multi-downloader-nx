@@ -47,6 +47,7 @@ docker-compose.yml
 ## Runtime state and generated data
 test.*
 updates.json
+updates.json.*.tmp
 archive.json
 guistate.json
 /config/setup.json

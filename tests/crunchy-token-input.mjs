@@ -1386,6 +1386,7 @@ try {
 			{ status: 'valid', argv: { service: 'crunchy', checkStatus: true }, result: true, expectedCalls: 1, exit: undefined, updates: 0, readOnly: true },
 			{ status: 'valid', argv: { service: 'crunchy', checkStatus: true }, result: false, expectedCalls: 1, exit: 1, updates: 0, readOnly: true },
 			{ argv: { service: 'crunchy' }, result: false, expectedCalls: 1, exit: 1, updates: 1 },
+			{ argv: { service: 'crunchy', skipUpdate: true }, result: true, expectedCalls: 1, exit: undefined, updates: 0 },
 			{ argv: { service: 'crunchy', dryRun: true, debug: true }, result: true, expectedCalls: 1, exit: undefined, updates: 0 },
 			{ argv: { service: 'hidive', dryRun: true, downloadArchive: true }, result: true, expectedCalls: 2, exit: undefined, updates: 0 },
 			{ argv: { service: 'adn', dryRun: true }, result: true, expectedCalls: 1, exit: undefined, updates: 0 },
@@ -1465,6 +1466,8 @@ try {
 				path.join(root, 'index.ts'),
 				(id) => {
 					if (id === './modules/log') return { console: fakeConsole };
+					if (id === './package.json') return JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+					if (id === './modules/module.fork-display') return forkDisplay;
 					if (id === './modules/module.app-args') return { appArgv: () => scenario.argv, overrideArguments: () => {}, statusInvocation: () => scenario.status ?? 'none' };
 					if (id === './modules/module.cfg-loader')
 						return {
