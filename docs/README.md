@@ -36,7 +36,7 @@ The commands below assume `aniDL` is on your `PATH`. After a source build, use `
 
 **Log in:** `aniDL --service crunchy --device`, then approve the displayed code in your browser. Existing browser-cookie workflows remain documented under [`--token`](DOCUMENTATION.md#--token).
 
-Search for a series, list its seasons, and select episodes with the dubs and subtitles you want. For raw DASH streams, discovery defaults to the selected audio languages and keeps their available video variants. `--qall` expands discovery to all available languages and shows the full quality list, with a fresh 600–999 ms pause before each discovery request. The scan is slower and sends more requests; those additional requests can trigger rate limits that affect normal viewing.
+Search for a series, list its seasons, and select episodes with the dubs and subtitles you want. For raw DASH streams, discovery uses the selected audio languages and also compares Japanese video when English audio is selected, keeping all available variants within that scope. Requested audio must be available before discovery begins; `--noaudio` permits video-only downloads. `--qall` expands discovery to all available languages and shows the full quality list, with a fresh 700–1100 ms pause before each discovery request. The scan is slower and sends more requests; those additional requests can trigger rate limits that affect normal viewing.
 
 Legacy availability varies by episode and dub; advertised bandwidth is not measured file-average bitrate. Timing checks cannot prove identical edits or decoded synchronization, and `--bypasssync` skips video/audio timing checks with a risk of desynchronization. See [Crunchyroll streams and quality](GET-STARTED.md#crunchyroll-streams-and-quality) for quality labels, selection scope, and timing limits.
 
@@ -95,9 +95,9 @@ For a manual build of the current `main` commit, open **Actions → Nightly Fork
 
 Automatic Tests skips changes limited to Markdown, `docs/` and/or `tools/`. Changes to downloader source, dependencies, build configuration or workflows still run the normal checks. The separate maintenance tools stay outside the application’s TypeScript, ESLint, Prettier and packaging scans; their tests run locally only.
 
-The workflow replaces eight `.7z` CLI archives and their checksums on the same release page under the fixed `nightly-fork` tag. Its title includes the manually maintained fork revision, for example **Nightly Fork (Rev4)**, and it remains a normal release marked **Latest**. Release notes identify the released commit and the source revision validated by Tests separately, with links to the [fork changelog](CHANGELOG.md), Tests, and build run. GitHub also provides source ZIP and tar.gz downloads for the release tag. GUI packages remain a source-build option.
+The workflow replaces eight `.7z` CLI archives and their checksums on the same release page under the fixed `nightly-fork` tag. Its title includes the manually maintained fork revision, for example **Nightly Fork (Rev5)**, and it remains a normal release marked **Latest**. Release notes identify the released commit and the source revision validated by Tests separately, with links to the [fork changelog](CHANGELOG.md), Tests, and build run. GitHub also provides source ZIP and tar.gz downloads for the release tag. GUI packages remain a source-build option.
 
-Provider banners and the GUI display the base version, channel and revision, for example `5.8.8 (Nightly) [Rev4]`. CLI `--version` keeps the base version for compatibility. Maintainers update the shared metadata in [package.json](../package.json); see [fork revision maintenance](fork-changes.md#nightly-revision-metadata).
+Provider banners and the GUI display the base version, channel and revision, for example `5.8.8 (Nightly) [Rev5]`. CLI `--version` keeps the base version for compatibility. Maintainers update the shared metadata in [package.json](../package.json); see [fork revision maintenance](fork-changes.md#nightly-revision-metadata).
 
 ## Fork update notices
 

@@ -540,6 +540,7 @@ export default class Crunchy implements ServiceClass {
 			if (!(await this.refreshToken())) return false;
 			await this.logSeriesById(argv.series as string);
 			const selected = await this.downloadFromSeriesID(argv.series, { ...argv });
+			if (!selected.isOk) return false;
 			if (selected.isOk) {
 				for (const select of selected.value) {
 					if (!(await this.downloadEpisode(select, { ...argv, skipsubs: false, queueRecovery: this.commandRecovery }, true))) {
@@ -1922,6 +1923,26 @@ export default class Crunchy implements ServiceClass {
 		return { isOk: true, value: selectedMedia };
 	}
 
+	private resolveSelectedVersion(item: CrunchyEpMeta['data'][number], options: CrunchyDownloadOptions): EpisodeVersion | undefined {
+		const itemVersions = item.versions;
+		if (!itemVersions) return undefined;
+		const hasExplicitLanguage = !!item.lang || options.dubLang?.length === 1;
+		const configuredLocale = item.lang
+			? item.lang.cr_locale
+			: options.dubLang?.length === 1
+				? langsData.languages.find((lang) => lang.code === options.dubLang[0])?.cr_locale
+				: undefined;
+		const requestedVersion = configuredLocale ? itemVersions.find((version) => version.audio_locale === configuredLocale) : undefined;
+		if (!options.noaudio) return requestedVersion || (!hasExplicitLanguage && itemVersions.length === 1 ? itemVersions[0] : undefined);
+		if (requestedVersion?.guid && requestedVersion.media_guid) return requestedVersion;
+		const mediaId = item.mediaId.includes(':') ? item.mediaId.split(':')[1] : item.mediaId;
+		return (
+			itemVersions.find((version) => version.guid === mediaId && version.media_guid) ||
+			itemVersions.find((version) => version.original && version.guid && version.media_guid) ||
+			itemVersions.find((version) => version.guid && version.media_guid)
+		);
+	}
+
 	public async downloadEpisode(data: CrunchyEpMeta, options: CrunchyDownloadOptions, isSeries?: boolean): Promise<boolean> {
 		options = { ...options };
 		const state: PlaybackRecoveryState = {
@@ -1935,16 +1956,34 @@ export default class Crunchy implements ServiceClass {
 		options.queueRecovery = state.budget;
 		options.recoveryState = state;
 		const versions = data.data?.[0]?.versions;
-		const requested = (data.data ?? []).map(
-			(item) =>
-				item.versions?.find((version) => version.audio_locale === item.lang?.cr_locale) ||
-				(options.dubLang?.length === 1
-					? item.versions?.find((version) => version.audio_locale === langsData.languages.find((lang) => lang.code === options.dubLang[0])?.cr_locale)
-					: undefined) ||
-				(item.versions?.length === 1 ? item.versions[0] : undefined)
-		);
-		const selectedLocales = new Set(requested.filter((version): version is NonNullable<typeof version> => !!version).map((version) => version.audio_locale));
-		const activeVersions = options.qall ? versions : requested.every(Boolean) ? versions?.filter((version) => selectedLocales.has(version.audio_locale)) : [];
+		const requested = (data.data ?? []).map((item) => this.resolveSelectedVersion(item, options));
+		if (!options.noaudio) {
+			const selectedCodes = new Set((data.data ?? []).map((item) => item.lang?.code));
+			const missingCodes = data.requiredDubLang?.filter((code) => !selectedCodes.has(code)) ?? [];
+			if (missingCodes.length) {
+				console.error(`Selected audio language(s) ${missingCodes.join(', ')} are not available for this episode.`);
+				return false;
+			}
+			for (const [index, item] of (data.data ?? []).entries()) {
+				if (item.versions == null) continue;
+				const selected = requested[index];
+				if (!selected?.guid || !selected.media_guid) {
+					const selectedLanguage =
+						item.lang?.name ||
+						(options.dubLang?.length === 1 && (langsData.languages.find((lang) => lang.code === options.dubLang[0])?.name || options.dubLang[0])) ||
+						'unknown';
+					console.error(`Selected audio language "${selectedLanguage}" is not available in episode versions.`);
+					return false;
+				}
+			}
+		}
+		const selectedLocales = new Set<string>(requested.filter((version): version is EpisodeVersion => !!version).map((version) => version.audio_locale));
+		const activeVersions = options.qall
+			? versions
+			: requested.every(Boolean)
+				? versions?.filter((version) => selectedLocales.has(version.audio_locale) || (selectedLocales.has('en-US') && version.audio_locale === 'ja-JP'))
+				: [];
+		const perRequestDiscovery = !!options.qall || selectedLocales.size > 1;
 		const discoveryPause = options.discoveryTimmer;
 		if (options.qall && !state.budget.qallWarned) {
 			console.warn('Full stream discovery scans more sources, is slower, and can trigger rate limits affecting normal viewing.');
@@ -1985,7 +2024,7 @@ export default class Crunchy implements ServiceClass {
 				(retry, ms, kind) => indicator.waiting(retry, ms, kind, state.ordinal, state.owned || state.resetPerformed ? 2 : 3),
 				discoveryPause,
 				undefined,
-				!!options.qall,
+				perRequestDiscovery,
 				() => indicator.extraTime()
 			);
 			state.initial = { scheduler, controller, indicator, release };
@@ -2083,7 +2122,7 @@ export default class Crunchy implements ServiceClass {
 								return ok;
 							},
 							fixedPauseMs: discoveryPause,
-							qall: !!options.qall,
+							qall: perRequestDiscovery,
 							onSlow: () => indicator.extraTime(),
 							onAcquired: () => {
 								state.owned = false;
@@ -2643,13 +2682,8 @@ export default class Crunchy implements ServiceClass {
 			if (mMeta.versions) {
 				if (globalPass?.kind === 'video') {
 					currentVersion = mMeta.versions.find((version) => version.guid === globalPass.selected.source.guid);
-				} else if (mMeta.lang) {
-					currentVersion = mMeta.versions.find((a) => a.audio_locale == mMeta.lang?.cr_locale);
-				} else if (options.dubLang.length == 1) {
-					const currentLang = langsData.languages.find((a) => a.code == options.dubLang[0]);
-					currentVersion = mMeta.versions.find((a) => a.audio_locale == currentLang?.cr_locale);
-				} else if (mMeta.versions.length == 1) {
-					currentVersion = mMeta.versions[0];
+				} else {
+					currentVersion = this.resolveSelectedVersion(mMeta, options);
 				}
 				if (!currentVersion?.media_guid) {
 					console.error('Selected language not found in versions.');
@@ -4542,9 +4576,10 @@ export default class Crunchy implements ServiceClass {
 		console.info('');
 		console.info('-'.repeat(30));
 		console.info('');
-		const selected = this.itemSelectMultiDub(episodes, data.dubLang, data.but, data.all, data.e, data.absolute);
+		const selected = this.itemSelectMultiDub(episodes, data.dubLang, data.but, data.all, data.e, data.absolute, data.allDubs);
 		for (const key of Object.keys(selected)) {
 			const item = selected[key];
+			if (!data.allDubs) item.requiredDubLang = [...data.dubLang];
 			console.info(
 				`[S${item.season}E${item.episodeNumber}] - ${item.episodeTitle} [${item.data
 					.map((a) => {
@@ -4553,7 +4588,9 @@ export default class Crunchy implements ServiceClass {
 					.join(', ')}]`
 			);
 		}
-		return { isOk: true, value: Object.values(selected) };
+		const value = Object.values(selected);
+		if (!value.length) return { isOk: false, reason: new Error('No episodes selected.') };
+		return { isOk: true, value };
 	}
 
 	public itemSelectMultiDub(
@@ -4568,7 +4605,8 @@ export default class Crunchy implements ServiceClass {
 		but?: boolean,
 		all?: boolean,
 		e?: string,
-		absolute?: boolean
+		absolute?: boolean,
+		allDubs?: boolean
 	) {
 		const doEpsFilter = parseSelect(e as string);
 
@@ -4577,7 +4615,6 @@ export default class Crunchy implements ServiceClass {
 		for (const key of Object.keys(eps)) {
 			const itemE = eps[key];
 			itemE.items.forEach((item, index) => {
-				if (!dubLang.includes(itemE.langs[index]?.code)) return;
 				item.hide_season_title = true;
 				if (item.season_title == '' && item.series_title != '') {
 					item.season_title = item.series_title;
@@ -4609,6 +4646,7 @@ export default class Crunchy implements ServiceClass {
 					data: [
 						{
 							mediaId: item.id,
+							playback: item.playback,
 							versions: item.versions,
 							isSubbed: item.is_subbed,
 							isDubbed: item.is_dubbed,
@@ -4655,6 +4693,10 @@ export default class Crunchy implements ServiceClass {
 				// show ep
 				item.seq_id = epNum;
 			});
+		}
+		for (const item of Object.values(ret)) {
+			const matching = item.data.filter((entry) => entry.lang && (allDubs || dubLang.includes(entry.lang.code)));
+			item.data = matching.length ? matching : item.data.slice(0, 1);
 		}
 		return ret;
 	}

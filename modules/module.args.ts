@@ -185,7 +185,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		group: 'dl',
 		alias: 'srz',
 		describe: 'Get season list by series ID',
-		docDescribe: 'Requested is the ID of a show not a season.',
+		docDescribe:
+			'Use a Crunchyroll series ID, not a season ID. This path supports multiple --dubLang languages and --allDubs. Combine with -s to restrict selection to one season.',
 		service: ['crunchy'],
 		type: 'string',
 		usage: '${ID}'
@@ -195,7 +196,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		group: 'dl',
 		type: 'string',
 		describe: 'Set the season ID',
-		docDescribe: 'Used to set the season ID to download from',
+		docDescribe: 'Used to set the season ID to download from. Crunchyroll -s alone uses the first selected dub; combine --srz with -s for multiple dubs within one season.',
 		service: ['all'],
 		usage: '${ID}'
 	},
@@ -230,7 +231,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 			default: 0
 		},
 		docDescribe:
-			'Use the listed quality number; 0 selects the maximum quality. Crunchyroll ranks by dimensions, then advertised bitrate, and compares compatible current and legacy video within the selected audio languages while keeping the highest current audio for the requested dubs. Use --qall to include all languages. Crunchyroll reports a short reason when checks force video fallback. Its compact quality list shows up to four Current and four Legacy entries in each of the top three resolution groups, with stable full-catalogue numbers; compact view may have gaps where rows are hidden. Use --qall to show every eligible video quality. Short manifest and video-source language tags such as [V:jpn] identify each row, which marks the selected entry. Its audio quality list uses independent [A:eng] language tags and shows the selected audio server below the row. A fallback prints only the discarded and re-selected rows, when applicable.',
+			'Use the listed quality number; 0 selects the maximum quality. Crunchyroll ranks by dimensions, then advertised bitrate, and compares compatible current and legacy video within the selected audio languages, also checking Japanese video when English audio is selected, while keeping the highest current audio for the requested dubs. Use --qall to include all languages. Crunchyroll reports a short reason when checks force video fallback. Its compact quality list shows up to four Current and four Legacy entries in each of the top three resolution groups, with stable full-catalogue numbers; compact view may have gaps where rows are hidden. Use --qall to show every eligible video quality. Short manifest and video-source language tags such as [V:jpn] identify each row, which marks the selected entry. Its audio quality list uses independent [A:eng] language tags and shows the selected audio server below the row. A fallback prints only the discarded and re-selected rows, when applicable.',
 		service: ['all'],
 		type: 'number',
 		usage: '${qualityLevel}'
@@ -240,7 +241,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		group: 'dl',
 		describe: 'Scan all Crunchyroll languages and show all video qualities (slower; may cause rate limits)',
 		docDescribe:
-			'Scan all languages and show every eligible Crunchyroll video quality. Default pacing samples 600–999 ms before each discovery request; an explicit discovery timer replaces it. Active discovery work is limited to 180 seconds, with an extra-time message on the existing status row after 90 seconds. This sends more requests and may trigger rate limits affecting normal viewing. Quality numbers remain stable within the active catalogue; switching --qall can change them.',
+			'Scan all languages and show every eligible Crunchyroll video quality. Default pacing samples 700–1100 ms before each discovery request; an explicit discovery timer replaces it. Active discovery work is limited to 180 seconds, with an extra-time message on the existing status row after 90 seconds. This sends more requests and may trigger rate limits affecting normal viewing. Quality numbers remain stable within the active catalogue; switching --qall can change them.',
 		default: { default: false },
 		service: ['crunchy'],
 		type: 'boolean',
@@ -252,10 +253,10 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		group: 'dl',
 		service: ['crunchy'],
 		type: 'number',
-		describe: 'Discovery pause in ms: automatic per batch, or per request with --qall; set an exact pause or 0.',
+		describe: 'Discovery pause in ms: automatic per batch, or per request for multi-dub/--qall; set an exact pause or 0.',
 		defaultLabel: 'automatic',
 		docDescribe:
-			'Set an exact pause in milliseconds between normal eight-request discovery batches, or before each request with --qall. Unset uses automatic 250–400 ms batch gaps with response-time credit and a six-second added-wait budget, or 600–999 ms per request with --qall. Zero disables normal pacing. Fixed pauses are not capped at six seconds; discovery and request deadlines and 429 recovery still apply.',
+			'Set an exact pause in milliseconds between normal eight-request discovery batches, or before each request for multi-dub or --qall discovery. Unset uses automatic 250–400 ms batch gaps with response-time credit and a six-second added-wait budget, or 700–1100 ms per request for multi-dub or --qall. Zero disables normal pacing. Fixed pauses are not capped at six seconds; discovery and request deadlines and 429 recovery still apply.',
 		default: { default: undefined },
 		usage: '${milliseconds}',
 		transformer: (value) => {
@@ -581,7 +582,9 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 			`\nCrunchy Only: ${languages
 				.filter((a) => a.cr_locale)
 				.map((a) => a.code)
-				.join(', ')}`,
+				.join(
+					', '
+				)}\nCrunchyroll: use --srz with multiple languages, for example --dubLang eng jpn hin; -s keeps only the first dub. Every explicitly requested dub must be available for the episode; --allDubs downloads the available dubs instead. --noaudio skips this requirement.`,
 		docDescribe: true,
 		group: 'dl',
 		choices: dubLanguageCodes,

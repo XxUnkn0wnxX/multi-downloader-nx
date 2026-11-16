@@ -2,7 +2,7 @@
 q: 0
 # Show all Crunchyroll video qualities instead of the compact view.
 qall: false
-# Optional exact pause in milliseconds between normal discovery batches, or before each --qall request.
+# Optional exact pause in milliseconds between single-dub discovery batches, or before each multi-dub/--qall discovery request.
 # Unset uses automatic pacing; 0 disables normal pauses (429 recovery still applies).
 # discovery-timmer: 0
 # Set which server to use

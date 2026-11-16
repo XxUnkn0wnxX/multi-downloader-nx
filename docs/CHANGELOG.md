@@ -2,6 +2,16 @@
 
 Changes specific to this fork are grouped below with their implementation commits. See [Fork changes](fork-changes.md) for maintenance requirements and the [README](README.md) for usage.
 
+## 2026-11-17
+
+### Nightly Rev5: check requested audio before video discovery
+
+- Reject missing selected audio versions before quality discovery or video download, for every dub, including previews and audio-only requests. Keep the GUI-selected language authoritative and preserve the legacy path when version metadata is absent.
+- Require every explicitly requested `--dubLang` language before starting a multi-audio episode; keep `--allDubs` limited to whatever dubs are available. Preserve that distinction through CLI/config and GUI selection.
+- Reuse the all-language discovery scheduler for multi-dub requests, including 700–1100 ms per-request pacing and explicit timer overrides, while retaining compact output and the selected-language source pool.
+- Allow video-only downloads with `--noaudio` when the selected dub is unavailable, retaining subtitle and chapter processing without a misleading missing-language error.
+- Compare English and Japanese video for English audio requests by default. Other dubs use their selected-language video; `--qall` expands the search to all available languages. Keep requested audio independent of video selection and preserve timing checks, quality ranking and stable catalogue numbers.
+
 ## 2026-11-16
 
 ### Nightly Rev4: fork update notices

@@ -1315,8 +1315,10 @@ try {
 			async refreshToken() {
 				return true;
 			}
-			async downloadFromSeriesID(id) {
+			async downloadFromSeriesID(id, options) {
 				scenario.seriesRequests.push(id);
+				scenario.selectionOptions = options;
+				if (scenario.selectionFails) return { isOk: false, reason: new Error('No episodes selected.') };
 				return { isOk: true, value: scenario.episodes[id].map((episode) => ({ id: episode.id })) };
 			}
 			async downloadEpisode(episode, options) {
@@ -1361,6 +1363,16 @@ try {
 		);
 		assert.equal(await failed.handler.isDownloading(), false);
 		assert.equal(failed.messages.filter((message) => message.name === 'finish').length, 1);
+
+		const selectionFailed = await runQueue([queued('first-series'), queued('next-series')], { selectionFails: true });
+		same(scenario.seriesRequests, ['first-series']);
+		same(scenario.selectionOptions.dubLang, ['jpn']);
+		assert.equal(selectionFailed.errors.length, 1);
+		assert.equal(await selectionFailed.handler.getDownloadQueue(), false);
+		same(
+			(await selectionFailed.handler.getQueue()).map((item) => item.id),
+			['next-series']
+		);
 
 		const successful = await runQueue([queued('first-series'), queued('next-series')], {
 			episodes: {

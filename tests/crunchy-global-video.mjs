@@ -565,10 +565,10 @@ for (const value of [null, -1, 1.5, Infinity, Number.MAX_SAFE_INTEGER + 1, '0', 
 	await pace.dispatch();
 	await pace.dispatch(true);
 	await pace.dispatch();
-	assert.deepEqual(f.waits, [600, 999, 800]);
+	assert.deepEqual(f.waits, [700, 1100, 900]);
 	await pace.playbackSleep(10000);
 	await pace.dispatch();
-	assert.deepEqual(f.waits, [600, 999, 800, 10000]);
+	assert.deepEqual(f.waits, [700, 1100, 900, 10000]);
 	f.advance(90000);
 	pace.check();
 	pace.check();
@@ -630,7 +630,7 @@ for (const fixed of [0, 1200]) {
 	assert.equal(requests, 128);
 	assert.equal(closes, 32);
 	assert.equal(f.waits.length, 128);
-	assert(f.waits.every((ms) => ms === 999));
+	assert(f.waits.every((ms) => ms === 1100));
 	assert.equal(notices, 1);
 }
 
@@ -1300,6 +1300,7 @@ const mediaDeps = {
 		},
 		__esModule: true
 	},
+	'./modules/module.parseSelect': compile('modules/module.parseSelect.ts', { './log': { console: output } }),
 	'./modules/module.downloadArchive': { downloaded: (...args) => archiveWrites.push(args) },
 	'./modules/module.filename': {
 		default: (name, variables) => [name.replace('${height}', String(variables.find((item) => item.name === 'height')?.replaceWith))],
@@ -1896,7 +1897,7 @@ assert.equal(muxCalls.length, 0);
 assert(mediaLogs.some((entry) => entry[0] === 'Video first media segment URL:' && String(entry[1]).includes('/JA/1/')));
 assert(mediaLogs.some((entry) => entry[0] === 'Audio first media segment URL:' && String(entry[1]).includes('/EN/current/high-')));
 for (const [fixedPause, expectedWait] of [
-	[undefined, 4800],
+	[undefined, 5600],
 	[0, 0],
 	[50, 400],
 	[750, 6000]
@@ -1929,17 +1930,39 @@ assert(downloads[0].m3u8json.segments[0].uri.includes('/JA2/1/'));
 	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, queueRecovery: budget, dryRun: true }), true);
 	assert.equal(mediaLogs.filter((entry) => String(entry[0]).includes('Full stream discovery scans')).length, 1);
 }
-// Default scope follows the selected item locale, not stale GUI dub options.
+// Default video scope includes the selected item locale and Japanese, not stale GUI dub options or unrelated languages.
 resetGlobal();
-assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, qall: false, dryRun: true }), true);
+assert.equal(await service.downloadEpisode(variantData, { ...mediaOptions, qall: false, dryRun: true }), true);
 assert(mediaRequests.some((r) => r.target.includes('/EN/video/play')));
-assert(!mediaRequests.some((r) => r.target.includes('/JA/video/play') || r.target.includes('/manifest/JA/') || r.target.includes('/JA/token-')));
+assert(mediaRequests.some((r) => r.target.includes('/JA/video/play')));
+assert(
+	mediaRequests.some((r) => r.target.includes('/JA2/video/play')),
+	'English selection includes every Japanese variant'
+);
 resetGlobal();
 assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, qall: false }), true);
-assert.equal(licenseCalls[0].headers['x-cr-content-id'], 'EN', 'q=0 chooses the best selected-language candidate');
+assert.equal(licenseCalls[0].headers['x-cr-content-id'], 'JA', 'q=0 may choose the better Japanese video while audio remains English');
+assert.equal(licenseCalls[1].headers['x-cr-content-id'], 'EN', 'the selected English audio remains independently bound');
+resetGlobal({ durationDrift: true });
+assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, qall: false, dryRun: true }), true);
+assert(mediaLogs.some((entry) => String(entry[0]).includes('timing drift 2.00s')));
+assert(
+	selectedVideoRows().some((row) => row.includes('[V:eng]')),
+	'default English discovery rejects the drifting Japanese timeline'
+);
+resetGlobal({ mismatch: true });
+assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, qall: false, bypasssync: true, dryRun: true }), true);
+assert(
+	selectedVideoRows().some((row) => row.includes('[V:jpn]')),
+	'bypasssync explicitly permits the Japanese video despite timing drift'
+);
+assert(mediaLogs.some((entry) => String(entry[0]).includes('Forced video timing')));
 resetGlobal({ capacityLimit: 4 });
 assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, qall: false, tsd: true, dryRun: true }), true);
-assert(!mediaRequests.some((r) => r.target.includes('/JA/video/play')));
+assert(
+	mediaRequests.some((r) => r.target.includes('/JA/video/play')),
+	'TSD preflight uses selected audio plus Japanese video sources'
+);
 assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/sessions').length, 1);
 
 const japaneseData = { ...variantData, data: [{ ...variantData.data[0], mediaId: 'JA', lang: languageItems[1] }] };
@@ -1959,10 +1982,138 @@ for (const pause of [0, 50]) {
 	assert.equal(await service.downloadEpisode(japaneseData, { ...mediaOptions, qall: false, discoveryTimmer: pause, dryRun: true }), true);
 	assert.equal(fakeNow - before, pause);
 }
-resetGlobal();
 const unknownLanguage = { ...mediaData, data: [{ ...mediaData.data[0], lang: undefined }] };
-assert.equal(await service.downloadEpisode(unknownLanguage, { ...mediaOptions, qall: false, dubLang: ['unknown'], dryRun: true }), true);
-assert(!mediaRequests.some((r) => r.target.includes('/JA/video/play')));
+const soleJapaneseVersion = [{ ...versions[1] }];
+const missingSelectedEnglish = { ...mediaData, data: [{ ...mediaData.data[0], versions: soleJapaneseVersion }] };
+for (const mode of [
+	{},
+	{ dryRun: true },
+	{ qall: true, dryRun: true },
+	{ novids: true, dryRun: true },
+	{ tsd: true, dryRun: true },
+	{ keepAllVideos: true, dryRun: true },
+	{ hslang: 'en', dryRun: true }
+]) {
+	resetGlobal();
+	assert.equal(await service.downloadEpisode(missingSelectedEnglish, { ...mediaOptions, ...mode }), false);
+	assert(
+		mediaLogs.some((entry) => /eng|English/i.test(String(entry[0]))),
+		'error names the selected audio language'
+	);
+	assert.equal(mediaRequests.length, 0, 'missing selected version fails before requests or discovery');
+	assert.equal(licenseCalls.length, 0);
+	assert.equal(downloads.length, 0);
+	assert.equal(muxCalls.length, 0);
+	assert.equal(archiveWrites.length, 0);
+	assert.equal(selectedVideoRows().length, 0);
+	assert(!mediaLogs.some((entry) => /Available (?:Video|Audio) Qualities:/i.test(String(entry[0]))));
+}
+resetGlobal();
+const missingSelectedEnglishNoLang = { ...missingSelectedEnglish, data: [{ ...missingSelectedEnglish.data[0], lang: undefined }] };
+assert.equal(await service.downloadEpisode(missingSelectedEnglishNoLang, { ...mediaOptions, qall: false, dubLang: ['eng'], dryRun: true }), false);
+assert.equal(mediaRequests.length, 0, 'configured single-language fallback is also strict');
+resetGlobal();
+assert.equal(await service.downloadEpisode(unknownLanguage, { ...mediaOptions, qall: false, dubLang: ['unknown'], dryRun: true }), false);
+assert.equal(mediaRequests.length, 0, 'an unavailable explicit fallback does not use an unrelated sole version');
+resetGlobal();
+const missingMediaGuid = { ...mediaData, data: [{ ...mediaData.data[0], versions: [{ ...versions[0], media_guid: '' }] }] };
+assert.equal(await service.downloadEpisode(missingMediaGuid, { ...mediaOptions, dryRun: true }), false);
+assert.equal(mediaRequests.length, 0, 'selected version without media_guid fails before requests');
+resetGlobal();
+const missingSelectedJapanese = { ...mediaData, data: [{ ...mediaData.data[0], lang: languageItems[1], versions: [versions[0]] }] };
+assert.equal(await service.downloadEpisode(missingSelectedJapanese, { ...mediaOptions, dubLang: ['jpn'], dryRun: true }), false);
+assert(mediaLogs.some((entry) => /jpn|Japanese/i.test(String(entry[0]))));
+assert.equal(mediaRequests.length, 0, 'Japanese selection is required before video discovery too');
+resetGlobal();
+const mixedSelection = { ...mediaData, data: [mediaData.data[0], { ...mediaData.data[0], mediaId: 'JA', lang: languageItems[1], versions: [versions[0]] }] };
+assert.equal(await service.downloadEpisode(mixedSelection, { ...mediaOptions }), false);
+assert.equal(mediaRequests.length, 0, 'one missing item stops the batch before any download');
+resetGlobal();
+assert.equal(await service.downloadEpisode(missingSelectedEnglish, { ...mediaOptions, noaudio: true, qall: false, keepAllVideos: true }), true);
+assert.equal(downloads.length, 1, 'noaudio uses a valid version for the video download');
+assert.equal(licenseCalls.length, 1);
+assert(downloads[0].m3u8json.segments[0].uri.includes('/JA/'));
+assert(!mediaLogs.some((entry) => /Selected language not found in versions/i.test(String(entry[0]))));
+resetGlobal();
+
+// Exercise the real series selector and download guard together, including stale GUI defaults.
+const episode = (id, episodeNumber, episodeVersions = versions) => ({
+	id,
+	episode_number: episodeNumber,
+	episode: String(episodeNumber),
+	series_title: 'Test',
+	season_title: 'Test',
+	title: 'Test',
+	season_id: 'season',
+	season_number: 1,
+	series_id: 'show',
+	playback: 'yes',
+	versions: episodeVersions,
+	is_subbed: true,
+	is_dubbed: true,
+	duration_ms: 4000
+});
+const seriesEpisodes = (items, langs) => ({ E1: { items, langs }, E2: { items: [episode('JA', 2)], langs: [languageItems[1]] } });
+service.listSeriesID = async () => ({ data: seriesEpisodes([episode('JA', 1)], [languageItems[1]]) });
+async function selectSeries(dubLang, extra = {}) {
+	return service.downloadFromSeriesID('series', { e: '1', dubLang, ...extra });
+}
+for (const codes of [['eng', 'jpn'], ['eng']]) {
+	resetGlobal();
+	const selected = await selectSeries(codes);
+	assert.equal(selected.isOk, true);
+	assert.equal(selected.value.length, 1, 'episode filter excludes the other episode');
+	assert.equal(await service.downloadEpisode(selected.value[0], { ...mediaOptions, dubLang: ['jpn'], tsd: true }), false);
+	assert.equal(mediaRequests.length, 0, 'partial and zero matches fail before provider requests');
+	assert.equal(selectedVideoRows().length, 0);
+	assert.equal(downloads.length, 0);
+}
+for (const keepAllVideos of [false, true]) {
+	resetGlobal();
+	const selected = await selectSeries(['eng']);
+	assert.equal(await service.downloadEpisode(selected.value[0], { ...mediaOptions, qall: false, noaudio: true, keepAllVideos }), true);
+	assert.equal(downloads.length, 1, 'noaudio can use the fallback episode for video');
+}
+resetGlobal();
+const allAvailable = await selectSeries(['eng', 'jpn', 'hin'], { allDubs: true });
+assert.equal(await service.downloadEpisode(allAvailable.value[0], { ...mediaOptions, qall: false, dryRun: true }), true);
+assert.equal(allAvailable.value[0].requiredDubLang, undefined);
+service.listSeriesID = async () => ({ data: seriesEpisodes([episode('EN', 1), episode('JA', 1)], languageItems) });
+resetGlobal();
+const allWithStaleOptions = await selectSeries(['eng'], { allDubs: true });
+assert.equal(allWithStaleOptions.value[0].data.length, 2, 'allDubs selects all available audio despite a limited input list');
+resetGlobal();
+assert.equal(await service.downloadEpisode(allWithStaleOptions.value[0], { ...mediaOptions, qall: false, dryRun: true }), true);
+assert(mediaRequests.some((r) => r.target.includes('/EN/video/play')) && mediaRequests.some((r) => r.target.includes('/JA/video/play')));
+const fullSelection = await selectSeries(['eng', 'jpn']);
+assert.equal(fullSelection.value[0].data.length, 2);
+assert.equal(await service.downloadEpisode(fullSelection.value[0], { ...mediaOptions, dubLang: ['hin'], qall: false }), true);
+assert.equal(downloads.length, 3, 'one video and both selected audio tracks are downloaded');
+for (const tsd of [false, true]) {
+	for (const discoveryTimmer of [undefined, 0]) {
+		const elapsed = [];
+		for (const qall of [false, true]) {
+			resetGlobal();
+			const before = fakeNow;
+			assert.equal(await service.downloadEpisode(fullSelection.value[0], { ...mediaOptions, qall, tsd, discoveryTimmer, dryRun: true }), true);
+			elapsed.push(fakeNow - before);
+		}
+		assert.equal(elapsed[0], elapsed[1], 'multi-audio uses qall pacing including TSD and fixed overrides');
+		if (discoveryTimmer === 0) assert.equal(elapsed[0], 0);
+		else assert(elapsed[0] > 0, 'default per-request pacing is active');
+	}
+}
+
+service.listSeriesID = async () => ({ data: seriesEpisodes([episode('EN', 1, null), episode('JA', 1, null)], languageItems) });
+const legacySelection = await selectSeries(['eng', 'jpn']);
+resetGlobal();
+assert.equal(await service.downloadEpisode(legacySelection.value[0], { ...mediaOptions, novids: true, dryRun: true }), true, 'legacy null versions pass selection preflight');
+service.listSeriesID = async () => ({ data: seriesEpisodes([episode('JA', 1)], [languageItems[1]]) });
+assert.equal((await selectSeries(['jpn'], { e: '99' })).isOk, false, 'empty episode selection fails');
+delete service.listSeriesID;
+resetGlobal();
+assert.equal(await service.downloadEpisode(missingSelectedEnglish, { ...mediaOptions, noaudio: true, qall: false }), true);
+assert.equal(downloads.length, 1, 'global noaudio discovery uses an available video version');
 
 resetGlobal();
 assert.equal(
@@ -2016,6 +2167,9 @@ assert(!hlsRows.includes('[2] 1280x720 (1000 kb/s)'));
 assert(hlsRows.includes('[5] 1280x720 (2000 kb/s)'));
 assert.doesNotMatch(hlsRows, /qualit(?:y|ies) hidden|use --qall/);
 resetGlobal({ hls: true });
+const noLangSoleVersion = { ...mediaData, data: [{ ...mediaData.data[0], lang: undefined, versions: soleJapaneseVersion }] };
+assert.equal(await service.downloadEpisode(noLangSoleVersion, { ...mediaOptions, dubLang: [], qall: false, dryRun: true }), true);
+resetGlobal({ hls: true });
 const noLangData = { ...mediaData, data: [{ ...mediaData.data[0], lang: undefined }] };
 assert.equal(await service.downloadEpisode(noLangData, { ...mediaOptions, dryRun: true }), true);
 assert.equal(mediaLogs.filter((entry) => String(entry[0]) === '[Notice: falling back to eng video — unsupported manifest]').length, 1);
@@ -2041,6 +2195,11 @@ assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, astream
 assert.equal(mediaRequests.filter((request) => request.method === 'DELETE').length, 4);
 assert.equal(licenseCalls[1].headers['x-cr-video-token'], 'token-EN-4');
 const multiDubData = { ...mediaData, data: [...mediaData.data, { ...mediaData.data[0], mediaId: 'JA', lang: languageItems[1] }] };
+resetGlobal();
+assert.equal(await service.downloadEpisode(multiDubData, { ...mediaOptions, qall: false }), true);
+assert(licenseCalls.some((call) => call.headers['x-cr-content-id'] === 'EN'));
+assert(licenseCalls.some((call) => call.headers['x-cr-content-id'] === 'JA'));
+assert.equal(mediaLogs.filter((entry) => String(entry[0]).startsWith('Available Video Qualities:')).length, 1);
 resetGlobal();
 assert.equal(await service.downloadEpisode(multiDubData, { ...mediaOptions, keepAllVideos: true, dryRun: true }), true);
 assert.equal(selectedVideoRows().length, 1);

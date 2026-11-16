@@ -63,6 +63,7 @@ export type CrunchyDownloadOptions = {
 };
 
 export type CrunchyMultiDownload = {
+	allDubs?: boolean;
 	absolute?: boolean;
 	dubLang: string[];
 	all?: boolean;
@@ -89,6 +90,7 @@ export type CrunchyMuxOptions = {
 } & CrunchyDownloadOptions;
 
 export type CrunchyEpMeta = {
+	requiredDubLang?: string[];
 	data: {
 		mediaId: string;
 		lang?: LanguageItem;

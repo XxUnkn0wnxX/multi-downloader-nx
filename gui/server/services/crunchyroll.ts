@@ -135,6 +135,7 @@ class CrunchyHandler extends Base implements MessageHandler {
 					}
 				}
 			} else {
+				this.setDownloadQueue(false);
 				this.alertError(res.reason);
 			}
 		} finally {
