@@ -322,6 +322,12 @@ Skip downloading videos
 | Crunchyroll, Hidive | `--noaudio ` | `boolean` | `No`| `—` | `—` |
 
 Skip downloading audio
+#### `--CC`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
+| --- | --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--CC ${boolean}` | `boolean` | `No`| `—` | `true`| `CC: ` |
+
+Include tracks identified as closed captions by Crunchyroll. Use --CC false or CC: false to skip captions while keeping selected regular subtitles and signs. Use --CC true to include captions for one command. The default is true; ccTag only controls the caption label.
 #### `--nosubs`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
@@ -522,7 +528,7 @@ Override a template variable
 | --- | --- | --- | --- | --- | --- | ---|
 | All | `--ccTag ${tag}` | `string` | `No`| `—` | `cc`| `ccTag: ` |
 
-Used to set the name for subtitles that contain tranlations for none verbal communication (e.g. signs)
+Set the label appended to closed-caption tracks and filenames; this does not select signs or control caption downloads.
 ### Debug
 #### `--nosess`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**

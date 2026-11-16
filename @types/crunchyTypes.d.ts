@@ -42,6 +42,7 @@ export type CrunchyDownloadOptions = {
 	defaultSub: LanguageItem;
 	defaultAudio: LanguageItem;
 	ccTag: string;
+	CC?: boolean;
 	dlVideoOnce: boolean;
 	skipmux?: boolean;
 	syncTiming: boolean;

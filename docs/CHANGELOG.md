@@ -4,10 +4,12 @@ Changes specific to this fork are grouped below with their implementation commit
 
 ## 2026-11-17
 
-### Nightly Rev5: check requested audio before video discovery
+### Nightly Rev5: audio selection and subtitle handling
 
 - Reject missing selected audio versions before quality discovery or video download, for every dub, including previews and audio-only requests. Keep the GUI-selected language authoritative and preserve the legacy path when version metadata is absent.
 - Support multiple `--dubLang` selections and `--allDubs` with Crunchyroll `-s`, using the same per-episode multi-audio flow as `--srz` while preserving season episode selection. HIDIVE selection remains unchanged.
+- Add Crunchyroll `--CC true/false` and `CC` config control for captions, enabled by default; clarify that `ccTag` changes their label. Keep regional English subtitle locales distinct when classifying signs.
+- Save VTT-to-ASS conversions with the correct `.ass` filesystem path. Clean recorded chapter intermediates after successful subtitle-only downloads unless `--nocleanup`, preserving final subtitle files and explicit skip/failure behavior.
 - Report missing requested dubs together by full language name. Accept spaces, commas and mixed separators in `--dubLang`; reject invalid CLI/config language tags together before provider requests.
 - Require every explicitly requested `--dubLang` language before starting a multi-audio episode; let `--allDubs` download whatever dubs are available without failing for missing configured or expected languages. Preserve that distinction through CLI/config and GUI selection.
 - Warn once for more than two explicitly selected dubs or any `--allDubs` request, using "Multi-stream discovery" wording. Keep the "Full stream discovery" warning for `--qall`, without duplication.

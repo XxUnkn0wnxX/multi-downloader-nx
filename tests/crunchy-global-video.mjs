@@ -1060,7 +1060,9 @@ const langData = {
 	fixLanguageTag: (locale) => locale,
 	fixAndFindCrLC: (locale) => languageItems.find((language) => language.cr_locale === locale) ?? languageItems[0],
 	sortTags: (items) => items,
-	locale2language: () => languageItems[0]
+	locale2language: () => languageItems[0],
+	sortSubtitles: (items) => items,
+	subsFile: (base, index, lang, cc, tag, signs, format) => `${base}.${index}.${lang.cr_locale}.${cc ? tag : signs ? 'Signs' : 'Sub'}.${format}`
 };
 const activeTokens = new Set();
 let peakTokens = 0,
@@ -1070,6 +1072,8 @@ const own = (token) => {
 	peakTokens = Math.max(peakTokens, activeTokens.size);
 	return token;
 };
+const fileWrites = new Map(),
+	fileDeletes = [];
 const mediaLogs = [],
 	licenseCalls = [],
 	downloads = [],
@@ -1243,11 +1247,19 @@ const mediaDeps = {
 		mkdirSync: () => {
 			throw Error('unexpected mkdir');
 		},
-		unlinkSync() {},
+		unlinkSync(file) {
+			fileDeletes.push(file);
+			fileWrites.delete(file);
+		},
+		writeFileSync(file, body) {
+			fileWrites.set(file, body);
+		},
 		copyFileSync() {}
 	},
 	'./modules/log': { console: mediaLogger },
 	'./modules/module.langsData': langData,
+	'./modules/module.fontsData': { assFonts: () => [] },
+	'./modules/module.vtt2ass': { default: () => '[Script Info]\nPlayResX: 1920\nPlayResY: 1080', __esModule: true },
 	'./modules/module.transform-mpd': realTransform,
 	'./modules/module.crunchy-manifests': realManifests,
 	'./modules/module.crunchy-video-catalog': catalog,
@@ -1343,6 +1355,12 @@ service.req = {
 	argv: { debug: false },
 	async getData(target, options = {}) {
 		mediaRequests.push({ target, method: options.method });
+		if (control.subtitleFixture && target.startsWith('https://subtitle.example.test/'))
+			return control.failSubtitle && target.endsWith('/full') ? { ok: false } : { ok: true, res: new Response('WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nText') };
+		if (control.subtitleFixture && target.includes('skip-events/production/'))
+			return { ok: true, res: new Response(JSON.stringify({ intro: { type: 'intro', start: 1, end: 2 } })) };
+		if (control.subtitleFixture && target.includes('/objects/'))
+			return { ok: true, res: new Response(JSON.stringify({ data: [{ episode_metadata: { duration_ms: 10000 } }] })) };
 		if (target === 'https://api.example.test/sessions') {
 			if (sessionBarrier && mediaRequests.filter((r) => r.target === target).length === 2) {
 				sessionBarrier.verifyStarted();
@@ -1422,9 +1440,9 @@ service.req = {
 							? 'invalid-url'
 							: `https://example.test/v2/manifest/download/${source}/static/majin/${source}/clean/cenc/dash/manifest.mpd?downloadGuid=synthetic`,
 						hardSubs: {},
-						audioLocale: source.startsWith('JA') ? 'ja-JP' : 'en-US',
-						subtitles: {},
-						captions: {}
+						audioLocale: control.audioLocale ?? (source.startsWith('JA') ? 'ja-JP' : 'en-US'),
+						subtitles: control.subtitleFixture?.subtitles ?? {},
+						captions: control.subtitleFixture?.captions ?? {}
 					})
 				)
 			};
@@ -1463,9 +1481,9 @@ service.req = {
 									}
 								}
 							: {},
-						audioLocale: source.startsWith('JA') ? 'ja-JP' : 'en-US',
-						subtitles: {},
-						captions: {}
+						audioLocale: control.audioLocale ?? (source.startsWith('JA') ? 'ja-JP' : 'en-US'),
+						subtitles: control.subtitleFixture?.subtitles ?? {},
+						captions: control.subtitleFixture?.captions ?? {}
 					})
 				)
 			};
@@ -1485,8 +1503,8 @@ service.req = {
 						url: 'https://example.test/v2/manifest/EN/static/majin/EN/clean/cenc/dash/manifest.mpd?sig=opaque',
 						hardSubs: {},
 						audioLocale: 'en-US',
-						subtitles: {},
-						captions: {}
+						subtitles: control.subtitleFixture?.subtitles ?? {},
+						captions: control.subtitleFixture?.captions ?? {}
 					})
 				)
 			};
@@ -1606,6 +1624,8 @@ assert(encryptedAudioClose >= 0 && encryptedAudioClose < encryptedAudioMedia);
 
 function resetGlobal(overrides = {}) {
 	mediaLogs.length = 0;
+	fileWrites.clear();
+	fileDeletes.length = 0;
 	indicatorWaits.length = 0;
 	sessionBarrier = undefined;
 	selectedHeads.length = 0;
@@ -1674,10 +1694,94 @@ function resetGlobal(overrides = {}) {
 			durationDrift: false,
 			legacyMissing: false,
 			allUnknown: false,
-			fpsMismatch: false
+			fpsMismatch: false,
+			subtitleFixture: undefined,
+			failSubtitle: false,
+			audioLocale: undefined
 		},
 		overrides
 	);
+}
+// Real subtitle collection and subtitle-only chapter cleanup use isolated in-memory files.
+{
+	const originalMux = service.muxStreams;
+	const regional = { code: 'eng', cr_locale: 'en-IN', locale: 'en-IN', name: 'English (India)', language: 'English (India)' };
+	languageItems.push(regional);
+	const subtitles = {
+		signs: { language: 'en-US', format: 'vtt', url: 'https://subtitle.example.test/signs' },
+		full: { language: 'en-IN', format: 'vtt', url: 'https://subtitle.example.test/full' }
+	};
+	const captions = { cc: { language: 'en-US', format: 'vtt', url: 'https://subtitle.example.test/cc' } };
+	const fixture = { subtitles, captions };
+	const subtitleOptions = {
+		...mediaOptions,
+		novids: true,
+		noaudio: true,
+		chapters: true,
+		qall: false,
+		skipsubs: false,
+		nosubs: false,
+		dlsubs: ['all'],
+		ccTag: 'CC',
+		noSubFix: true,
+		fileName: 'subtitle-test'
+	};
+	try {
+		service.muxStreams = Crunchy.prototype.muxStreams.bind(service);
+		for (const mode of [{}, { CC: false }, { noASSConv: true }, { nocleanup: true }, { skipmux: true }, { failSubtitle: true }]) {
+			resetGlobal({ subtitleFixture: fixture, failSubtitle: !!mode.failSubtitle });
+			fileWrites.set('/synthetic/unrelated.txt', 'keep');
+			const { failSubtitle, ...options } = mode;
+			assert.equal(await service.downloadEpisode(mediaData, { ...subtitleOptions, ...options }), true);
+			const subtitleFiles = [...fileWrites.keys()].filter((name) => /\.(?:ass|vtt)$/.test(name));
+			assert.equal(subtitleFiles.length, mode.CC === false || mode.failSubtitle ? 2 : 3);
+			assert(subtitleFiles.some((name) => name.includes('en-US.Signs.')));
+			if (!mode.failSubtitle)
+				assert(
+					subtitleFiles.some((name) => name.includes('en-IN.Sub.')),
+					'regional English full subtitles are not signs'
+				);
+			assert.equal(
+				subtitleFiles.some((name) => name.includes('en-US.CC.')),
+				mode.CC !== false
+			);
+			assert(subtitleFiles.every((name) => name.endsWith(mode.noASSConv ? '.vtt' : '.ass')));
+			assert.equal(
+				mediaRequests.some((request) => request.target.endsWith('/cc')),
+				mode.CC !== false
+			);
+			assert.equal(fileWrites.get('/synthetic/unrelated.txt'), 'keep');
+			assert.equal(fileDeletes.length, mode.nocleanup || mode.skipmux || mode.failSubtitle ? 0 : 1);
+			assert.equal([...fileWrites.keys()].filter((name) => name.endsWith('.txt')).length, mode.nocleanup || mode.skipmux || mode.failSubtitle ? 2 : 1);
+		}
+		resetGlobal();
+		fileWrites.set('/synthetic/chapter.txt', 'keep');
+		const chapters = [{ type: 'Chapters', path: '/synthetic/chapter.txt', lang: languageItems[0] }];
+		await service.muxStreams(chapters, { ...subtitleOptions, dryRun: true });
+		assert.equal(fileWrites.get('/synthetic/chapter.txt'), 'keep', 'dry-run preserves recorded chapters');
+		await service.muxStreams([...chapters, ...chapters], subtitleOptions);
+		assert.deepEqual(fileDeletes, ['/synthetic/chapter.txt'], 'recorded chapter paths are deduplicated');
+		resetGlobal({ subtitleFixture: fixture, audioLocale: 'xx-YY' });
+		assert.equal(await service.downloadEpisode(mediaData, { ...subtitleOptions, chapters: false }), true);
+		assert(![...fileWrites.keys()].some((name) => name.includes('.Signs.')), 'unknown audio locales cannot produce signs');
+		resetGlobal({ subtitleFixture: fixture });
+		service.muxStreams = originalMux;
+		assert.equal(await service.downloadEpisode(mediaData, { ...subtitleOptions, novids: false, noaudio: false, chapters: false }), true);
+		assert.equal(
+			mediaRequests.filter((request) => request.target.startsWith('https://subtitle.example.test/')).length,
+			3,
+			'global video pass does not duplicate subtitle fetching'
+		);
+		const globalSubs = muxCalls[0].data.filter((item) => item.type === 'Subtitle');
+		assert.equal(globalSubs.length, 3);
+		assert(globalSubs.every((item) => item.file.endsWith('.ass') && item.path.endsWith('.ass') && fileWrites.has(item.path)));
+		assert(globalSubs.some((item) => item.language.cr_locale === 'en-US' && item.signs && !item.cc));
+		assert(globalSubs.some((item) => item.language.cr_locale === 'en-IN' && !item.signs && !item.cc));
+		assert(globalSubs.some((item) => item.cc && !item.signs));
+	} finally {
+		service.muxStreams = originalMux;
+		languageItems.pop();
+	}
 }
 resetGlobal();
 const japaneseMediaData = { ...mediaData, data: [{ ...mediaData.data[0], lang: languageItems[1] }] };

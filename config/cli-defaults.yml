@@ -23,6 +23,8 @@ fileName: '[${service}] ${showTitle} - S${season}E${episode} [${height}p]'
 dubLang: ['jpn']
 # What Subtitle languages to download
 dlsubs: ['all']
+# Include Crunchyroll closed captions; false keeps only selected regular subtitles/signs
+CC: true
 # What language Audio to set as default
 defaultAudio: 'jpn'
 # Video Playback Endpoint (Crunchyroll)

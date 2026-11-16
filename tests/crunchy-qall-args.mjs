@@ -126,6 +126,15 @@ assert.equal(parser.statusInvocation(['--check-status=false', '--service', 'crun
 assert.equal(parser.statusInvocation(['--check-status', '--service', 'hidive']), 'invalid');
 assert.equal(parse([], { 'check-status': true }).checkStatus, undefined);
 assert.equal(parse(['--check-status'], { tsd: true, qall: true }).checkStatus, true);
+assert.equal(parse([]).CC, true);
+assert.equal(parse([], { CC: false }).CC, false);
+for (const argv of [['--CC'], ['--CC', 'true'], ['--CC=true']]) assert.equal(parse(argv, { CC: false }).CC, true);
+for (const argv of [['--CC', 'false'], ['--CC=false']]) assert.equal(parse(argv, { CC: true }).CC, false);
+assert.equal(parse([], { CC: true }, { CC: false }).CC, false);
+assert.equal(parse([], { CC: false }, { CC: true }).CC, true);
+assert.equal(parse([], { CC: true }, { CC: false }, false, true).CC, false);
+assert.throws(() => parse(['--CC', 'maybe']), /Invalid value for --CC: expected true or false/);
+assert.throws(() => parse([], { CC: 'maybe' }), /Invalid value for --CC: expected true or false/);
 assert.equal(parse([]).qall, false, 'qall is false by default');
 assert.equal(parse([], { qall: true }).qall, true, 'qall can be enabled from the YAML config value');
 assert.equal(parse(['--qall'], { qall: false }).qall, true);

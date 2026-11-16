@@ -66,6 +66,7 @@ export let argvC: {
 	noaudio: boolean | undefined;
 	nosubs: boolean | undefined;
 	dubLang: string[];
+	CC: boolean;
 	all: boolean;
 	fontSize: number;
 	combineLines: boolean;
@@ -224,6 +225,16 @@ const normalizeDubLang = (parsed: ArgvType, validate: boolean) => {
 	parsed.dubLang = codes;
 };
 
+const normalizeCC = (parsed: ArgvType) => {
+	const value: unknown = parsed.CC;
+	if (value === true || value === 'true') parsed.CC = true;
+	else if (value === false || value === 'false') parsed.CC = false;
+	else {
+		console.error('Invalid value for --CC: expected true or false');
+		process.exit(1);
+	}
+};
+
 /** Validate raw status arguments before Commander can exit for help or version. */
 export function statusInvocation(argv: string[]): 'none' | 'valid' | 'invalid' {
 	if (!argv.some((arg) => arg === '--check-status' || arg.startsWith('--check-status='))) return 'none';
@@ -254,6 +265,7 @@ const appArgv = (
 	const parsed = argv.opts() as ArgvType;
 
 	normalizeDubLang(parsed, !isGUI && !(parsed.downloadArchive && argv.getOptionValueSource('dubLang') !== 'cli'));
+	normalizeCC(parsed);
 	normalizeParsed(argv, parsed);
 	markActionSelection(argv, parsed);
 
@@ -280,6 +292,10 @@ const overrideArguments = (cfg: { [key: string]: unknown }, override: Partial<ty
 		);
 		const key = item?.name ?? rawKey;
 		if (typeof val === 'boolean') {
+			if (key === 'CC') {
+				baseArgv.push('--CC', String(val));
+				continue;
+			}
 			if (!val && key === 'qall') baseArgv.push('--no-qall');
 			if (val) baseArgv.push(key.length > 1 ? `--${key}` : `-${key}`);
 		} else {
@@ -291,6 +307,7 @@ const overrideArguments = (cfg: { [key: string]: unknown }, override: Partial<ty
 	const parsed = data.opts() as ArgvType;
 
 	normalizeDubLang(parsed, !isGUI);
+	normalizeCC(parsed);
 	normalizeParsed(data, parsed);
 	markActionSelection(data, parsed);
 
@@ -328,7 +345,7 @@ const getCommander = (cfg: Record<string, unknown>, isGUI: boolean) => {
 				? `${item.alias.length === 1 ? `-${item.alias}` : `--${item.alias}`}, ${item.name.length === 1 ? `-${item.name}` : `--${item.name}`}`
 				: item.name.length === 1
 					? `-${item.name}`
-					: `--${item.name}`) + (item.type === 'boolean' ? '' : ` <value>`),
+					: `--${item.name}`) + (item.name === 'CC' ? ' [value]' : item.type === 'boolean' ? '' : ` <value>`),
 			item.describe ?? ''
 		);
 		if (item.default !== undefined) option.default(item.transformer ? item.transformer(item.default as any) : item.default);
@@ -336,6 +353,7 @@ const getCommander = (cfg: Record<string, unknown>, isGUI: boolean) => {
 		const optionNames = [...args.map((a) => `--${a.name}`), ...args.map((a) => (a.alias ? `-${a.alias}` : null)).filter(Boolean)];
 
 		option.argParser((value) => {
+			if (item.name === 'CC') return value;
 			if (item.transformer) return item.transformer(value);
 
 			// Prevent from passing other options als value for option

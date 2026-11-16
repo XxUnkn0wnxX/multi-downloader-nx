@@ -4001,7 +4001,7 @@ export default class Crunchy implements ServiceClass {
 					(pbData.meta.closed_captions && Object.values(pbData.meta.closed_captions).length > 0)
 				) {
 					const subsData = Object.values(pbData.meta.subtitles);
-					const capsData = Object.values(pbData.meta.closed_captions);
+					const capsData = options.CC === false ? [] : Object.values(pbData.meta.closed_captions);
 					const subsDataMapped = subsData
 						.map((s) => {
 							const subLang = langsData.fixAndFindCrLC(s.language);
@@ -4024,12 +4024,15 @@ export default class Crunchy implements ServiceClass {
 							})
 						);
 					const subsArr = langsData.sortSubtitles<(typeof subsDataMapped)[0]>(subsDataMapped, 'language');
+					const audioLocale = langsData.fixLanguageTag(pbData.meta.audio_locale as string);
+					const knownAudioLocale = !!audioLocale && audioLocale !== 'und' && langsData.languages.some((language) => language.cr_locale === audioLocale && language.code !== 'und');
 					for (const subsIndex in subsArr) {
 						const subsItem = subsArr[subsIndex];
 						const langItem = subsItem.locale;
 						const sxData: Partial<sxItem> = {};
 						sxData.language = langItem;
-						const isSigns = langItem.code === audDub && !subsItem.isCC;
+						const subtitleLocale = langsData.fixLanguageTag(langItem.cr_locale || '');
+						const isSigns = !subsItem.isCC && knownAudioLocale && audioLocale === subtitleLocale;
 						const isCC = subsItem.isCC;
 						sxData.file = langsData.subsFile(fileName as string, subsIndex, langItem, isCC, options.ccTag, isSigns, subsItem.format);
 						if (path.isAbsolute(sxData.file)) {
@@ -4063,7 +4066,8 @@ export default class Crunchy implements ServiceClass {
 										const chosenFontSize = options.originalFontSize ? undefined : options.fontSize;
 										if (!options.originalFontSize) sBody = sBody.replace(/( font-size:.+?;)/g, '').replace(/(font-size:.+?;)/g, '');
 										sBody = vtt2ass(undefined, chosenFontSize, sBody, '', undefined, options.fontName);
-										sxData.file = sxData.file.replace('.vtt', '.ass');
+										sxData.file = sxData.file.replace(/\.vtt$/i, '.ass');
+										sxData.path = sxData.path.replace(/\.vtt$/i, '.ass');
 									} else {
 										// Yeah, whatever
 										sxData.fonts = [];
@@ -4362,7 +4366,18 @@ export default class Crunchy implements ServiceClass {
 	public async muxStreams(data: DownloadedMedia[], options: CrunchyMuxOptions) {
 		this.cfg.bin = await yamlCfg.loadBinCfg();
 		let hasAudioStreams = false;
-		if (options.novids || data.filter((a) => a.type === 'Video').length === 0) return console.info('Skip muxing since no vids are downloaded');
+		if (options.novids || data.filter((a) => a.type === 'Video').length === 0) {
+			if (options.novids && options.noaudio && !options.nocleanup && !options.dryRun && !options.skipmux && !options.subdlfailed) {
+				for (const chapterPath of new Set(data.filter((item) => item.type === 'Chapters').map((item) => item.path))) {
+					try {
+						fs.unlinkSync(chapterPath);
+					} catch {
+						console.warn(`Failed to remove chapter file: ${chapterPath}`);
+					}
+				}
+			}
+			return console.info('Skip muxing since no vids are downloaded');
+		}
 		if (options.subdlfailed && options.skipMuxOnSubFail) return console.info('Skip muxing since some subtitles failed to download');
 		if (data.some((a) => a.type === 'Audio')) {
 			hasAudioStreams = true;

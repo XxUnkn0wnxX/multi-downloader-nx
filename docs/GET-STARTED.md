@@ -117,6 +117,14 @@ Quality-list rates use decimal `kb/s` (1 kb/s = 1,000 bits/s). `KiB/s` measures 
 
 Video timing checks compare declared timelines within the active language scope, including across multiple selected dubs; `--qall` retains checks across its broader catalogue. Matching timelines do not prove decoded synchronization or identical edits. If a check fails or timing is unknown, selection falls back to the requested version. `--bypasssync` (or `bypasssync: true` in config) bypasses video/audio timing checks and can cause desynchronization; `bypasssync: false` disables the override. `--noaudio` still skips checks that require audio. Subtitle cue times are not used as a timing reference. No automatic trimming, stretching, or offset is applied.
 
+### Subtitles and captions
+
+Crunchyroll includes matching closed captions by default. Use `--CC false` or `CC: false` in the config to skip tracks identified as captions while retaining your selected regular subtitles and signs. `--CC true` includes captions for one command even when the config disables them; `--CC=false` and `--CC=true` are also accepted. The `ccTag` setting changes only the caption label, such as `CC`; it does not select signs or control downloads.
+
+Signs classification keeps regional subtitle locales separate from the selected audio locale. For example, sharing the `eng` code does not make an India-English subtitle a signs track for US-English audio. The provider's captions collection remains separate from normal subtitles.
+
+For subtitles only, use `--novids --noaudio`. Converted VTT subtitles are saved with an `.ass` filename; `--noASSConv` retains VTT as the final output instead. After a successful normal subtitle-only run, generated chapter intermediates are cleaned up while finished subtitles remain. `--nocleanup` retains those intermediates; explicit `--skipmux` and failed operations retain their existing behavior. Cleanup does not delete unrelated files or arbitrary TXT/VTT files.
+
 ## Check Crunchyroll playback status
 
 Use this CLI-only command to inspect a read-only capacity snapshot and the latest recorded wait information:

@@ -196,7 +196,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		group: 'dl',
 		type: 'string',
 		describe: 'Set the season ID',
-		docDescribe: 'Used to set the season ID to download from. Crunchyroll -s supports multiple --dubLang selections and --allDubs. Combine --srz with -s to limit a series request to one season.',
+		docDescribe:
+			'Used to set the season ID to download from. Crunchyroll -s supports multiple --dubLang selections and --allDubs. Combine --srz with -s to limit a series request to one season.',
 		service: ['all'],
 		usage: '${ID}'
 	},
@@ -565,6 +566,17 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		service: ['crunchy', 'hidive'],
 		type: 'boolean',
 		usage: ''
+	},
+	{
+		name: 'CC',
+		describe: 'Include Crunchyroll closed captions (true or false)',
+		docDescribe:
+			'Include tracks identified as closed captions by Crunchyroll. Use --CC false or CC: false to skip captions while keeping selected regular subtitles and signs. Use --CC true to include captions for one command. The default is true; ccTag only controls the caption label.',
+		group: 'dl',
+		service: ['crunchy'],
+		type: 'boolean',
+		usage: '${boolean}',
+		default: { default: true }
 	},
 	{
 		name: 'nosubs',
@@ -1098,7 +1110,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'ccTag',
-		describe: 'Used to set the name for subtitles that contain tranlations for none verbal communication (e.g. signs)',
+		describe: 'Set the label appended to closed-caption tracks and filenames; this does not select signs or control caption downloads.',
 		docDescribe: true,
 		group: 'fileName',
 		service: ['all'],
