@@ -1927,7 +1927,7 @@ assert(downloads[0].m3u8json.segments[0].uri.includes('/JA2/1/'));
 	resetGlobal();
 	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, queueRecovery: budget, dryRun: true }), true);
 	assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, queueRecovery: budget, dryRun: true }), true);
-	assert.equal(mediaLogs.filter((entry) => String(entry[0]).includes('Full language discovery scans')).length, 1);
+	assert.equal(mediaLogs.filter((entry) => String(entry[0]).includes('Full stream discovery scans')).length, 1);
 }
 // Default scope follows the selected item locale, not stale GUI dub options.
 resetGlobal();

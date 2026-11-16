@@ -1947,7 +1947,7 @@ export default class Crunchy implements ServiceClass {
 		const activeVersions = options.qall ? versions : requested.every(Boolean) ? versions?.filter((version) => selectedLocales.has(version.audio_locale)) : [];
 		const discoveryPause = options.discoveryTimmer;
 		if (options.qall && !state.budget.qallWarned) {
-			console.warn('Full language discovery scans more sources, is slower, and can trigger rate limits affecting normal viewing.');
+			console.warn('Full stream discovery scans more sources, is slower, and can trigger rate limits affecting normal viewing.');
 			state.budget.qallWarned = true;
 		}
 		if (state.permitClear) {
