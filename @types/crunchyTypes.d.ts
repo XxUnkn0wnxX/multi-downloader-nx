@@ -53,6 +53,7 @@ export type CrunchyDownloadOptions = {
 	fontSize: number;
 	dubLang: string[];
 	requestedDubLang?: string[];
+	muxAudioLanguages?: LanguageItem[];
 	allDubs?: boolean;
 	// Subtitle Fix Options
 	noASSConv: boolean;
@@ -118,12 +119,15 @@ export type CrunchyEpMeta = {
 export type DownloadedMedia =
 	| {
 			type: 'Video';
+			muxLang?: LanguageItem;
+			layout?: 'split' | 'combined';
 			lang: LanguageItem;
 			path: string;
 			isPrimary?: boolean;
 	  }
 	| {
 			type: 'Audio';
+			muxLang?: LanguageItem;
 			lang: LanguageItem;
 			path: string;
 			isPrimary?: boolean;

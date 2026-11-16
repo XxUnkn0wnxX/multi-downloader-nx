@@ -172,6 +172,20 @@ Keep one account-wide clear per command, five-second polling under one 60-second
 
 Preview mode skips automatic updates. An explicit `--update` request prints the fork notice above and exits; archive-add actions remain rejected. Existing authentication/refresh, metadata requests and HEAD checks, logging and GUI queue progression can still occur; this is a download preview. `--debug` remains available. Normal download behavior and prerequisites must be preserved.
 
+### Crunchyroll mux flags and track order
+
+Apply the Crunchyroll policy in the shared merger only when explicitly supplied by Crunchyroll. Set Default=yes on every included video, audio and subtitle track. Force only Signs; closed captions take precedence over an overlapping signs marker and must never be forced. Explicitly clear inherited Forced flags on other tracks. Support both MKVToolNix MKV and FFmpeg MKV/MP4 output. Keep `defaultAudio` and `defaultSub` accepted but superseded by this policy for Crunchyroll; preserve their existing behavior for other providers.
+
+Use the actual selected episode languages, including GUI selections, for explicit `dubLang` audio order. For `allDubs`, order available English, Japanese, then the other languages alphabetically by `LanguageItem.name` (English names), with normalized locale and original position as stable ties. Preserve distinct regional locales even when they share an ISO code. Retain existing source filenames and timing identity separately from mux ordering identity.
+
+Build the final output map after existing timing analysis, independently of acquisition/input order: retained video(s), all ordered audio, then subtitle language groups in audio order, each Signs → full → CC. Put additional subtitle-only languages afterward in deterministic language/locale order. Preserve selected video, calculated delays, `keepAllVideos`, `skipSubMux` sidecars and chapter/font handling. Carry split-versus-combined input layout so a DASH video-only download does not require a nonexistent audio stream. Combined HLS inputs use the same final mux policy; their download/decryption/resume and timing stages remain unchanged.
+
+### Preserve inputs when muxing fails
+
+The shared merger reports whether its command succeeded and produced a new or updated nonempty output; MKVToolNix exit 1 remains success with warnings when that output exists. Crunchyroll, HIDIVE and ADN must propagate hard failure before cleaning mux inputs or recording completed downloads. A missing muxer, interrupted execution, fatal exit, missing/empty output or unchanged stale output must retain those inputs. Keep intentional `skipmux`, no-video/subtitle-only and `skipMuxOnSubFail` outcomes separate from hard failures, and retain unmuxed `skipSubMux` subtitle sidecars.
+
+Preserve `nocleanup` for successful operations too, including existing retention of encrypted download inputs. This does not change download/decryption sequencing, HLS processing, partial-download resume state, overwrite handling or removal of internal temporary duplicates. Do not describe failure retention as a new automatic recovery system.
+
 ### Use undetermined language for video tracks
 
 Both MKVToolNix and FFmpeg set video-track language metadata to `und`. Preserve descriptive video titles, including source-language names and `[Simulcast]` / `[Uncut]` labels. Audio and subtitle tracks retain their own language tags.

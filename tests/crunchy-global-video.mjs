@@ -1235,14 +1235,21 @@ const cliBannerSentinel = new Error('stop after CLI banner');
 let fakeMergeResult = false;
 let fakeMuxerPresent = true;
 let muxCleanupCount = 0;
+let muxTimingCount = 0;
+let observedMerger;
 class MergerFixture {
+	constructor(options) {
+		observedMerger = options;
+	}
 	static makeFontsList() {
 		return [];
 	}
 	static checkMerger() {
 		return fakeMuxerPresent ? { FFmpeg: 'fake' } : {};
 	}
-	async createDelays() {}
+	async createDelays() {
+		muxTimingCount++;
+	}
 	async merge() {
 		return fakeMergeResult;
 	}
@@ -1755,6 +1762,83 @@ function resetGlobal(overrides = {}) {
 	assert(downloads.length > 0, 'media was downloaded before mux failure');
 	assert.equal(archiveWrites.length, 0, 'mux failure is not recorded in the download archive');
 	service.muxStreams = originalMux;
+}
+// Actual Crunchyroll mux wiring uses explicit stream layout even without separate audio.
+{
+	const originalMux = service.muxStreams;
+	service.muxStreams = Crunchy.prototype.muxStreams.bind(service);
+	try {
+		resetGlobal();
+		fakeMuxerPresent = true;
+		fakeMergeResult = true;
+		assert.equal(
+			await service.muxStreams([{ type: 'Video', path: '/synthetic/split.m4s', lang: languageItems[0], layout: 'split' }], {
+				...mediaOptions,
+				output: '/synthetic/out',
+				noaudio: true,
+				muxAudioLanguages: [languageItems[1], languageItems[0]]
+			}),
+			true
+		);
+		assert.equal(observedMerger.onlyVid.length, 1);
+		assert.equal(observedMerger.videoAndAudio.length, 0);
+		assert.deepEqual(
+			Array.from(observedMerger.crunchy.languages, (lang) => lang.code),
+			['jpn', 'eng']
+		);
+		assert.equal(observedMerger.crunchy.noaudio, true);
+		assert.equal(
+			await service.muxStreams([{ type: 'Video', path: '/synthetic/combined.ts', lang: languageItems[0], layout: 'combined' }], {
+				...mediaOptions,
+				output: '/synthetic/out',
+				noaudio: true,
+				allDubs: true
+			}),
+			true
+		);
+		assert.equal(observedMerger.onlyVid.length, 0);
+		assert.equal(observedMerger.videoAndAudio.length, 1);
+		assert.equal(observedMerger.crunchy.allDubs, true);
+		const regional = { ...languageItems[0], cr_locale: 'en-IN', locale: 'en-IN', name: 'English (India)' };
+		assert.equal(
+			await service.muxStreams(
+				[
+					{ type: 'Video', path: '/synthetic/split.m4s', lang: languageItems[0], layout: 'split' },
+					{ type: 'Audio', path: '/synthetic/audio.m4s', lang: languageItems[0], muxLang: regional }
+				],
+				{ ...mediaOptions, output: '/synthetic/out' }
+			),
+			true
+		);
+		assert.equal(observedMerger.onlyAudio[0].lang.cr_locale, 'en-US', 'existing source language remains unchanged');
+		assert.equal(observedMerger.onlyAudio[0].orderLang.cr_locale, 'en-IN', 'mux grouping retains the actual regional locale');
+		muxTimingCount = 0;
+		assert.equal(
+			await service.muxStreams(
+				[
+					{ type: 'Video', path: '/synthetic/split.m4s', lang: languageItems[0], layout: 'split' },
+					{ type: 'Video', path: '/synthetic/combined.ts', lang: languageItems[1], layout: 'combined' },
+					{ type: 'Audio', path: '/synthetic/audio.m4s', lang: languageItems[0] }
+				],
+				{ ...mediaOptions, output: '/synthetic/out', syncTiming: true }
+			),
+			true
+		);
+		assert.equal(muxTimingCount, 0, 'mixed inputs with separate audio retain the previous timing no-op');
+		assert.equal(observedMerger.onlyVid[0].sourceIndex, 0);
+		assert.equal(observedMerger.videoAndAudio[0].sourceIndex, 1);
+		assert.equal(
+			await service.muxStreams([{ type: 'Video', path: '/synthetic/combined.ts', lang: languageItems[0], layout: 'combined' }], {
+				...mediaOptions,
+				output: '/synthetic/out',
+				syncTiming: true
+			}),
+			true
+		);
+		assert.equal(muxTimingCount, 1, 'unmixed combined input retains the existing timing call');
+	} finally {
+		service.muxStreams = originalMux;
+	}
 }
 // Real subtitle collection and subtitle-only chapter cleanup use isolated in-memory files.
 {
@@ -2461,6 +2545,17 @@ try {
 }
 assert.equal(await service.downloadEpisode(fullSelection.value[0], { ...mediaOptions, dubLang: ['hin'], qall: false }), true);
 assert.equal(downloads.length, 3, 'one video and both selected audio tracks are downloaded');
+assert.deepEqual(
+	Array.from(muxCalls.at(-1).options.muxAudioLanguages, (language) => language.code),
+	['eng', 'jpn'],
+	'effective selected languages override stale GUI options'
+);
+assert(
+	muxCalls
+		.at(-1)
+		.data.filter((item) => item.type === 'Video')
+		.every((item) => item.layout === 'split')
+);
 for (const tsd of [false, true]) {
 	for (const discoveryTimmer of [undefined, 0]) {
 		const elapsed = [];

@@ -125,6 +125,24 @@ Signs classification keeps regional subtitle locales separate from the selected 
 
 For subtitles only, use `--novids --noaudio`. Converted VTT subtitles are saved with an `.ass` filename; `--noASSConv` retains VTT as the final output instead. After a successful normal subtitle-only run, generated chapter intermediates are cleaned up while finished subtitles remain. `--nocleanup` retains those intermediates; explicit `--skipmux` and failed operations retain their existing behavior. Cleanup does not delete unrelated files or arbitrary TXT/VTT files.
 
+### Muxed track flags and order
+
+Crunchyroll sets **Default=yes** on every included video, audio and subtitle track in MKV and MP4. Only Signs subtitles receive **Forced=yes**; full subtitles and closed captions are never forced. More than one language can have a forced Signs track. Player language preferences still determine which tracks play; the flags do not bind a particular subtitle track to an audio track.
+
+Audio follows the selected `--dubLang` order: `--dubLang jpn,eng,hin` puts Japanese first, English second and Hindi third. With `--allDubs`, available English tracks come first, Japanese second, then other languages sorted by their English names. Regional variants remain separate and have a stable locale order.
+
+The container holds the retained video track(s), then all audio tracks, then subtitles grouped in the audio language order. Each subtitle group is **Signs → full subtitles → CC**, including only downloaded tracks. Additional subtitle languages follow in a deterministic order. Choosing video from a different language does not move its audio to the front. `--noaudio` omits audio from the mux; `--novids` retains the existing separate audio/subtitle output behavior.
+
+These mux rules also apply to combined HLS inputs without changing their download, decryption or timing stages. `defaultAudio` and `defaultSub` remain accepted settings, but Crunchyroll's automatic Default flags supersede them. Other providers retain their existing track metadata and ordering behavior.
+
+### Keeping source files and retrying failures
+
+Use `--nocleanup`, or `nocleanup: true` in the config, to keep the input video/audio tracks, subtitles and chapters after muxing. Encrypted download inputs are also retained where applicable. Decryption and muxing still run; temporary duplicates and completed-download resume markers can still be removed during processing.
+
+Crunchyroll, HIDIVE and ADN clean mux inputs only after the muxer succeeds and produces a new or updated nonempty output. MKVToolNix's warning exit is accepted when it produces that output. Failed or interrupted muxes retain their inputs and are not recorded as completed downloads. Existing download retry/resume handling remains available; `--skipmux`, subtitle-only output and other intentional mux skips keep their existing behavior.
+
+MKVToolNix replaces an existing final MKV at the same output path. FFmpeg normally prompts unless its options include `-y` (overwrite) or `-n` (refuse). Separately, existing downloaded source files use the downloader's rewrite/stop/continue prompt; `--force y`, `--force n` or `--force c` preselects that answer. This cleanup change preserves those existing overwrite and resume rules.
+
 ## Check Crunchyroll playback status
 
 Use this CLI-only command to inspect a read-only capacity snapshot and the latest recorded wait information:

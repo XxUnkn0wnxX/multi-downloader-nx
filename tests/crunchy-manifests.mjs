@@ -635,7 +635,7 @@ serviceControl.muxStreams = async () => {
 	return true;
 };
 sideEffects.length = 0;
-assert.equal(await serviceControl.downloadEpisode({ e: '1', seasonID: 'test' }, { skipmux: false }), true);
+assert.equal(await serviceControl.downloadEpisode({ e: '1', seasonID: 'test', data: [] }, { skipmux: false }), true);
 assert.deepEqual(sideEffects, ['mux', 'archive']);
 selectedLogs.length = 0;
 await serviceControl.getFonts(true);

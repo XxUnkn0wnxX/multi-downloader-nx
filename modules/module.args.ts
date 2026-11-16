@@ -792,8 +792,9 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'nocleanup',
-		describe: "Don't delete subtitle, audio and video files after muxing",
-		docDescribe: true,
+		describe: 'Keep downloaded media, subtitles and chapters after muxing',
+		docDescribe:
+			'Retain mux input tracks, subtitles, chapters and encrypted download inputs where applicable. Decryption and muxing still run. Internal temporary duplicates and completed-download resume markers may still be removed. Failed muxes retain their inputs even without this flag.',
 		group: 'mux',
 		service: ['all'],
 		type: 'boolean',
@@ -1072,8 +1073,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'defaultAudio',
-		describe: `Set the default audio track by language code\nPossible Values: ${languages.map((a) => a.code).join(', ')}`,
-		docDescribe: true,
+		describe: `Set the default audio language for other providers; Crunchyroll marks all included tracks Default=yes\nPossible Values: ${languages.map((a) => a.code).join(', ')}`,
+		docDescribe: `Set the default audio track by language code for other providers. Crunchyroll accepts this setting but marks all included tracks Default=yes; audio order follows dubLang, or English then Japanese then other languages by English name with allDubs.\nPossible Values: ${languages.map((a) => a.code).join(', ')}`,
 		group: 'mux',
 		service: ['all'],
 		type: 'string',
@@ -1091,8 +1092,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'defaultSub',
-		describe: `Set the default subtitle track by language code\nPossible Values: ${languages.map((a) => a.code).join(', ')}`,
-		docDescribe: true,
+		describe: `Set the default subtitle language for other providers; Crunchyroll marks all included tracks Default=yes\nPossible Values: ${languages.map((a) => a.code).join(', ')}`,
+		docDescribe: `Set the default subtitle track by language code for other providers. Crunchyroll accepts this setting but marks all included tracks Default=yes; audio order follows dubLang, or English then Japanese then other languages by English name with allDubs.\nPossible Values: ${languages.map((a) => a.code).join(', ')}`,
 		group: 'mux',
 		service: ['all'],
 		type: 'string',

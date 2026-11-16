@@ -13,6 +13,8 @@ import { mediaInfoFactory } from 'mediainfo.js';
 export type MergerInput = {
 	path: string;
 	lang: LanguageItem;
+	orderLang?: LanguageItem;
+	sourceIndex?: number;
 	duration?: number;
 	delay?: number;
 	isPrimary?: boolean;
@@ -48,6 +50,7 @@ export type MergerOptions = {
 	keepAllVideos?: boolean;
 	fonts?: ParsedFont[];
 	skipSubMux?: boolean;
+	crunchy?: { languages: LanguageItem[]; allDubs: boolean; noaudio: boolean };
 	options: {
 		ffmpeg: string[];
 		mkvmerge: string[];
@@ -120,6 +123,7 @@ class Merger {
 	}
 
 	public FFmpeg(): string {
+		if (this.options.crunchy) return this.crunchyMux('ffmpeg');
 		const args: string[] = [];
 		const metaData: string[] = [];
 
@@ -207,6 +211,174 @@ class Merger {
 		return args.join(' ');
 	}
 
+	// Build the final track layout after createDelays has selected and timed the inputs.
+	private crunchyMux(type: 'ffmpeg' | 'mkvmerge'): string {
+		const policy = this.options.crunchy!;
+		type Input = { path: string; kind: 'combined' | 'video' | 'audio' | 'subtitle'; value: MergerInput | SubtitleInput; video: boolean; audio: boolean };
+		type Track = { input: number; id: number; language?: LanguageItem; sub?: SubtitleInput; original: number };
+		const inputs: Input[] = [];
+		const videos: Track[] = [],
+			audios: Track[] = [],
+			subtitles: Track[] = [];
+		const videoId = this.options.inverseTrackOrder ? 1 : 0;
+		const audioId = this.options.inverseTrackOrder ? 0 : 1;
+		const identity = (lang: LanguageItem) => (lang.cr_locale || lang.locale || lang.code).toLowerCase();
+		const natural = (a: LanguageItem, b: LanguageItem) => {
+			const priority = (lang: LanguageItem) => (lang.code === 'eng' ? 0 : lang.code === 'jpn' ? 1 : 2);
+			return priority(a) - priority(b) || a.name.localeCompare(b.name, 'en') || identity(a).localeCompare(identity(b), 'en');
+		};
+		const selected = policy.languages.map(identity);
+		const requestedOrder = (a: LanguageItem, b: LanguageItem) => {
+			if (policy.allDubs) return natural(a, b);
+			const ai = selected.indexOf(identity(a)),
+				bi = selected.indexOf(identity(b));
+			if (ai >= 0 || bi >= 0) return (ai < 0 ? selected.length : ai) - (bi < 0 ? selected.length : bi) || natural(a, b);
+			return natural(a, b);
+		};
+		let hasVideo = false;
+		const allVideos = [...this.options.onlyVid, ...this.options.videoAndAudio];
+		const mixedLayout = this.options.onlyVid.length > 0 && this.options.videoAndAudio.length > 0 && allVideos.every((video) => video.sourceIndex !== undefined);
+		const preferredVideo = mixedLayout ? allVideos.reduce((first, video) => (video.sourceIndex! < first.sourceIndex! ? video : first)) : undefined;
+		const addVideo = (vid: MergerInput, combined: boolean) => {
+			const video = !!this.options.keepAllVideos || (preferredVideo ? vid === preferredVideo : !hasVideo);
+			const audio = combined && !policy.noaudio;
+			if (!video && !audio) return;
+			const input = inputs.length;
+			inputs.push({ path: vid.path, kind: combined ? 'combined' : 'video', value: vid, video, audio });
+			if (video) {
+				videos.push({ input, id: combined ? videoId : 0, original: vid.sourceIndex ?? videos.length });
+				hasVideo = true;
+			}
+			if (audio) audios.push({ input, id: audioId, language: vid.orderLang ?? vid.lang, original: audios.length });
+		};
+		if (type === 'ffmpeg') {
+			this.options.videoAndAudio.forEach((vid) => addVideo(vid, true));
+			this.options.onlyVid.forEach((vid) => addVideo(vid, false));
+		} else {
+			this.options.onlyVid.forEach((vid) => addVideo(vid, false));
+			this.options.videoAndAudio.forEach((vid) => addVideo(vid, true));
+		}
+		if (mixedLayout) videos.sort((a, b) => a.original - b.original);
+		for (const aud of this.options.onlyAudio) {
+			if (policy.noaudio) break;
+			const input = inputs.length;
+			inputs.push({ path: aud.path, kind: 'audio', value: aud, video: false, audio: true });
+			audios.push({ input, id: 0, language: aud.orderLang ?? aud.lang, original: audios.length });
+		}
+		audios.sort((a, b) => requestedOrder(a.language!, b.language!) || a.original - b.original);
+		const audioLanguages = [...new Set(audios.map((track) => identity(track.language!)))];
+		for (const sub of this.options.subtitles) {
+			const input = inputs.length;
+			inputs.push({ path: sub.file, kind: 'subtitle', value: sub, video: false, audio: false });
+			subtitles.push({ input, id: 0, language: sub.language, sub, original: subtitles.length });
+		}
+		const subRole = (sub: SubtitleInput) => (sub.closedCaption ? 2 : sub.signs ? 0 : 1);
+		subtitles.sort((a, b) => {
+			const ai = audioLanguages.indexOf(identity(a.language!)),
+				bi = audioLanguages.indexOf(identity(b.language!));
+			const group = (ai < 0 ? audioLanguages.length : ai) - (bi < 0 ? audioLanguages.length : bi);
+			return group || (ai < 0 && bi < 0 ? natural(a.language!, b.language!) : 0) || subRole(a.sub!) - subRole(b.sub!) || a.original - b.original;
+		});
+		const title = (sub: SubtitleInput) => (sub.language.language || sub.language.name) + (sub.closedCaption ? ` ${this.options.ccTag}` : sub.signs ? ' Signs' : '');
+		if (type === 'mkvmerge') {
+			const args = [`-o "${this.options.output}"`, ...this.options.options.mkvmerge];
+			inputs.forEach((input) => {
+				const v = input.value;
+				if (input.kind === 'subtitle') {
+					const sub = v as SubtitleInput;
+					if (sub.delay) args.push(`--sync 0:-${Math.ceil(sub.delay * 1000)}`);
+					args.push(
+						'--track-name',
+						`0:"${title(sub)}"`,
+						'--language',
+						`0:"${sub.language.code}"`,
+						'--default-track-flag 0:1',
+						`--forced-display-flag 0:${sub.signs && !sub.closedCaption ? 1 : 0}`
+					);
+				} else {
+					const track = v as MergerInput;
+					if (input.kind === 'combined' && track.delay) args.push(`--sync ${audioId}:-${Math.ceil(track.delay * 1000)}`);
+					args.push('--no-subtitles', '--no-attachments');
+					if (input.video) {
+						const id = input.kind === 'combined' ? videoId : 0;
+						args.push(
+							`--video-tracks ${id}`,
+							`--language ${id}:und`,
+							`--track-name ${id}:"${(this.options.videoTitle ?? track.lang.name) + (this.options.simul ? ' [Simulcast]' : ' [Uncut]')}"`,
+							`--default-track-flag ${id}:1`,
+							`--forced-display-flag ${id}:0`
+						);
+					} else args.push('--no-video');
+					if (input.audio) {
+						const id = input.kind === 'combined' ? audioId : 0;
+						args.push(
+							`--audio-tracks ${id}`,
+							`--language ${id}:${track.lang.code}`,
+							`--track-name ${id}:"${(track.orderLang ?? track.lang).name}"`,
+							`--default-track-flag ${id}:1`,
+							`--forced-display-flag ${id}:0`
+						);
+					} else args.push('--no-audio');
+				}
+				args.push(`"${input.path}"`);
+			});
+			args.push(`--track-order ${[...videos, ...audios, ...subtitles].map((track) => `${track.input}:${track.id}`).join(',')}`);
+			if (this.options.fonts?.length)
+				for (const font of this.options.fonts) args.push('--attachment-name', font.name, '--attachment-mime-type', font.mime, '--attach-file', `"${font.path}"`);
+			else args.push('--no-attachments');
+			if (this.options.chapters?.length) args.push(`--chapters "${this.options.chapters[0].path}"`);
+			return args.join(' ');
+		}
+		const args: string[] = [];
+		inputs.forEach((input, index) => {
+			const value = input.value;
+			const delay = input.kind === 'subtitle' ? (value as SubtitleInput).delay : input.kind === 'combined' && index > 0 ? (value as MergerInput).delay : undefined;
+			if (delay) args.push(`-itsoffset -${Math.ceil(delay * 1000)}ms`);
+			args.push(`-i "${input.path}"`);
+		});
+		if (this.options.chapters?.length) {
+			const chapterPath = this.options.chapters[0].path;
+			fs.writeFileSync(chapterPath, convertChaptersToFFmpegFormat(chapterPath), 'utf-8');
+			args.push(`-i "${chapterPath}" -map_metadata ${inputs.length}`);
+		}
+		if (this.options.output.split('.').pop()?.toLowerCase() === 'mkv')
+			this.options.fonts?.forEach((font, index) =>
+				args.push(`-attach "${font.path}" -metadata:s:t:${index} mimetype=${font.mime} -metadata:s:t:${index} filename="${font.name}"`)
+			);
+		videos.forEach((track, index) =>
+			args.push(
+				`-map ${track.input}:v:0`,
+				`-metadata:s:v:${index} language=und`,
+				`-metadata:s:v:${index} title="${this.options.videoTitle ?? ''}"`,
+				`-disposition:v:${index} +default-forced`
+			)
+		);
+		audios.forEach((track, index) =>
+			args.push(
+				`-map ${track.input}:a:0`,
+				`-metadata:s:a:${index} language=${track.language!.code}`,
+				`-metadata:s:a:${index} title="${track.language!.name}"`,
+				`-disposition:a:${index} +default-forced`
+			)
+		);
+		subtitles.forEach((track, index) =>
+			args.push(
+				`-map ${track.input}:s:0`,
+				`-metadata:s:s:${index} language=${track.language!.code}`,
+				`-metadata:s:s:${index} title="${title(track.sub!)}"`,
+				`-disposition:s:${index} ${track.sub!.signs && !track.sub!.closedCaption ? '+default+forced' : '+default-forced'}`
+			)
+		);
+		args.push(
+			'-c:v copy',
+			'-c:a copy',
+			this.options.output.split('.').pop()?.toLowerCase() === 'mp4' ? '-c:s mov_text' : '-c:s ass',
+			...this.options.options.ffmpeg,
+			`"${this.options.output}"`
+		);
+		return args.join(' ');
+	}
+
 	public static getLanguageCode = (from: string, _default = 'eng'): string => {
 		if (from === 'cmn') return 'chi';
 		for (const lang in iso639.iso_639_2) {
@@ -219,6 +391,7 @@ class Merger {
 	};
 
 	public MkvMerge = () => {
+		if (this.options.crunchy) return this.crunchyMux('mkvmerge');
 		const args: string[] = [];
 
 		let hasVideo = false;

@@ -4,8 +4,12 @@ Changes specific to this fork are grouped below with their implementation commit
 
 ## 2026-11-17
 
-### Nightly Rev5: audio selection and subtitle handling
+### Nightly Rev5: audio selection, muxing and subtitle handling
 
+- Set Default=yes on all included Crunchyroll video, audio and subtitle tracks, with Forced=yes only for Signs. Full subtitles and closed captions are never forced; other providers retain their existing track metadata policy.
+- Order Crunchyroll audio by explicit `--dubLang` selection, or English → Japanese → other languages by English name with `--allDubs`. Place retained video first, all audio next, then each language's Signs → full subtitles → CC. Preserve regional variants and the selected video independently of audio order.
+- Preserve mux inputs after failures or interrupted execution across Crunchyroll, HIDIVE and ADN, and prevent failed muxes from being recorded as completed downloads. Accept MKVToolNix warning exits only when a new or updated nonempty output exists.
+- Preserve existing intentional skip behavior and `--nocleanup` retention. Keep download, decryption and legacy HLS processing order unchanged.
 - Reject missing selected audio versions before quality discovery or video download, for every dub, including previews and audio-only requests. Keep the GUI-selected language authoritative and preserve the legacy path when version metadata is absent.
 - Support multiple `--dubLang` selections and `--allDubs` with Crunchyroll `-s`, using the same per-episode multi-audio flow as `--srz` while preserving season episode selection. HIDIVE selection remains unchanged.
 - Add Crunchyroll `--CC true/false` and `CC` config control for captions, enabled by default; clarify that `ccTag` changes their label. Keep regional English subtitle locales distinct when classifying signs.

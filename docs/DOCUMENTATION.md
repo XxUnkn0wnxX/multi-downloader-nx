@@ -454,7 +454,7 @@ Skip muxing video, audio and subtitles
 | --- | --- | --- | --- | --- | --- | ---|
 | All | `--nocleanup ` | `boolean` | `No`| `—` | `false`| `nocleanup: ` |
 
-Don't delete subtitle, audio and video files after muxing
+Retain mux input tracks, subtitles, chapters and encrypted download inputs where applicable. Decryption and muxing still run. Internal temporary duplicates and completed-download resume markers may still be removed. Failed muxes retain their inputs even without this flag.
 #### `--skipSubMux`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
@@ -490,14 +490,14 @@ Set the options given to ffmpeg
 | --- | --- | --- | --- | --- | --- | ---|
 | All | `--defaultAudio ${args}` | `string` | `No`| `—` | `eng`| `defaultAudio: ` |
 
-Set the default audio track by language code
+Set the default audio track by language code for other providers. Crunchyroll accepts this setting but marks all included tracks Default=yes; audio order follows dubLang, or English then Japanese then other languages by English name with allDubs.
 Possible Values: und, eng, eng, spa, spa-419, spa-ES, por, por, fra, deu, ara-ME, ara, ita, rus, tur, hin, cmn, zho, chi, zh-HK, kor, cat, pol, tha, tam, may, vie, ind, tel, jpn
 #### `--defaultSub`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
 | All | `--defaultSub ${args}` | `string` | `No`| `—` | `eng`| `defaultSub: ` |
 
-Set the default subtitle track by language code
+Set the default subtitle track by language code for other providers. Crunchyroll accepts this setting but marks all included tracks Default=yes; audio order follows dubLang, or English then Japanese then other languages by English name with allDubs.
 Possible Values: und, eng, eng, spa, spa-419, spa-ES, por, por, fra, deu, ara-ME, ara, ita, rus, tur, hin, cmn, zho, chi, zh-HK, kor, cat, pol, tha, tam, may, vie, ind, tel, jpn
 ### Filename Template
 #### `--fileName`

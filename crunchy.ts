@@ -2332,7 +2332,15 @@ export default class Crunchy implements ServiceClass {
 			} else {
 				if (options.dryRun) return true;
 				if (!options.skipmux) {
-					if (!(await this.muxStreams(res.data, { ...muxOptions, output: res.fileName }))) return false;
+					if (
+						!(await this.muxStreams(res.data, {
+							...muxOptions,
+							allDubs,
+							muxAudioLanguages: data.data.flatMap((item) => (item.lang ? [item.lang] : [])),
+							output: res.fileName
+						}))
+					)
+						return false;
 				} else {
 					console.info('Skipping mux');
 				}
@@ -3658,6 +3666,7 @@ export default class Crunchy implements ServiceClass {
 										fs.unlinkSync(`${tempTsFile}.video.m4s`);
 										files.push({
 											type: 'Video',
+											layout: 'split',
 											path: `${tsFile}.video.m4s`,
 											lang: lang,
 											isPrimary: isPrimary
@@ -3690,6 +3699,7 @@ export default class Crunchy implements ServiceClass {
 										fs.unlinkSync(`${tempTsFile}.audio.m4s`);
 										files.push({
 											type: 'Audio',
+											muxLang: langsData.languages.find((item) => item.cr_locale === currentVersion?.audio_locale) ?? mMeta.lang,
 											path: `${tsFile}.audio.m4s`,
 											lang: lang,
 											isPrimary: isPrimary
@@ -3706,6 +3716,7 @@ export default class Crunchy implements ServiceClass {
 							if (videoDownloaded) {
 								files.push({
 									type: 'Video',
+									layout: 'split',
 									path: `${tsFile}.video.m4s`,
 									lang: lang,
 									isPrimary: isPrimary
@@ -3714,6 +3725,7 @@ export default class Crunchy implements ServiceClass {
 							if (audioDownloaded) {
 								files.push({
 									type: 'Audio',
+									muxLang: langsData.languages.find((item) => item.cr_locale === currentVersion?.audio_locale) ?? mMeta.lang,
 									path: `${tsFile}.audio.m4s`,
 									lang: lang,
 									isPrimary: isPrimary
@@ -3934,6 +3946,8 @@ export default class Crunchy implements ServiceClass {
 								}
 								files.push({
 									type: 'Video',
+									layout: 'combined',
+									muxLang: langsData.languages.find((item) => item.cr_locale === currentVersion?.audio_locale) ?? mMeta.lang,
 									path: `${tsFile}.ts`,
 									lang: lang,
 									isPrimary: isPrimary
@@ -4365,7 +4379,6 @@ export default class Crunchy implements ServiceClass {
 
 	public async muxStreams(data: DownloadedMedia[], options: CrunchyMuxOptions): Promise<boolean> {
 		this.cfg.bin = await yamlCfg.loadBinCfg();
-		let hasAudioStreams = false;
 		if (options.novids || data.filter((a) => a.type === 'Video').length === 0) {
 			if (options.novids && options.noaudio && !options.nocleanup && !options.dryRun && !options.skipmux && !options.subdlfailed) {
 				for (const chapterPath of new Set(data.filter((item) => item.type === 'Chapters').map((item) => item.path))) {
@@ -4383,20 +4396,12 @@ export default class Crunchy implements ServiceClass {
 			console.info('Skip muxing since some subtitles failed to download');
 			return true;
 		}
-		if (data.some((a) => a.type === 'Audio')) {
-			hasAudioStreams = true;
-		}
+		const hasAudioStreams = data.some((a) => a.type === 'Audio');
 		const merger = new Merger({
-			onlyVid: hasAudioStreams
-				? data
-						.filter((a) => a.type === 'Video')
-						.map((a): MergerInput => {
-							return {
-								lang: a.lang,
-								path: a.path
-							};
-						})
-				: [],
+			onlyVid: data
+				.filter((a) => a.type === 'Video')
+				.filter((a) => a.layout === 'split' || (a.layout === undefined && hasAudioStreams))
+				.map((a): MergerInput => ({ lang: a.lang, path: a.path, sourceIndex: data.indexOf(a) })),
 			skipSubMux: options.skipSubMux,
 			onlyAudio: hasAudioStreams
 				? data
@@ -4404,6 +4409,7 @@ export default class Crunchy implements ServiceClass {
 						.map((a): MergerInput => {
 							return {
 								lang: a.lang,
+								orderLang: a.muxLang,
 								path: a.path
 							};
 						})
@@ -4422,16 +4428,11 @@ export default class Crunchy implements ServiceClass {
 			simul: false,
 			keepAllVideos: options.keepAllVideos,
 			fonts: Merger.makeFontsList(this.cfg.dir.fonts, data.filter((a) => a.type === 'Subtitle') as sxItem[]),
-			videoAndAudio: hasAudioStreams
-				? []
-				: data
-						.filter((a) => a.type === 'Video')
-						.map((a): MergerInput => {
-							return {
-								lang: a.lang,
-								path: a.path
-							};
-						}),
+			videoAndAudio: data
+				.filter((a) => a.type === 'Video')
+				.filter((a) => a.layout === 'combined' || (a.layout === undefined && !hasAudioStreams))
+				.map((a): MergerInput => ({ lang: a.lang, orderLang: a.muxLang, path: a.path, sourceIndex: data.indexOf(a) })),
+			crunchy: { languages: options.muxAudioLanguages ?? [], allDubs: !!options.allDubs, noaudio: !!options.noaudio },
 			chapters: data
 				.filter((a) => a.type === 'Chapters')
 				.map((a): MergerInput => {
@@ -4454,7 +4455,8 @@ export default class Crunchy implements ServiceClass {
 		const bin = Merger.checkMerger(this.cfg.bin, options.mp4, options.forceMuxer);
 		// collect fonts info
 		// mergers
-		if (options.syncTiming) {
+		const mixedWithSeparateAudio = hasAudioStreams && data.some((item) => item.type === 'Video' && item.layout === 'combined');
+		if (options.syncTiming && !mixedWithSeparateAudio) {
 			await merger.createDelays();
 		}
 		let merged: boolean;
