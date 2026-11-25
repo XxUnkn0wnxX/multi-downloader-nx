@@ -6,7 +6,7 @@ import { Writable } from 'node:stream';
 import { parse } from 'dotenv';
 import { domain } from './module.api-urls';
 import { workingDir } from './module.cfg-loader';
-import { validDeviceToken } from './module.crunchy-device-auth';
+import { refreshCredentialsRejected, validDeviceToken } from './module.crunchy-device-auth';
 import type { Req } from './module.fetch';
 import type { CrunchySession } from './module.crunchy-session-store';
 
@@ -80,7 +80,7 @@ async function readCallback(): Promise<string | undefined> {
 	}
 }
 
-async function exchangePhoneToken(request: Req['getData'], fields: Record<string, string>, device: CrunchySession): Promise<CrunchySession | undefined> {
+async function exchangePhoneToken(request: Req['getData'], fields: Record<string, string>, device: CrunchySession, onRejected?: () => void): Promise<CrunchySession | undefined> {
 	const form = new URLSearchParams({
 		...fields,
 		scope: 'offline_access',
@@ -106,7 +106,8 @@ async function exchangePhoneToken(request: Req['getData'], fields: Record<string
 			signal: AbortSignal.timeout(15_000)
 		});
 		if (!result.ok || !result.res) {
-			await result.res?.body?.cancel().catch(() => {});
+			if (onRejected && (await refreshCredentialsRejected(result.res))) onRejected();
+			else if (!result.res?.bodyUsed) await result.res?.body?.cancel().catch(() => {});
 			return;
 		}
 		const token = await result.res.json();
@@ -160,9 +161,10 @@ export async function loginWithPhone(request: Req['getData']): Promise<CrunchySe
 	);
 }
 
-export function refreshPhoneToken(request: Req['getData'], session: CrunchySession): Promise<CrunchySession | undefined> {
+export function refreshPhoneToken(request: Req['getData'], session: CrunchySession, onRejected?: () => void): Promise<CrunchySession | undefined> {
 	if (!['refresh_token', 'account_id', 'device_id', 'device_name', 'device_type'].every((key) => typeof session[key] === 'string' && session[key])) {
+		onRejected?.();
 		return Promise.resolve(undefined);
 	}
-	return exchangePhoneToken(request, { grant_type: 'refresh_token', refresh_token: session.refresh_token }, session);
+	return exchangePhoneToken(request, { grant_type: 'refresh_token', refresh_token: session.refresh_token }, session, onRejected);
 }

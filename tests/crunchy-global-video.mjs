@@ -3852,10 +3852,18 @@ assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/
 }
 {
 	const previous = { request: service.req, token: service.token, cms: service.cmsToken, loader: mediaDeps['./modules/module.cfg-loader'].loadCRSessions };
-	const tv = { auth_type: 'device', device_id: 'test-tv', account_id: 'same-account', access_token: 'fake-tv-bearer', expires: new Date(4e12) };
-	const phone = { auth_type: 'android', device_id: 'test-phone', account_id: 'same-account', access_token: 'fake-phone-bearer', expires: new Date(4e12) };
+	const tv = { auth_type: 'device', device_id: 'test-tv', account_id: 'same-account', access_token: 'fake-tv-bearer', refresh_token: 'fake-tv-refresh', expires: new Date(4e12) };
+	const phone = {
+		auth_type: 'android',
+		device_id: 'test-phone',
+		account_id: 'same-account',
+		access_token: 'fake-phone-bearer',
+		refresh_token: 'fake-phone-refresh',
+		expires: new Date(4e12)
+	};
 	const manifest = 'https://cr-play-service.prd.crunchyrollsvc.com/fixture.mpd';
 	const observed = [];
+	let reject;
 	try {
 		resetGlobal();
 		mediaDeps['./modules/module.cfg-loader'].loadCRSessions = () => ({ sessions: { androidtv: tv, android: phone } });
@@ -3867,8 +3875,15 @@ assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/
 				observed.push({ url, method: options.method, bearer: options.headers?.Authorization });
 				if (options.method === 'DELETE') return { ok: true, res: new Response(null, { status: 204 }) };
 				if (url === manifest) return { ok: true, res: new Response(mediaMpd('EN', 'current')) };
-				if (url.includes('/play?queue='))
+				if (url.includes('/play?queue=')) {
+					if (reject === 'video' && options.headers?.Authorization === 'Bearer fake-tv-bearer') {
+						return { ok: false, res: Response.json({ code: 40016 }, { status: 400 }) };
+					}
+					if (reject === 'audio' && options.headers?.Authorization === 'Bearer fake-phone-bearer') {
+						return { ok: false, res: Response.json({ error: 'unauthorized' }, { status: 401 }) };
+					}
 					return { ok: true, res: new Response(JSON.stringify({ token: 'same-playback-token', url: manifest, hardSubs: {}, audioLocale: 'en-US' })) };
+				}
 				throw Error(`Unexpected fixture URL ${url}`);
 			}
 		};
@@ -3890,6 +3905,21 @@ assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/
 				['www.crunchyroll.com', 'Bearer fake-phone-bearer']
 			]
 		);
+		const roleErrors = () => mediaLogs.map(([message]) => String(message)).filter((message) => message.includes('has no valid'));
+		reject = 'audio';
+		observed.length = mediaLogs.length = 0;
+		assert.equal(await service.downloadMediaList(mediaData, opts), undefined);
+		assert.deepEqual(roleErrors(), ['Audio endpoint "android" has no valid Android phone session. Sign in with --auth.']);
+		assert.deepEqual(
+			observed.filter((item) => item.method === 'DELETE').map((item) => item.bearer),
+			['Bearer fake-tv-bearer']
+		);
+		reject = 'video';
+		observed.length = mediaLogs.length = 0;
+		assert.equal(await service.downloadEpisode(mediaData, opts), false);
+		assert.deepEqual(roleErrors(), ['Video endpoint "androidtv" has no valid Android TV session. Sign in with --device.']);
+		assert.equal(observed.filter((item) => item.url.includes('/play?')).length, 1);
+		reject = undefined;
 		phone.account_id = 'different-account';
 		observed.length = 0;
 		assert.equal(await service.downloadMediaList(mediaData, opts), undefined);

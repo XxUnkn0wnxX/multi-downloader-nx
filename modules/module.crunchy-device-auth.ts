@@ -104,6 +104,16 @@ export function validDeviceToken(token: any): boolean {
 	);
 }
 
+export async function refreshCredentialsRejected(response?: Response): Promise<boolean> {
+	if (!response || (response.status !== 400 && response.status !== 401)) return false;
+	try {
+		const { error } = await response.json();
+		return error === 'invalid_grant' || error === 'invalid_refresh_token';
+	} catch {
+		return false;
+	}
+}
+
 export const CRUNCHY_CLI_AUTH_WARNING = 'Use --auth for Android phone sign-in or --device for Android TV sign-in.';
 
 export function validateCrunchyAuthModes(argv: {

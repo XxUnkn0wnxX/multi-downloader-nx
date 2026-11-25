@@ -34,7 +34,7 @@ The commands below assume `aniDL` is on your `PATH`. After a source build, use `
 
 ### Crunchyroll
 
-Use `--device` for Android TV, browser `--auth` for Android phone, and `--token` for browser-cookie sessions. See [Crunchyroll CLI sign-in](GET-STARTED.md#crunchyroll-cli). The CLI saves each login separately so `--vstream` and `--astream` can use the matching session for each endpoint.
+Use `--device` for Android TV, browser `--auth` for Android phone, and `--token` for browser-cookie sessions. One Crunchyroll command can use multiple saved sessions from the same account. For example, `--vstream androidtv --astream android` uses the Android TV login for video and the Android phone login for audio. See [Crunchyroll CLI sign-in](GET-STARTED.md#crunchyroll-cli).
 
 Search for a series, list its seasons, and select episodes with the dubs and subtitles you want. For raw DASH streams, discovery uses exactly the selected audio languages, keeping all available variants within that scope. Requested audio must be available before discovery begins; `--noaudio` permits video-only downloads. `--qall` expands discovery to all available languages and shows the full quality list, with a fresh 700–1100 ms pause before each discovery request. The scan is slower and sends more requests; those additional requests can trigger rate limits that affect normal viewing.
 

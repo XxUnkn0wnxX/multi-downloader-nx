@@ -88,7 +88,9 @@ Each `--vstream` or `--astream` endpoint uses the corresponding saved login.
 | `android` and `androidtab` | Browser `--auth` |
 | `chrome` and `firefox` | `--token` |
 
-The defaults are `--vstream androidtv --astream android`. Save both Android TV and Android phone sessions for the same account to use that combination. With a single phone login, choose `--vstream android --astream android`. Availability can differ across endpoints.
+Crunchyroll can use multiple saved sign-in types in the same command. The default combination, `--vstream androidtv --astream android`, uses the saved Android TV session for video and the saved Android phone session for audio. Both sessions must belong to the same Crunchyroll account. With a single phone login, choose `--vstream android --astream android`. Availability can differ across endpoints.
+
+If a selected endpoint has no valid session, the CLI names the affected stream and tells you which sign-in option to use. If both endpoints need a login, it reports each one.
 
 For raw DASH, the numbered quality list can include compatible video from `[Current M]` and `[Legacy M]` sources, with the video source language shown as `[V:eng]` or `[V:jpn]`. By default, discovery covers exactly the selected audio languages. English-only selection uses English video sources; select both English and Japanese to compare both. All available variants within that scope remain eligible. `--qall` expands the catalogue to all available languages. Resolution headings group the list without resetting quality numbers. `-q 0` selects the compatible candidate with the highest resolution, then advertised bandwidth, in the active catalogue; its choice can differ with `--qall`. The highest current audio rendition is selected independently for each requested dub.
 

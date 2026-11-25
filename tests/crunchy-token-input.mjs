@@ -147,6 +147,7 @@ try {
 		'./modules/module.crunchy-device-auth': deviceHelper,
 		'./modules/module.crunchy-session-store': sessionStore,
 		'./modules/module.crunchy-phone-auth': { loginWithPhone: async () => undefined },
+		'./@types/enums': compile(path.join(root, '@types/enums.ts'), (id) => require(id)),
 		'./modules/module.fork-display': forkDisplay,
 		'./modules/module.working-indicator': {
 			WorkingIndicator: class {
@@ -168,7 +169,6 @@ try {
 		'./modules/module.crunchy-playback-recovery': { PlaybackRefusal: class extends Error {} },
 		'./modules/module.crunchy-playback-status': { accountBinding: () => undefined, observePlaybackWait() {}, readPlaybackWait() {} },
 		'./modules/module.crunchy-video-selection': { boundedRequest: async (operation) => operation(new AbortController().signal) },
-		'./@types/enums': { CrunchyVideoPlayStreams: { androidtv: 'androidtv', chrome: 'chrome' } },
 		'node:crypto': { randomUUID: () => generatedDeviceId }
 	};
 	const ignoredImports = new Set([
@@ -191,8 +191,7 @@ try {
 		'./modules/module.crunchy-playback-recovery',
 		'./modules/module.crunchy-discovery-scheduler',
 		'./modules/module.working-indicator',
-		'./modules/module.vtt2ass',
-		'./@types/enums'
+		'./modules/module.vtt2ass'
 	]);
 	function requireCrunchy(id) {
 		if (id === 'path' || id === 'fs' || id === 'node:crypto') return id === 'node:crypto' ? stubs[id] : require(id);
@@ -1028,6 +1027,57 @@ try {
 			assert.equal(await service.refreshToken(), false);
 			assert.equal(service.token, old);
 			assert(logs.some(([, line]) => line.includes(expected)));
+		}
+	});
+	await test('CLI reports missing endpoint logins per requested stream and preserves season listings', async () => {
+		const { service, calls } = makeService({});
+		let listings = 0;
+		service.refreshToken = async () => true;
+		service.getSeasonById = async () => {
+			listings++;
+			return { isOk: true, value: [] };
+		};
+		const opts = { s: 'SEASONID1', vstream: 'androidtv', astream: 'android', dubLang: ['eng'] };
+		const roleErrors = () => logs.filter(([level, text]) => level === 'error' && text.includes('endpoint "')).map(([, text]) => text);
+		const tv = 'Video endpoint "androidtv" has no valid Android TV session. Sign in with --device.';
+		const phone = 'Audio endpoint "android" has no valid Android phone session. Sign in with --auth.';
+		logs.length = 0;
+		parsedArgv = opts;
+		assert.equal(await service.cli(), true);
+		assert.deepEqual(roleErrors(), []);
+		for (const [flags, expected] of [
+			[{}, [tv, phone]],
+			[{ noaudio: true }, [tv]],
+			[{ novids: true }, [phone]]
+		]) {
+			logs.length = 0;
+			parsedArgv = { ...opts, e: '6', ...flags };
+			assert.equal(await service.cli(), false);
+			assert.deepEqual(roleErrors(), expected);
+		}
+		assert.equal(listings, 1);
+		assert.equal(calls.length, 0);
+	});
+	await test('a shared expired login refreshes once and reports the appropriate error for both roles', async () => {
+		const opts = { e: 'EPISODE01', vstream: 'androidtv', astream: 'androidtv', dubLang: ['eng'] };
+		for (const [status, expected] of [
+			[400, 'has no valid Android TV session. Sign in with --device.'],
+			[429, 'could not refresh the saved session. Retry later.']
+		]) {
+			const auth = 'https://www.crunchyroll.com/auth/v1/token';
+			const { service, calls } = makeService({ [auth]: { ok: false, res: Response.json({ error: 'invalid_grant' }, { status }) } });
+			service.token = { auth_type: 'device', device_id: 'test-device', access_token: 'expired', refresh_token: 'test-refresh', expires: 0 };
+			parsedArgv = opts;
+			logs.length = 0;
+			assert.equal(await service.cli(), false);
+			assert.deepEqual(
+				calls.map((call) => call.url),
+				[auth]
+			);
+			assert.deepEqual(
+				logs.filter(([level]) => level === 'error').map(([, message]) => message),
+				[`Video endpoint "androidtv" ${expected}`, `Audio endpoint "androidtv" ${expected}`]
+			);
 		}
 	});
 	await test('GUI failures stop requests and always finish download state', async () => {

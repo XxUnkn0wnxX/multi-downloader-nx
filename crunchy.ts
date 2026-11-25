@@ -84,6 +84,7 @@ import { CrunchySession, CrunchySessionSlot, crunchySessionSlot } from './module
 import {
 	requestDeviceToken,
 	validDeviceToken,
+	refreshCredentialsRejected,
 	CRUNCHY_CLI_AUTH_WARNING,
 	validateCrunchyAuthModes,
 	getDeviceName,
@@ -96,6 +97,44 @@ import {
 } from './modules/module.crunchy-device-auth';
 
 type VideoEndpoint = keyof typeof CrunchyVideoPlayStreams;
+type PlaybackRole = 'Video' | 'Audio' | 'Subtitle metadata';
+type PlaybackAuthFailure = 'invalid' | 'unavailable' | 'account';
+type PlaybackSessionCheck = { session: CrunchySession } | { failure: PlaybackAuthFailure };
+const playbackSignIns = {
+	androidtv: { session: 'Android TV', command: '--device' },
+	android: { session: 'Android phone', command: '--auth' },
+	web: { session: 'web', command: '--token <cookie-or-file>' }
+} as const;
+type PlaybackSlot = keyof typeof playbackSignIns;
+
+function playbackSlot(endpoint: VideoEndpoint): PlaybackSlot {
+	return endpoint === 'androidtv' ? 'androidtv' : endpoint === 'android' || endpoint === 'androidtab' ? 'android' : 'web';
+}
+
+function playbackAuthError(role: PlaybackRole, endpoint: VideoEndpoint, failure: PlaybackAuthFailure): void {
+	const prefix = `${role} endpoint "${endpoint}"`;
+	const { session, command } = playbackSignIns[playbackSlot(endpoint)];
+	if (failure === 'unavailable') {
+		console.error(`${prefix} could not refresh the saved session. Retry later.`);
+	} else if (failure === 'account') {
+		console.error(`${prefix} requires a session for the active Crunchyroll account. Sign in with ${command} using that account.`);
+	} else {
+		console.error(`${prefix} has no valid ${session} session. Sign in with ${command}.`);
+	}
+}
+
+async function playbackCredentialsRejected(response?: Response): Promise<boolean> {
+	if (response?.status === 401) return true;
+	if (!response || (response.status !== 400 && response.status !== 403)) return false;
+	try {
+		const body = JSON.parse(await readLimitedManifest(response));
+		const code = body?.error?.code ?? body?.errors?.[0]?.code ?? body?.code ?? body?.error;
+		return code === 40016 || code === '40016';
+	} catch {
+		return false;
+	}
+}
+
 type PlaybackAuth = {
 	endpoint: VideoEndpoint;
 	session: CrunchySession;
@@ -104,6 +143,7 @@ type PlaybackAuth = {
 	prefix: string;
 };
 type PlaybackRouting = { video: PlaybackAuth; audio: PlaybackAuth };
+type PlaybackSelection = Pick<CrunchyDownloadOptions, 'cstream' | 'vstream' | 'astream' | 'novids' | 'noaudio'>;
 
 type GlobalVideoPass = {
 	kind: 'video' | 'audio';
@@ -551,7 +591,7 @@ export default class Crunchy implements ServiceClass {
 			if (!(await this.refreshToken())) return false;
 			await this.doSearch({ ...argv, search: argv.search as string });
 		} else if (argv.series && argv.series.match(/^[0-9A-Z]{9,}$/)) {
-			if (!(await this.refreshToken())) return false;
+			if (!(await (argv.e || argv.all || argv.but ? this.prepareMediaDownload(argv) : this.refreshToken()))) return false;
 			await this.logSeriesById(argv.series as string);
 			const selected = await this.downloadFromSeriesID(argv.series, { ...argv });
 			if (!selected.isOk) return false;
@@ -577,7 +617,7 @@ export default class Crunchy implements ServiceClass {
 			if (!(await this.refreshToken())) return false;
 			await this.logShowListRaw();
 		} else if (argv.s && argv.s.match(/^[0-9A-Z]{9,}$/)) {
-			if (!(await this.refreshToken())) return false;
+			if (!(await (argv.e || argv.all || argv.but ? this.prepareMediaDownload(argv) : this.refreshToken()))) return false;
 			const selected = await this.getSeasonById(argv.s, argv.numbers, argv.e, argv.but, argv.all, { dubLang: argv.dubLang, allDubs: argv.allDubs });
 			if (!selected.isOk) return false;
 			for (const select of selected.value) {
@@ -588,7 +628,7 @@ export default class Crunchy implements ServiceClass {
 			}
 			return true;
 		} else if (argv.e) {
-			if (!(await this.refreshToken())) return false;
+			if (!(await this.prepareMediaDownload(argv))) return false;
 			if (argv.dubLang.length > 1) {
 				console.info('One show can only be downloaded with one dub. Use --srz instead.');
 			}
@@ -610,7 +650,7 @@ export default class Crunchy implements ServiceClass {
 			}
 			return true;
 		} else if (argv.extid) {
-			if (!(await this.refreshToken())) return false;
+			if (!(await this.prepareMediaDownload(argv))) return false;
 			if (argv.dubLang.length > 1) {
 				console.info('One show can only be downloaded with one dub. Use --srz instead.');
 			}
@@ -968,30 +1008,35 @@ export default class Crunchy implements ServiceClass {
 		return token.auth_type === 'device' ? { ...api.crunchyDefHeader, 'User-Agent': this.deviceUserAgent(token) } : api.crunchyDefHeader;
 	}
 
-	private async playbackAuth(endpoint: VideoEndpoint): Promise<PlaybackAuth | undefined> {
-		const slot = endpoint === 'androidtv' ? 'androidtv' : endpoint === 'android' || endpoint === 'androidtab' ? 'android' : 'web';
-		const session =
-			yamlCfg.loadCRSessions().sessions[slot] ?? (crunchySessionSlot(this.token) === slot || crunchySessionSlot(this.token) === 'legacy' ? this.token : undefined);
-		if (!session) {
-			const command = { androidtv: '--device', android: '--auth', web: '--token' }[slot];
-			console.error(`The ${endpoint} endpoint requires a saved Crunchyroll session. Sign in with ${command}.`);
-			return;
-		}
-		const current = session.refresh_token && crunchySessionSlot(session) !== 'legacy' ? await this.refreshStoredSession(session, true) : session;
-		if (!current?.access_token) return;
+	private async checkPlaybackSession(slot: PlaybackSlot): Promise<PlaybackSessionCheck> {
+		const activeSlot = crunchySessionSlot(this.token);
+		const session = yamlCfg.loadCRSessions().sessions[slot] ?? (activeSlot === slot || activeSlot === 'legacy' ? this.token : undefined);
+		if (!session) return { failure: 'invalid' };
 		if (
 			session !== this.token &&
-			((current.account_id && this.token.account_id && current.account_id !== this.token.account_id) ||
-				(crunchySessionSlot(this.token) !== slot && (!current.account_id || !this.token.account_id)))
+			((session.account_id && this.token.account_id && session.account_id !== this.token.account_id) ||
+				(activeSlot !== slot && !!this.token.access_token && (!session.account_id || !this.token.account_id)))
 		) {
-			console.error('The requested Crunchyroll session must belong to the same account as the active session.');
-			return;
+			return { failure: 'account' };
 		}
-		const phonePlayback = current.auth_type === 'android' && endpoint === 'android';
+		if (crunchySessionSlot(session) === 'legacy') {
+			return typeof session.access_token === 'string' && session.access_token.trim() ? { session } : { failure: 'invalid' };
+		}
+		if (typeof session.refresh_token !== 'string' || !session.refresh_token.trim()) return { failure: 'invalid' };
+		if (this.sessionIsCurrent(session)) return { session };
+		let rejected = false;
+		const current = await this.refreshStoredSession(session, true, () => {
+			rejected = true;
+		}).catch(() => undefined);
+		return current ? { session: current } : { failure: rejected ? 'invalid' : 'unavailable' };
+	}
+
+	private playbackAuth(endpoint: VideoEndpoint, session: CrunchySession): PlaybackAuth {
+		const phonePlayback = session.auth_type === 'android' && endpoint === 'android';
 		return {
 			endpoint,
-			session: current,
-			slot: crunchySessionSlot(current),
+			session,
+			slot: crunchySessionSlot(session),
 			origin: phonePlayback ? domain.cr_www : domain.cr_playback,
 			prefix: phonePlayback ? '/playback' : ''
 		};
@@ -1024,20 +1069,38 @@ export default class Crunchy implements ServiceClass {
 		return `${auth.origin}${auth.prefix}/v1/token/${contentId}/${encodeURIComponent(token)}`;
 	}
 
-	private async resolvePlaybackRouting(options: CrunchyDownloadOptions): Promise<PlaybackRouting | undefined> {
+	private async resolvePlaybackRouting(options: PlaybackSelection): Promise<PlaybackRouting | undefined> {
 		const defaultEndpoint: VideoEndpoint = this.token.auth_type === 'android' ? 'android' : this.token.auth_type === 'web' ? 'chrome' : 'androidtv';
 		const endpoint = (configured: VideoEndpoint) => (Object.prototype.hasOwnProperty.call(CrunchyVideoPlayStreams, configured) ? configured : defaultEndpoint);
 		const videoEndpoint = endpoint(options.cstream || (options.novids && !options.noaudio ? options.astream : options.vstream));
 		const audioEndpoint = options.noaudio || options.cstream ? videoEndpoint : endpoint(options.astream);
-		const video = await this.playbackAuth(videoEndpoint);
-		if (!video) return;
-		const audio = videoEndpoint === audioEndpoint ? video : await this.playbackAuth(audioEndpoint);
-		if (!audio) return;
+		const videoSlot = playbackSlot(videoEndpoint);
+		const audioSlot = playbackSlot(audioEndpoint);
+		const videoCheck = await this.checkPlaybackSession(videoSlot);
+		const audioCheck = videoSlot === audioSlot ? videoCheck : await this.checkPlaybackSession(audioSlot);
+		if ('failure' in videoCheck && (!options.novids || options.noaudio)) {
+			playbackAuthError(options.novids ? 'Subtitle metadata' : 'Video', videoEndpoint, videoCheck.failure);
+		}
+		if ('failure' in audioCheck && !options.noaudio) playbackAuthError('Audio', audioEndpoint, audioCheck.failure);
+		if ('failure' in videoCheck || 'failure' in audioCheck) return;
+		const video = this.playbackAuth(videoEndpoint, videoCheck.session);
+		const audio = videoEndpoint === audioEndpoint ? video : this.playbackAuth(audioEndpoint, audioCheck.session);
 		if (video.slot !== audio.slot && (!video.session.account_id || video.session.account_id !== audio.session.account_id)) {
 			console.error('Crunchyroll video and audio sessions must belong to the same account.');
 			return;
 		}
 		return { video, audio };
+	}
+
+	private async prepareMediaDownload(options: PlaybackSelection): Promise<boolean> {
+		if (options.novids && options.noaudio) return this.refreshToken();
+		const routing = await this.resolvePlaybackRouting(options);
+		if (!routing) return false;
+		if (this.token.access_token !== routing.video.session.access_token) {
+			this.token = routing.video.session;
+			this.cmsToken = {};
+		}
+		return this.refreshToken(true);
 	}
 
 	private manifestHeaders(url: string, auth: PlaybackAuth): FetchParams {
@@ -1083,7 +1146,7 @@ export default class Crunchy implements ServiceClass {
 		});
 	}
 
-	private async requestWebToken(refreshToken: string, deviceId: string, errorMessage: string): Promise<Record<string, any> | undefined> {
+	private async requestWebToken(refreshToken: string, deviceId: string, errorMessage: string, onRejected?: () => void): Promise<Record<string, any> | undefined> {
 		const authData = new URLSearchParams({
 			device_id: deviceId,
 			device_type: 'Firefox on Windows',
@@ -1098,16 +1161,20 @@ export default class Crunchy implements ServiceClass {
 		};
 		const authReq = await this.req.getData(api.auth, authReqOpts);
 		if (!authReq.ok || !authReq.res) {
-			console.error(errorMessage);
-			if (authReq.res?.status === 400) {
-				console.warn('Token is likely wrong (Or invalid for given API), please login again!');
+			if (onRejected) {
+				if (await refreshCredentialsRejected(authReq.res)) onRejected();
+			} else {
+				console.error(errorMessage);
+				if (authReq.res?.status === 400) {
+					console.warn('Token is likely wrong (Or invalid for given API), please login again!');
+				}
 			}
 			return;
 		}
 
 		const token = await authReq.res.json();
 		if (!token.access_token) {
-			console.error(errorMessage);
+			if (!onRejected) console.error(errorMessage);
 			return;
 		}
 
@@ -1275,9 +1342,9 @@ export default class Crunchy implements ServiceClass {
 		}
 	}
 
-	private async requestRefreshedSession(previous: CrunchySession): Promise<CrunchySession | undefined> {
-		if (previous.auth_type === 'android') return refreshPhoneToken(this.req.getData.bind(this.req), previous);
-		if (previous.auth_type === 'web') return this.requestWebToken(previous.refresh_token, previous.device_id || randomUUID(), 'Token Refresh Failed!');
+	private async requestRefreshedSession(previous: CrunchySession, onRejected?: () => void): Promise<CrunchySession | undefined> {
+		if (previous.auth_type === 'android') return refreshPhoneToken(this.req.getData.bind(this.req), previous, onRejected);
+		if (previous.auth_type === 'web') return this.requestWebToken(previous.refresh_token, previous.device_id || randomUUID(), 'Token Refresh Failed!', onRejected);
 		if (this.debug && previous.auth_type !== 'device') console.debug(`[DEBUG] Refresh request: ${api.auth}`);
 		const client = atob(api.basic_auth_token).split(':');
 		const uuid = previous.device_id || randomUUID();
@@ -1325,20 +1392,18 @@ export default class Crunchy implements ServiceClass {
 
 		if (this.debug) console.debug(`[DEBUG] Refresh response: ${result.res?.status ?? 'network error'}`);
 		if (!result.ok || !result.res) {
-			let rejected = false;
-			try {
-				const body = await result.res?.json();
-				rejected = !!result.res && [400, 401].includes(result.res.status) && (body?.error === 'invalid_grant' || body?.error === 'invalid_refresh_token');
-			} catch {
-				// A non-JSON error is a transient failure, not a revocation.
+			const rejected = await refreshCredentialsRejected(result.res);
+			if (onRejected) {
+				if (rejected) onRejected();
+			} else {
+				console.error(
+					rejected && previous.auth_type === 'device'
+						? primaryTimedOut && origin === 'api'
+							? 'Device refresh credentials are unusable; use --device to log in again.'
+							: 'Device refresh rejected; use --device to log in again.'
+						: 'Token refresh failed; retry later. Saved login was retained.'
+				);
 			}
-			console.error(
-				rejected && previous.auth_type === 'device'
-					? primaryTimedOut && origin === 'api'
-						? 'Device refresh credentials are unusable; use --device to log in again.'
-						: 'Device refresh rejected; use --device to log in again.'
-					: 'Token refresh failed; retry later. Saved login was retained.'
-			);
 			return;
 		}
 		// Preserve the existing native client's Cloudflare cookie propagation.
@@ -1355,7 +1420,7 @@ export default class Crunchy implements ServiceClass {
 		const token = await result.res.json();
 		if (token && !Object.prototype.hasOwnProperty.call(token, 'refresh_token')) token.refresh_token = previous.refresh_token;
 		if (!validDeviceToken(token)) {
-			console.error('Invalid refresh response; retry later. Saved login was retained.');
+			if (!onRejected) console.error('Invalid refresh response; retry later. Saved login was retained.');
 			return;
 		}
 		return {
@@ -1370,10 +1435,10 @@ export default class Crunchy implements ServiceClass {
 	}
 
 	private sessionIsCurrent(token: CrunchySession): boolean {
-		return !!token.access_token && Date.now() < new Date(token.expires).getTime();
+		return typeof token.access_token === 'string' && !!token.access_token.trim() && Date.now() < new Date(token.expires).getTime();
 	}
 
-	private async refreshStoredSession(previous: CrunchySession, ifNeeded: boolean): Promise<CrunchySession | undefined> {
+	private async refreshStoredSession(previous: CrunchySession, ifNeeded: boolean, onRejected?: () => void): Promise<CrunchySession | undefined> {
 		if (ifNeeded && this.sessionIsCurrent(previous)) return previous;
 		const slot = crunchySessionSlot(previous);
 		const refreshed = await yamlCfg.withCRTokenRefreshLock(slot, async () => {
@@ -1381,12 +1446,12 @@ export default class Crunchy implements ServiceClass {
 			if (saved && ((previous.account_id && saved.account_id !== previous.account_id) || saved.device_id !== previous.device_id)) return;
 			const current = saved ?? previous;
 			if ((ifNeeded || current.refresh_token !== previous.refresh_token) && this.sessionIsCurrent(current)) return current;
-			const updated = await this.requestRefreshedSession(current);
+			const updated = await this.requestRefreshedSession(current, onRejected);
 			if (!updated || (current.account_id && updated.account_id && current.account_id !== updated.account_id)) return;
 			if (!yamlCfg.saveCRTokenAtomic(updated, { activate: false, expectedRefresh: saved?.refresh_token })) return;
 			return updated;
 		});
-		if (!refreshed) console.error('Unable to refresh the saved Crunchyroll session. Saved login was retained.');
+		if (!refreshed && !onRejected) console.error('Unable to refresh the saved Crunchyroll session. Saved login was retained.');
 		return refreshed;
 	}
 
@@ -2251,6 +2316,7 @@ export default class Crunchy implements ServiceClass {
 					}
 					indicator.start();
 					let discovery: Awaited<ReturnType<typeof discoverVideoCandidates>>;
+					let videoAuthRejected = false;
 					try {
 						discovery = await discoverVideoCandidates({
 							signal: controller.signal,
@@ -2305,6 +2371,12 @@ export default class Crunchy implements ServiceClass {
 									...(options.queueRecovery ? { quietErrors: true, deferErrorBody: true } : {})
 								});
 								if (!response.ok || !response.res) {
+									if (await playbackCredentialsRejected(response.res)) {
+										videoAuthRejected = true;
+										playbackAuthError('Video', routing.video.endpoint, 'invalid');
+										if (!options.noaudio && routing.video === routing.audio) playbackAuthError('Audio', routing.audio.endpoint, 'invalid');
+										throw new Error('Playback session rejected');
+									}
 									if (options.queueRecovery && !response.error && response.res?.status === 429 && isPlaybackRefusal(429, await readLimitedManifest(response.res)))
 										throw new PlaybackRefusal(response.res.headers);
 									throw new Error(response.res?.status === 429 ? 'playback HTTP 429' : 'Playback request failed');
@@ -2358,6 +2430,7 @@ export default class Crunchy implements ServiceClass {
 							}
 						}
 					}
+					if (videoAuthRejected) return false;
 					if (discovery.status === 'cancelled' || discovery.status === 'rate-limited') {
 						console.error(discovery.status === 'cancelled' ? 'Video discovery cancelled' : `Video discovery stopped: ${discovery.reason}`);
 						return false;
@@ -3091,16 +3164,22 @@ export default class Crunchy implements ServiceClass {
 				finally { if (!initial && preflightCli) { process.removeListener('SIGINT', onPreflightSignal); process.removeListener('SIGTERM', onPreflightSignal); } }
 				if (!ready) { if (initial) { initial.release(); state.initial = undefined; } else acquisitionIndicator.stop(); return undefined; }
 			}
-			const fetchPlayback = async (url: string, auth = videoAuth): Promise<{ ok: boolean; status?: number; transportError?: boolean; res?: { json: () => Promise<any> } }> => {
+			const fetchPlayback = async (url: string, auth = videoAuth): Promise<{ ok: boolean; status?: number; authRejected?: boolean; transportError?: boolean; res?: { json: () => Promise<any> } }> => {
 				const headers = this.playbackHeaders(auth);
-				if (!globalPass && !recoveryBudget) { const response = await this.req.getData(url, { ...headers, onResponse: observePlayback }); return { ...response, status: response.res?.status ?? response.error?.res?.status }; }
+				if (!globalPass && !recoveryBudget) {
+					const response = await this.req.getData(url, { ...headers, onResponse: observePlayback });
+					return { ...response, status: response.res?.status ?? response.error?.res?.status, authRejected: !response.ok && await playbackCredentialsRejected(response.res) };
+				}
 				try {
 					if (recoveryBudget) await acquisitionScheduler!.dispatch();
 					return await boundedRequest(async (signal) => {
 						const response = await this.req.getData(url, { ...headers, signal, onResponse: observePlayback, ...(recoveryBudget ? { quietErrors: true, deferErrorBody: true } : {}) });
 						if (!response.ok || !response.res) {
 							if (recoveryBudget && !response.error && response.res?.status === 429 && isPlaybackRefusal(429, await readLimitedManifest(response.res))) throw new PlaybackRefusal(response.res.headers);
-							return { ok: false, status: response.res?.status ?? response.error?.res?.status, transportError: !!response.error };
+							return {
+								ok: false, status: response.res?.status ?? response.error?.res?.status, transportError: !!response.error,
+								authRejected: await playbackCredentialsRejected(response.res)
+							};
 						}
 						const body = await response.res.json();
 						return { ok: true, res: { json: async () => body }, token: (body as CrunchyPlayStream)?.token };
@@ -3126,6 +3205,13 @@ export default class Crunchy implements ServiceClass {
 				this.playbackURL(videoAuth, currentVersion?.guid ?? currentMediaId)
 			);
 			if (!videoPlaybackReq.ok || !videoPlaybackReq.res) {
+				if (videoPlaybackReq.authRejected) {
+					const role = options.novids ? (options.noaudio ? 'Subtitle metadata' : 'Audio') : 'Video';
+					playbackAuthError(role, videoAuth.endpoint, 'invalid');
+					if (role === 'Video' && !options.noaudio && videoAuth === audioAuth) playbackAuthError('Audio', audioAuth.endpoint, 'invalid');
+					if (globalPass) globalPass.noRetry = true;
+					return undefined;
+				}
 				console.warn('Request Video Stream URLs FAILED!');
 				const status = videoPlaybackReq.status;
 				if (status === 429) { terminalPlayback429 = true; if (!state.noticeShown) { this.playbackRateNotice(state.resetPerformed, state.permitClear || state.budget.used); state.noticeShown = true; } return undefined; }
@@ -3197,6 +3283,11 @@ export default class Crunchy implements ServiceClass {
 					audioAuth
 				);
 				if (!audioPlaybackReq.ok || !audioPlaybackReq.res) {
+					if (audioPlaybackReq.authRejected) {
+						playbackAuthError('Audio', audioAuth.endpoint, 'invalid');
+						if (globalPass) globalPass.noRetry = true;
+						return undefined;
+					}
 					console.warn('Request Audio Stream URLs FAILED!');
 					const status = audioPlaybackReq.status;
 					if (status === 429) { terminalPlayback429 = true; if (!state.noticeShown) { this.playbackRateNotice(state.resetPerformed, state.permitClear || state.budget.used); state.noticeShown = true; } return undefined; }

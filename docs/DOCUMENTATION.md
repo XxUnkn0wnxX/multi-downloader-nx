@@ -222,7 +222,7 @@ Select the video endpoint. The endpoint uses its matching saved Crunchyroll sess
 | --- | --- | --- | --- | --- | --- | --- | ---|
 | Crunchyroll | `--astream ${device}` | `string` | `No`| `--as` | [`androidtv`, `android`, `androidtab`, `chrome`, `firefox`, `none`] | `android`| `astream: ` or `as: ` |
 
-Select the audio endpoint independently of the video endpoint. For Android TV video with Android phone audio, save both sessions for the same account. See [stream endpoint sign-in requirements](GET-STARTED.md#crunchyroll-streams-and-quality).
+Select the audio endpoint independently of the video endpoint. A single Crunchyroll command can use multiple saved sessions from the same account. For example, `--vstream androidtv --astream android` uses the Android TV session for video and the Android phone session for audio. See [stream endpoint sign-in requirements](GET-STARTED.md#crunchyroll-streams-and-quality).
 #### `--tsd`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|

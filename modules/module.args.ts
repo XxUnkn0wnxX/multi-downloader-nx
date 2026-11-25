@@ -366,7 +366,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		type: 'string',
 		describe: 'Select a specific Crunchyroll audio playback endpoint by device. Available renditions and bitrate depend on the service, account, and episode.',
 		docDescribe:
-			'Select the audio endpoint independently of the video endpoint. For Android TV video with Android phone audio, save both sessions for the same account. See [stream endpoint sign-in requirements](GET-STARTED.md#crunchyroll-streams-and-quality).',
+			'Select the audio endpoint independently of the video endpoint. A single Crunchyroll command can use multiple saved sessions from the same account. For example, `--vstream androidtv --astream android` uses the Android TV session for video and the Android phone session for audio. See [stream endpoint sign-in requirements](GET-STARTED.md#crunchyroll-streams-and-quality).',
 		choices: [...Object.keys(CrunchyAudioPlayStreams), 'none'],
 		default: {
 			default: 'android'
