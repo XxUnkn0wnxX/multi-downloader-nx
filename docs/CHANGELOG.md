@@ -11,6 +11,9 @@ Implemented in [54f0114](../../../commit/54f011470e4077ceabdee49ce0968817de30171
 - Re-enable `--auth` for Android phone browser sign-in. The CLI opens the sign-in page, prints the same link for manual use, and accepts the callback URL in a hidden prompt. [Phone client setup and sign-in](GET-STARTED.md#crunchyroll-cli)
 - Save phone, Android TV, and web sessions in separate blocks in `cr_token.yml`. Existing files migrate on save, and each refresh updates its own block. Keep `--device` activation and `--token` cookie input available.
 - Use the saved session for the endpoint chosen by `--vstream` or `--astream`. Mixed video and audio routes require sessions from the same account. Discovery, manifests, and playback cleanup use the session that owns the request.
+- Report which video or audio endpoint needs sign-in and show its matching command when the saved session is missing or rejected. [b0e6777](../../../commit/b0e6777f4b3e12c52700c638cf40b7ea6e43e081)
+- Prefer HTTP/2 for direct and proxied provider requests after repeated HTTP/1.1 Cloudflare challenges on the Android phone playback gateway. Destinations can still negotiate HTTP/1.1. [e37f2b0](../../../commit/e37f2b08f7b67e9c2b225a1c12310e6b32fe4217)
+- Restore segment downloads and combined video/audio muxing in the Crunchyroll HLS fallback after releasing the playback session. [90340f1](../../../commit/90340f19e35252fa272b6f5372afd11beff5b53b)
 
 ## 2026-11-17
 
