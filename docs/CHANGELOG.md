@@ -9,6 +9,7 @@ Changes specific to this fork are grouped below with their implementation commit
 Implemented in [54f0114](../../../commit/54f011470e4077ceabdee49ce0968817de301711) and [3ba3f15](../../../commit/3ba3f15f33465f3f4bbccde96aa7e85480b8387b).
 
 - Re-enable `--auth` for Android phone browser sign-in. The CLI opens the sign-in page, prints the same link for manual use, and accepts the callback URL in a hidden prompt. [Phone client setup and sign-in](GET-STARTED.md#crunchyroll-cli)
+- Open the Android TV activation page automatically with `--device` and print the same link and activation code for manual use.
 - Save phone, Android TV, and web sessions in separate blocks in `cr_token.yml`. Existing files migrate on save, and each refresh updates its own block. Keep `--device` activation and `--token` cookie input available.
 - Use the saved session for the endpoint chosen by `--vstream` or `--astream`. Mixed video and audio routes require sessions from the same account. Discovery, manifests, and playback cleanup use the session that owns the request.
 - Report which video or audio endpoint needs sign-in and show its matching command when the saved session is missing or rejected. [b0e6777](../../../commit/b0e6777f4b3e12c52700c638cf40b7ea6e43e081)

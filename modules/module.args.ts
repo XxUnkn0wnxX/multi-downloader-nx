@@ -72,7 +72,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		group: 'auth',
 		service: ['crunchy'],
 		docDescribe:
-			'Log in to Crunchyroll with an activation code. The CLI prints the URL and code, waits for browser approval, and saves the Android TV session for automatic refresh alongside any other saved sessions.',
+			'Log in to Crunchyroll with an activation code. The CLI opens the activation page in your browser and prints the same link for manual use. Enter the printed code and approve the request. The Android TV session is saved for automatic refresh alongside any other saved sessions.',
 		usage: ''
 	},
 	{

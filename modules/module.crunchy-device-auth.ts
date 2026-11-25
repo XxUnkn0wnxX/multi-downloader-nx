@@ -15,6 +15,7 @@ type DeviceOptions = {
 	signal: AbortSignal;
 	debug: boolean;
 	log: (message: string) => void;
+	openActivation?: (url: string) => void;
 	onCountdown?: (remainingSeconds: number | undefined, status?: 'waiting' | 'approved' | 'timed-out' | 'error') => void;
 	now?: () => number;
 	sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
@@ -233,8 +234,14 @@ export async function requestDeviceToken(options: DeviceOptions): Promise<Record
 			data.interval > 2147483647
 		)
 			throw new Error('Invalid device code response.');
-		log('Visit: crunchyroll.com/activate');
+		const activationUrl = 'https://crunchyroll.com/activate';
+		if (options.openActivation) {
+			log('Opening Crunchyroll activation in your browser…');
+			log('If your browser doesn’t open, open this link manually.');
+		}
+		log(activationUrl);
 		log(`Enter Code: ${data.user_code.toUpperCase()}`);
+		options.openActivation?.(activationUrl);
 		deadline = now() + data.expires_in * 1000;
 		if (options.onCountdown) {
 			countdownActive = true;

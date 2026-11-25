@@ -177,7 +177,7 @@ For Android TV, run:
 aniDL --service crunchy --device
 ```
 
-Open the printed activation page, enter the code, and approve the request. The CLI shows the account after approval and saves the device login for later refresh. If the primary auth endpoint is unavailable, a warning identifies the beta API fallback.
+The CLI opens the activation page in your browser and prints the same link for manual use. Enter the printed code and approve the request. The CLI shows the account after approval and saves the device login for later refresh. If the primary auth endpoint is unavailable, a warning identifies the beta API fallback.
 
 For Android phone sign-in, configure `CRUNCHYROLL_PHONE_CLIENT_ID` and `CRUNCHYROLL_PHONE_CLIENT_SECRET` in the CLI environment or in an owner-only `config/cr_phone_client.env` file. Then run:
 

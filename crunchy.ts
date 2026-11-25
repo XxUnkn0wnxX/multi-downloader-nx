@@ -1279,6 +1279,13 @@ export default class Crunchy implements ServiceClass {
 				signal: controller.signal,
 				debug: this.debug,
 				log: (message) => console.info(message),
+				openActivation: (url) => {
+					void import('open')
+						.then(({ default: open }) => {
+							if (!controller.signal.aborted) return open(url);
+						})
+						.catch(() => {});
+				},
 				onCountdown: (remainingSeconds, status) => {
 					if (remainingSeconds === undefined) {
 						if (!this.debug && process.stdout.isTTY) process.stdout.write('\n');

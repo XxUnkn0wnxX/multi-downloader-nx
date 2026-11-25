@@ -117,10 +117,18 @@ try {
 	const fakeConsole = Object.fromEntries(['info', 'warn', 'error', 'debug'].map((method) => [method, (...args) => logs.push([method, args.map(String).join(' ')])]));
 	const api = { auth: 'auth', profile: 'profile', cms_auth: 'cms', crunchyWebAuthHeader: {}, crunchyDefHeader: {} };
 	const saved = [];
+	const openedActivationUrls = [];
 	let helperPrompts = 0;
 	let loadBinCalls = 0;
 	let parsedArgv = {};
 	const stubs = {
+		open: {
+			__esModule: true,
+			default: async (url) => {
+				openedActivationUrls.push(url);
+				throw new Error('browser unavailable');
+			}
+		},
 		'./package.json': { version: 'test' },
 		'./modules/log': { console: fakeConsole },
 		'./modules/module.api-urls': {
@@ -334,7 +342,8 @@ try {
 		let now = 0;
 		const messages = [],
 			calls = [],
-			sleeps = [];
+			sleeps = [],
+			activationUrls = [];
 		const token = { access_token: 'a', refresh_token: 'r', expires_in: 3600 };
 		const result = await deviceHelper.requestDeviceToken({
 			authUrl: 'https://example.invalid/auth/v1/token',
@@ -343,6 +352,7 @@ try {
 			signal: new AbortController().signal,
 			debug: true,
 			log: (line) => messages.push(line),
+			openActivation: (url) => activationUrls.push(url),
 			now: () => now,
 			sleep: async (ms) => {
 				sleeps.push(ms);
@@ -358,12 +368,15 @@ try {
 		assert.equal(result, token);
 		same(sleeps, [500, 500]);
 		same(JSON.parse(calls[1].options.body), { device_code: 'code', device_id: 'uuid', device_name: 'ANDROIDTV (uuid)', device_type: 'ANDROIDTV' });
-		const presentationStart = messages.indexOf('Visit: crunchyroll.com/activate');
-		assert.deepEqual(messages.slice(presentationStart, presentationStart + 3), [
-			'Visit: crunchyroll.com/activate',
+		const presentationStart = messages.indexOf('Opening Crunchyroll activation in your browser…');
+		assert.deepEqual(messages.slice(presentationStart, presentationStart + 5), [
+			'Opening Crunchyroll activation in your browser…',
+			'If your browser doesn’t open, open this link manually.',
+			'https://crunchyroll.com/activate',
 			'Enter Code: ABCD',
 			'Expires in 300 seconds. (Waiting for approval)'
 		]);
+		assert.deepEqual(activationUrls, ['https://crunchyroll.com/activate']);
 		assert(messages.some((s) => s.includes('response: 204')));
 	});
 	await test('device countdown follows the activation deadline and stops on approval, cancellation, and expiry', async () => {
@@ -701,9 +714,11 @@ try {
 			deviceHelper.requestDeviceToken = original;
 		}
 	});
-	await test('device login sends the native Basic credentials and TV agent without legacy Host on both requests', async () => {
+	await test('device login keeps native auth and continues if opening the printed activation URL fails', async () => {
 		const original = deviceHelper.requestDeviceToken;
 		const previous = { ...api };
+		openedActivationUrls.length = 0;
+		logs.length = 0;
 		let now = 0;
 		const requests = [];
 		let savedDeviceToken;
@@ -734,6 +749,8 @@ try {
 				return true;
 			};
 			assert.equal(await service.loginWithDevice(new AbortController().signal), true);
+			assert.deepEqual(openedActivationUrls, ['https://crunchyroll.com/activate']);
+			assert(logs.some(([kind, line]) => kind === 'info' && line === openedActivationUrls[0]));
 			assert.equal(requests.length, 2);
 			assert.equal(requests[0].url, 'https://www.crunchyroll.com/auth/v1/device/code');
 			assert.equal(requests[1].url, 'https://www.crunchyroll.com/auth/v1/device/token');
