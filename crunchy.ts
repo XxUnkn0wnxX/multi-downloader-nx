@@ -4105,6 +4105,60 @@ export default class Crunchy implements ServiceClass {
 							} else {
 								// We have the stream, so go ahead and delete the active stream
 								if (!(await releaseGlobalSessions())) return undefined;
+
+								const chunkPageBody = await chunkPage.res.text();
+								// Init parser
+								const parser = new Parser();
+
+								// Parse M3U8
+								parser.push(chunkPageBody);
+								parser.end();
+
+								const chunkPlaylist = parser.manifest;
+								if (!chunkPlaylist) throw Error('Failed to parse M3U8');
+
+								const totalParts = chunkPlaylist.segments.length;
+								const mathParts = Math.ceil(totalParts / options.partsize);
+								const mathMsg = `(${mathParts}*${options.partsize})`;
+								console.info('Total parts in stream:', totalParts, mathMsg);
+								tsFile = path.isAbsolute(outFile as string) ? outFile : path.join(this.cfg.dir.content, outFile);
+								const dirName = path.dirname(tsFile);
+								if (!fs.existsSync(dirName)) {
+									fs.mkdirSync(dirName, { recursive: true });
+								}
+								const dlStreamByPl = await new streamdl({
+									output: `${tsFile}.ts`,
+									timeout: options.timeout,
+									m3u8json: chunkPlaylist,
+									// baseurl: chunkPlaylist.baseUrl,
+									threads: options.partsize,
+									fsRetryTime: options.fsRetryTime * 1000,
+									override: options.force,
+									callback: options.callbackMaker
+										? options.callbackMaker({
+												fileName: `${path.isAbsolute(outFile) ? outFile.slice(this.cfg.dir.content.length) : outFile}`,
+												image: medias.image,
+												parent: {
+													title: medias.seasonTitle
+												},
+												title: medias.episodeTitle,
+												language: lang
+											})
+										: undefined
+								}).download();
+								if (!dlStreamByPl.ok) {
+									console.error(`DL Stats: ${JSON.stringify(dlStreamByPl.parts)}\n`);
+									dlFailed = true;
+								}
+								files.push({
+									type: 'Video',
+									layout: 'combined',
+									muxLang: langsData.languages.find((item) => item.cr_locale === currentVersion?.audio_locale) ?? mMeta.lang,
+									path: `${tsFile}.ts`,
+									lang: lang,
+									isPrimary: isPrimary
+								});
+								dlVideoOnce = true;
 							}
 						} else {
 							console.error('Quality not selected!\n');

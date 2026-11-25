@@ -1387,6 +1387,7 @@ service.req = {
 	argv: { debug: false },
 	async getData(target, options = {}) {
 		mediaRequests.push({ target, method: options.method });
+		const hlsUrl = control.hls === 'opaque' ? 'https://example.test/master' : 'https://example.test/master.m3u8';
 		if (control.subtitleFixture && target.startsWith('https://subtitle.example.test/'))
 			return control.failSubtitle && target.endsWith('/full') ? { ok: false } : { ok: true, res: new Response('WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nText') };
 		if (control.subtitleFixture && target.includes('skip-events/production/'))
@@ -1500,15 +1501,11 @@ service.req = {
 				res: new Response(
 					JSON.stringify({
 						token: playbackToken,
-						url: control.hls
-							? 'https://example.test/master.m3u8'
-							: `https://example.test/v2/manifest/${source}/static/majin/${source}/clean/cenc/dash/manifest.mpd?sig=opaque`,
+						url: control.hls ? hlsUrl : `https://example.test/v2/manifest/${source}/static/majin/${source}/clean/cenc/dash/manifest.mpd?sig=opaque`,
 						hardSubs: control.hard
 							? {
 									en: {
-										url: control.hls
-											? 'https://example.test/master.m3u8'
-											: `https://example.test/v2/manifest/${source}/static/majin/${source}/clean/cenc/dash/manifest.mpd?sig=opaque`,
+										url: control.hls ? hlsUrl : `https://example.test/v2/manifest/${source}/static/majin/${source}/clean/cenc/dash/manifest.mpd?sig=opaque`,
 										hlang: 'en-US'
 									}
 								}
@@ -1540,7 +1537,7 @@ service.req = {
 					})
 				)
 			};
-		if (target === 'https://example.test/master.m3u8')
+		if (target === hlsUrl)
 			return {
 				ok: true,
 				res: new Response(
@@ -1550,6 +1547,8 @@ service.req = {
 							.join('')
 				)
 			};
+		if (target === 'https://cdn.example.test/chunk.m3u8?sig=ok')
+			return { ok: true, res: new Response('#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\nhttps://cdn.example.test/english.ts\n#EXT-X-ENDLIST\n') };
 		const manifestRequest = /\/manifest\/(EN|JA2|JA)\/static\/(?:majin\/)?(?:EN|JA2|JA)\/(?:([01])\/)?clean\/(?:cenc\/)?dash\//.exec(target);
 		if (manifestRequest && control.rateDiscovery && tokenCounter === 1) return { ok: false, res: new Response('', { status: 429 }) };
 		if (manifestRequest && manifestRequest[2] && control.legacyMissing) return { ok: false, res: new Response('', { status: 404 }) };
@@ -2637,6 +2636,15 @@ assert.equal(mediaLogs.filter((entry) => String(entry[0]).includes('<-- Discarde
 assert.equal(tokenCounter, 2);
 assert.equal(mediaRequests.filter((request) => request.method === 'DELETE').length, 2);
 assert.equal(downloads.length, 0);
+resetGlobal({ hls: 'opaque' });
+assert.equal(await service.downloadEpisode(mediaData, mediaOptions), true);
+assert.equal(downloads.length, 1, 'a full HLS fallback downloads the selected playlist');
+assert.equal(downloads[0].m3u8json.segments[0].uri, 'https://cdn.example.test/english.ts');
+assert.equal(muxCalls.length, 1);
+assert.equal(muxCalls[0].data[0].layout, 'combined');
+const hlsClose = mediaRequests.findIndex((request) => request.method === 'DELETE' && request.target.endsWith('/EN/token-EN-2'));
+const hlsTransfer = mediaRequests.findIndex((request) => request.method === 'MEDIA');
+assert(hlsClose >= 0 && hlsClose < hlsTransfer, 'release the HLS playback session before transferring media');
 resetGlobal({ hls: true, hlsMany: true });
 assert.equal(await service.downloadEpisode(mediaData, { ...mediaOptions, qall: false, keepAllVideos: true, dryRun: true }), true);
 const hlsRows = String(mediaLogs.find((entry) => String(entry[0]).startsWith('Available qualities:'))[0]);
