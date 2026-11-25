@@ -4,13 +4,7 @@ import { console } from './log';
 import { argvC } from './module.app-args';
 import { Agent, ProxyAgent, fetch, RequestInit } from 'undici';
 
-const http1Agent = new Agent({
-	connections: 16,
-	connect: { ALPNProtocols: ['http/1.1'] },
-	allowH2: false
-});
-
-const http2Agent = new Agent({ connections: 16, connect: { preferH2: true }, allowH2: true });
+const directAgent = new Agent({ connections: 16, connect: { preferH2: true }, allowH2: true });
 
 export type FetchParams = Partial<RequestInit & CustomParams>;
 
@@ -24,7 +18,6 @@ export type Params = {
 
 type CustomParams = {
 	useProxy: boolean;
-	allowH2: boolean;
 	quietErrors?: boolean;
 	onResponse?: (response: Response) => void;
 	skipErrorBody?: boolean;
@@ -78,21 +71,16 @@ export class Req {
 		}
 
 		// Proxy Handler
-		let dispatcher: Agent | ProxyAgent = params.allowH2 ? http2Agent : http1Agent;
+		let dispatcher: Agent | ProxyAgent = directAgent;
 		const validProxy = this.argv.proxy ? this.isValidProxyUrl(this.argv.proxy) : false;
 		if ((params.useProxy || this.argv.proxyAll) && this.argv.proxy && validProxy) {
-			dispatcher = new ProxyAgent(
-				params.allowH2
-					? { uri: this.argv.proxy, connections: 16, allowH2: true, requestTls: { allowH2: true, preferH2: true } }
-					: { uri: this.argv.proxy, connections: 16, connect: { ALPNProtocols: ['http/1.1'] }, allowH2: false }
-			);
+			dispatcher = new ProxyAgent({ uri: this.argv.proxy, connections: 16, allowH2: true, requestTls: { allowH2: true, preferH2: true } });
 		} else if ((params.useProxy || this.argv.proxyAll) && this.argv.proxy && !validProxy) {
 			console.warn('[Fetch] Provided invalid Proxy URL, not proxying traffic.');
 		}
 
 		// Debug
 		if (this.debug && !params.quietDebug) {
-			if (params.allowH2) console.debug(`[DEBUG] HTTP/2 preferred for ${durl}`);
 			console.debug('[DEBUG] FETCH OPTIONS:');
 			console.debug(options);
 		}

@@ -110,11 +110,15 @@ On `develop`, `--token` accepts the Crunchyroll `etp_rt` UUID value directly or 
 
 `--device` prints the activation URL and code, waits for approval, and saves an Android TV session after profile/CMS validation. New logins use `ANDROIDTV (xxxx)`, where `xxxx` is the last four characters of the device UUID. Preserve that UUID, name, `auth_type: device`, User-Agent and issuer across refreshes. Failed login must retain the previous session; transient refresh failures must keep saved credentials and stop affected work.
 
-Keep HTTP/2 scoped to device auth, with the main endpoint first and one warned beta fallback for eligible failures. Pin polling to the issuer and preserve configured proxy routing and existing download transports. Full request diagnostics remain available with `--debug`.
+Use the main authentication endpoint first with one warned beta fallback for eligible failures. Pin polling to the issuer and preserve configured proxy routing. Full request diagnostics remain available with `--debug`.
 
 Crunchyroll CLI `--auth` opens the Android phone browser sign-in, prints the same URL for manual use, and accepts the full official callback in a hidden Terminal prompt. Require the expected HTTPS origin, callback path and one matching state before exchanging the code. Supply phone OAuth client credentials through the CLI environment or the owner-only `config/cr_phone_client.env` file. Preserve the existing GUI flows, other services' auth and browser-cookie `--token` inputs. Device login does not guarantee CBR or an 8,000 kb/s video.
 
 Store Android TV, Android phone and web sessions in separate blocks in `config/cr_token.yml`. Migrate flat files when saving, preserving the previous login. Write owner-only files atomically and serialize refreshes per session type. A refresh updates only its own block. Use the session for the effective `--vstream` and `--astream` endpoints through discovery and final playback. Require the same account for mixed requests and keep each playback token bound to its original session and content ID.
+
+### Prefer HTTP/2 for provider requests
+
+The [shared request client](../modules/module.fetch.ts) prefers HTTP/2 for all provider requests, including authentication, playback, manifests, and media segments. Apply the same preference when connecting to a destination through a configured proxy. Keep HTTP/1.1 available through TLS negotiation for destinations that only support it. HTTP/1.1 requests to the Crunchyroll Android phone playback gateway repeatedly hit Cloudflare challenges. The same saved session successfully acquired playback and retrieved its manifest over HTTP/2.
 
 ### Crunchyroll subtitle roles and subtitle-only output
 

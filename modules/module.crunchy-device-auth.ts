@@ -185,7 +185,6 @@ export async function requestDeviceToken(options: DeviceOptions): Promise<Record
 			body,
 			useProxy: true,
 			signal,
-			allowH2: true,
 			quietErrors: !debug
 		});
 		if (debug) log(`[DEBUG] Device ${endpoint} response: ${result.res?.status ?? 'network error'}`);
@@ -196,12 +195,7 @@ export async function requestDeviceToken(options: DeviceOptions): Promise<Record
 		const initiate = async (authUrl: string) => {
 			const url = `${authUrl.replace(/\/token\/?$/, '')}/device/code`;
 			if (debug) log(`[DEBUG] Device code request: ${url}`);
-			const attempt = await deviceAuthAttempt(
-				request,
-				url,
-				{ method: 'POST', headers: { ...headers }, body: '', useProxy: true, allowH2: true, quietErrors: !debug },
-				signal
-			);
+			const attempt = await deviceAuthAttempt(request, url, { method: 'POST', headers: { ...headers }, body: '', useProxy: true, quietErrors: !debug }, signal);
 			if (debug) log(`[DEBUG] Device code response: ${attempt.result.res?.status ?? 'network error'}`);
 			return attempt;
 		};

@@ -1366,8 +1366,7 @@ export default class Crunchy implements ServiceClass {
 				? { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'User-Agent': this.deviceUserAgent(previous) }
 				: { ...api.crunchyAuthHeader },
 			body,
-			useProxy: true,
-			...(device ? { allowH2: true } : {})
+			useProxy: true
 		};
 		let primaryTimedOut = false;
 		let result;

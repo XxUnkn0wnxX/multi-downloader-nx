@@ -740,7 +740,7 @@ try {
 			for (const { options } of requests) {
 				assert.equal(options.headers.Authorization, `Basic ${api.basic_auth_token}`);
 				assert.equal(options.headers['User-Agent'], deviceHelper.DEVICE_USER_AGENT);
-				assert.equal(options.allowH2, true);
+				assert.equal(options.useProxy, true);
 				assert.equal(options.headers.Accept, 'application/json');
 				assert.equal(
 					Object.keys(options.headers).some((key) => key.toLowerCase() === 'host'),
@@ -1730,7 +1730,7 @@ try {
 		assert(messages.some((message) => message.includes('Retry later')));
 	});
 
-	await test('actual transport selects cached direct agents and proxy target TLS according to per-request preference', async () => {
+	await test('shared transport prefers HTTP/2 for direct and proxied destinations', async () => {
 		const agents = [],
 			proxies = [],
 			dispatched = [];
@@ -1761,25 +1761,26 @@ try {
 			throw new Error(`Unexpected transport import ${id}`);
 		});
 		const direct = new Req();
-		await direct.getData('https://example.invalid/default');
-		await direct.getData('https://example.invalid/h2', { allowH2: true });
-		await direct.getData('https://example.invalid/h2again', { allowH2: true });
+		await direct.getData('https://example.invalid/first');
+		await direct.getData('https://example.invalid/second');
+		assert.equal(agents.length, 1);
 		assert.equal(dispatched[0], agents[0]);
-		assert.equal(dispatched[1], agents[1]);
-		assert.equal(dispatched[2], agents[1]);
-		same(agents[0].options, { connections: 16, connect: { ALPNProtocols: ['http/1.1'] }, allowH2: false });
-		same(agents[1].options, { connections: 16, connect: { preferH2: true }, allowH2: true });
+		assert.equal(dispatched[1], agents[0]);
+		same(agents[0].options, { connections: 16, connect: { preferH2: true }, allowH2: true });
 		argv = { proxy: 'http://proxy.invalid:8080', debug: true };
 		const proxy = new Req();
-		await proxy.getData('https://example.invalid/default', { useProxy: true });
-		await proxy.getData('https://example.invalid/h2', { useProxy: true, allowH2: true });
+		await proxy.getData('https://example.invalid/direct');
+		await proxy.getData('https://example.invalid/proxied', { useProxy: true });
+		argv = { ...argv, proxyAll: true };
+		await new Req().getData('https://example.invalid/proxied-by-config');
+		assert.equal(dispatched[2], agents[0]);
 		assert.equal(dispatched[3], proxies[0]);
 		assert.equal(dispatched[4], proxies[1]);
-		same(proxies[0].options, { uri: argv.proxy, connections: 16, connect: { ALPNProtocols: ['http/1.1'] }, allowH2: false });
-		same(proxies[1].options, { uri: argv.proxy, connections: 16, allowH2: true, requestTls: { allowH2: true, preferH2: true } });
-		assert(logs.some(([, line]) => line.includes('HTTP/2 preferred for https://example.invalid/h2')));
+		for (const proxyAgent of proxies) {
+			same(proxyAgent.options, { uri: argv.proxy, connections: 16, allowH2: true, requestTls: { allowH2: true, preferH2: true } });
+		}
 	});
-	await test('device refresh uses official H2 auth and retained UA for profile CMS and playback', async () => {
+	await test('device refresh uses official auth and retained UA for profile CMS and playback', async () => {
 		const { service, calls } = makeService({});
 		const deviceUA = 'stored device agent';
 		service.token = {
@@ -1809,7 +1810,6 @@ try {
 		};
 		assert.equal(await service.refreshToken(), true);
 		assert.equal(calls[0].url, 'https://www.crunchyroll.com/auth/v1/token');
-		assert.equal(calls[0].options.allowH2, true);
 		assert.equal(calls[0].options.useProxy, true);
 		assert.equal(calls[0].options.headers['User-Agent'], deviceUA);
 		assert.equal(calls[0].options.headers.Accept, 'application/json');
@@ -1828,15 +1828,13 @@ try {
 		assert.equal(service.token.device_name, 'ANDROIDTV (cdef)');
 		for (const call of calls.slice(1)) {
 			assert.equal(call.options.headers['User-Agent'], deviceUA);
-			assert.equal(call.options.allowH2, undefined);
 		}
 		assert.equal(await service.downloadMediaList({ data: [{ mediaId: 'episode', playback: 'available' }] }, { vstream: 'androidtv', astream: 'androidtv' }), undefined);
 		const playback = calls.at(-1);
 		assert(playback.url.includes('/play?queue=0'));
 		assert.equal(playback.options.headers['User-Agent'], deviceUA);
-		assert.equal(playback.options.allowH2, undefined);
 	});
-	await test('legacy native and web refresh keep existing endpoints and transport', async () => {
+	await test('legacy native and web refresh keep their endpoints and user agents', async () => {
 		const previous = { ...api };
 		try {
 			api.auth = 'https://beta-api.crunchyroll.com/auth/v1/token';
@@ -1854,7 +1852,6 @@ try {
 				service.getCMStoken = async () => true;
 				assert.equal(await service.refreshToken(), true);
 				assert.equal(calls[0].url, api.auth);
-				assert.equal(calls[0].options.allowH2, undefined);
 				assert.equal(calls[0].options.headers['User-Agent'], mode === 'web' ? 'web' : 'native');
 			}
 		} finally {

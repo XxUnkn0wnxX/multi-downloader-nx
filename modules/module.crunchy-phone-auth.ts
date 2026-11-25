@@ -99,7 +99,6 @@ async function exchangePhoneToken(request: Req['getData'], fields: Record<string
 			},
 			body: form,
 			redirect: 'manual',
-			allowH2: true,
 			useProxy: true,
 			quietDebug: true,
 			deferErrorBody: true,
