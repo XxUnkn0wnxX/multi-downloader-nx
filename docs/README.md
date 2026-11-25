@@ -95,9 +95,9 @@ For a manual build of the current `main` commit, open **Actions → Nightly Fork
 
 Automatic Tests skips changes limited to Markdown, `docs/` and/or `tools/`. Changes to downloader source, dependencies, build configuration or workflows still run the normal checks. The separate maintenance tools stay outside the application’s TypeScript, ESLint, Prettier and packaging scans; their tests run locally only.
 
-The workflow replaces eight `.7z` CLI archives and their checksums on the same release page under the fixed `nightly-fork` tag. Its title includes the manually maintained fork revision, for example **Nightly Fork (Rev5)**, and it remains a normal release marked **Latest**. Release notes identify the released commit and the source revision validated by Tests separately, with links to the [fork changelog](CHANGELOG.md), Tests, and build run. GitHub also provides source ZIP and tar.gz downloads for the release tag. GUI packages remain a source-build option.
+The workflow replaces eight `.7z` CLI archives and their checksums on the same release page under the fixed `nightly-fork` tag. Its title includes the manually maintained fork revision, for example **Nightly Fork (Rev6)**, and it remains a normal release marked **Latest**. Release notes identify the released commit and the source revision validated by Tests separately, with links to the [fork changelog](CHANGELOG.md), Tests, and build run. GitHub also provides source ZIP and tar.gz downloads for the release tag. GUI packages remain a source-build option.
 
-Provider banners and the GUI display the base version, channel and revision, for example `5.8.8 (Nightly) [Rev5]`. CLI `--version` keeps the base version for compatibility. Maintainers update the shared metadata in [package.json](../package.json); see [fork revision maintenance](fork-changes.md#nightly-revision-metadata).
+Provider banners and the GUI display the base version, channel and revision, for example `5.8.8 (Nightly) [Rev6]`. CLI `--version` keeps the base version for compatibility. Maintainers update the shared metadata in [package.json](../package.json). See [fork revision maintenance](fork-changes.md#nightly-revision-metadata).
 
 ## Fork update notices
 

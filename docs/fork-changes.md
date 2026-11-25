@@ -29,14 +29,14 @@ Keep the base semver in `version` and the fork display metadata in the root [pac
   "version": "5.8.8",
   "fork": {
     "channel": "Nightly",
-    "revision": 5,
+    "revision": 6,
     "repository": "XxUnkn0wnxX/multi-downloader-nx",
     "releaseTag": "nightly-fork"
   }
 }
 ```
 
-The [shared formatter](../modules/module.fork-display.ts) supplies provider banners, GUI startup/version responses and the generated CLI reference. Displays use `5.8.8 (Nightly) [Rev5]`; CLI `--version` retains the raw base semver. Fork update notices compare semantic base versions first and revisions only at equal version precedence. Existing build copies carry this metadata into `lib` and archives.
+The [shared formatter](../modules/module.fork-display.ts) supplies provider banners, GUI startup/version responses and the generated CLI reference. Displays use `5.8.8 (Nightly) [Rev6]`. CLI `--version` retains the raw base semver. Fork update notices compare semantic base versions first and revisions only at equal version precedence. Existing build copies carry this metadata into `lib` and archives.
 
 Increment `fork.revision` manually when releasing a new fork revision, then regenerate the reference with `pnpm run docs`. CI never increments it. The publisher reads the manifest at the immutable target source SHA, validates it before any release mutation, and uses one `Nightly Fork (RevN)` title for draft creation and final publication. Never use the workflow-controller checkout’s metadata for a different target. Preserve the fixed `nightly-fork` tag/URL and asset names. A package metadata change requires fresh Tests and is outside the documentation/controller-only proof-reuse exception.
 
