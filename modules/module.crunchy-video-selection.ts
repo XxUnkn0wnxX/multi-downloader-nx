@@ -118,6 +118,7 @@ export type PlaybackLease = { token: string; url: string };
 type ProbeInput = {
 	req: Req;
 	headers: FetchParams;
+	manifestHeaders?: (url: string) => FetchParams;
 	sources: VideoSource[];
 	requested: string[];
 	ordinal: number;
@@ -247,7 +248,7 @@ export async function discoverVideoCandidates(input: ProbeInput): Promise<Discov
 							try {
 								body = await deadline(async (signal) => {
 									const response = await input.req.getData(candidate.url, {
-										...input.headers,
+										...(input.manifestHeaders?.(candidate.url) ?? input.headers),
 										quietErrors: true,
 										signal,
 										skipErrorBody: true,

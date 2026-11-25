@@ -112,7 +112,9 @@ On `develop`, `--token` accepts the Crunchyroll `etp_rt` UUID value directly or 
 
 Keep HTTP/2 scoped to device auth, with the main endpoint first and one warned beta fallback for eligible failures. Pin polling to the issuer and preserve configured proxy routing and existing download transports. Full request diagnostics remain available with `--debug`.
 
-Crunchyroll CLI `--auth`, `--username`, `--password` and `--silentAuth` direct users to `--device` before updates or login. Keep underlying GUI auth, other services' auth and legacy browser-cookie `--token` support. Device login does not guarantee CBR or an 8,000 kb/s video.
+Crunchyroll CLI `--auth` opens the Android phone browser sign-in, prints the same URL for manual use, and accepts the full official callback in a hidden Terminal prompt. Require the expected HTTPS origin, callback path and one matching state before exchanging the code. Supply phone OAuth client credentials through the CLI environment or the owner-only `config/cr_phone_client.env` file. Preserve the existing GUI flows, other services' auth and browser-cookie `--token` inputs. Device login does not guarantee CBR or an 8,000 kb/s video.
+
+Store Android TV, Android phone and web sessions in separate blocks in `config/cr_token.yml`. Migrate flat files when saving, preserving the previous login. Write owner-only files atomically and serialize refreshes per session type. A refresh updates only its own block. Use the session for the effective `--vstream` and `--astream` endpoints through discovery and final playback. Require the same account for mixed requests and keep each playback token bound to its original session and content ID.
 
 ### Crunchyroll subtitle roles and subtitle-only output
 

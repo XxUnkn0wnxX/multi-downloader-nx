@@ -8,9 +8,11 @@ import process from 'node:process';
 import { fileURLToPath, URLSearchParams, URL } from 'node:url';
 import vm from 'node:vm';
 import { createRequire } from 'node:module';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import ts from 'typescript';
 
-const { AbortController, Response, setTimeout, clearTimeout, setInterval, clearInterval, atob } = globalThis;
+const { AbortController, AbortSignal, Response, setTimeout, clearTimeout, setInterval, clearInterval, atob } = globalThis;
 const require = createRequire(import.meta.url);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'anidl-token-input-'));
@@ -56,6 +58,13 @@ try {
 	const realHelper = compile(path.join(root, 'modules/module.crunchy-token.ts'), (id) => require(id));
 	const { parseCrunchyTokenInput } = realHelper;
 	const deviceHelper = compile(path.join(root, 'modules/module.crunchy-device-auth.ts'), (id) => require(id));
+	const sessionStore = compile(path.join(root, 'modules/module.crunchy-session-store.ts'), (id) => require(id));
+	const phoneAuth = compile(path.join(root, 'modules/module.crunchy-phone-auth.ts'), (id) => {
+		if (id === './module.api-urls') return { domain: { cr_www: 'https://www.crunchyroll.com' } };
+		if (id === './module.cfg-loader') return { workingDir: work };
+		if (id === './module.crunchy-device-auth') return deviceHelper;
+		return require(id);
+	});
 	const forkDisplay = compile(path.join(root, 'modules/module.fork-display.ts'), (id) => require(id));
 	const same = (actual, expected) => assert.deepEqual(JSON.parse(JSON.stringify(actual)), expected);
 	const sourceError = (input, source, fragment) => {
@@ -114,10 +123,18 @@ try {
 	const stubs = {
 		'./package.json': { version: 'test' },
 		'./modules/log': { console: fakeConsole },
-		'./modules/module.api-urls': { domain: { cr_www: 'https://www.crunchyroll.com', cr_api: 'https://beta-api.crunchyroll.com' }, api },
+		'./modules/module.api-urls': {
+			domain: { cr_www: 'https://www.crunchyroll.com', cr_api: 'https://beta-api.crunchyroll.com', cr_playback: 'https://cr-play-service.prd.crunchyrollsvc.com' },
+			api
+		},
 		'./modules/module.cfg-loader': {
 			saveCRToken: (token) => saved.push(token),
-			saveCRTokenAtomic: () => true,
+			saveCRTokenAtomic: (token) => {
+				saved.push(token);
+				return true;
+			},
+			loadCRSessions: () => ({ sessions: {} }),
+			withCRTokenRefreshLock: (_slot, fn) => fn(),
 			loadCfg: () => ({ cli: {} }),
 			loadBinCfg: async () => {
 				loadBinCalls++;
@@ -128,6 +145,8 @@ try {
 		'./modules/module.helper': { default: { question: async () => (helperPrompts++, 'prompt input') }, __esModule: true },
 		'./modules/module.crunchy-token': realHelper,
 		'./modules/module.crunchy-device-auth': deviceHelper,
+		'./modules/module.crunchy-session-store': sessionStore,
+		'./modules/module.crunchy-phone-auth': { loginWithPhone: async () => undefined },
 		'./modules/module.fork-display': forkDisplay,
 		'./modules/module.working-indicator': {
 			WorkingIndicator: class {
@@ -266,7 +285,6 @@ try {
 			{ username: '' },
 			{ password: '' },
 			{ username: 'legacy-user', auth: true },
-			{ auth: true },
 			{ silentAuth: true }
 		]) {
 			logs.length = 0;
@@ -772,7 +790,11 @@ try {
 		assert.equal(service.token.auth_type, 'device');
 	});
 	await test('CLI blocks credential conflicts and legacy auth without a prompt', async () => {
-		for (const argv of [{ auth: true }, { device: true, token: 'token' }, { silentAuth: true, device: true }]) {
+		for (const argv of [
+			{ auth: true, username: 'legacy-user' },
+			{ device: true, token: 'token' },
+			{ silentAuth: true, device: true }
+		]) {
 			parsedArgv = argv;
 			const { service, calls } = makeService({});
 			assert.equal(await service.cli(), false);
@@ -1148,7 +1170,8 @@ try {
 		const isolated = path.join(work, 'isolated-config');
 		fs.mkdirSync(path.join(isolated, 'config'), { recursive: true });
 		const target = path.join(isolated, 'config', 'cr_token.yml');
-		fs.writeFileSync(target, 'original bytes');
+		const original = 'access_token: original\n';
+		fs.writeFileSync(target, original);
 		let failRename = true,
 			collide = false,
 			collisionPath;
@@ -1166,18 +1189,20 @@ try {
 				return fs.renameSync(...args);
 			}
 		};
+		const integratedStore = compile(path.join(root, 'modules/module.crunchy-session-store.ts'), (id) => (id === 'node:fs' ? fileApi : require(id)));
 		const cfg = compile(
 			path.join(root, 'modules/module.cfg-loader.ts'),
 			(id) => {
 				if (id === 'dotenv/config') return {};
 				if (id === 'fs') return fileApi;
+				if (id === './module.crunchy-session-store') return integratedStore;
 				if (id === './log') return { console: fakeConsole };
 				return require(id);
 			},
 			{ __dirname: root, process: { ...process, pid: process.pid, env: { contentDirectory: isolated } } }
 		);
 		assert.equal(cfg.saveCRTokenAtomic({ access_token: 'new' }), false);
-		assert.equal(fs.readFileSync(target, 'utf8'), 'original bytes');
+		assert.equal(fs.readFileSync(target, 'utf8'), original);
 		same(fs.readdirSync(path.dirname(target)), ['cr_token.yml']);
 		collide = true;
 		assert.equal(cfg.saveCRTokenAtomic({ access_token: 'new' }), false);
@@ -1186,8 +1211,113 @@ try {
 		collide = false;
 		failRename = false;
 		assert.equal(cfg.saveCRTokenAtomic({ access_token: 'new' }), true);
-		assert.equal(require('yaml').parse(fs.readFileSync(target, 'utf8')).access_token, 'new');
+		assert.equal(cfg.loadCRToken().access_token, 'new');
 		same(fs.readdirSync(path.dirname(target)), ['cr_token.yml']);
+	});
+	await test('legacy token migration keeps separate TV, phone and web blocks during refresh', async () => {
+		const target = path.join(work, 'multi-session', 'cr_token.yml');
+		fs.mkdirSync(path.dirname(target));
+		fs.writeFileSync(target, 'auth_type: device\nrefresh_token: old-tv\n', { mode: 0o600 });
+		assert.equal(sessionStore.loadCrunchySessions(target).active, 'androidtv');
+		assert(sessionStore.saveCrunchySession(target, { auth_type: 'android', refresh_token: 'old-phone' }));
+		assert(sessionStore.saveCrunchySession(target, { auth_type: 'web', refresh_token: 'old-web' }));
+		let finish;
+		const held = sessionStore.withCrunchyRefreshLock(
+			target,
+			'android',
+			() =>
+				new Promise((resolve) => {
+					finish = resolve;
+				})
+		);
+		assert.equal(
+			await sessionStore.withCrunchyRefreshLock(target, 'android', () => {
+				throw new Error('concurrent refresh');
+			}),
+			undefined
+		);
+		finish();
+		await held;
+		assert.equal(sessionStore.saveCrunchySession(target, { auth_type: 'android', refresh_token: 'stale' }, { activate: false, expectedRefresh: 'stale-phone' }), false);
+		assert(sessionStore.saveCrunchySession(target, { auth_type: 'android', refresh_token: 'new-phone' }, { activate: false, expectedRefresh: 'old-phone' }));
+		const savedText = fs.readFileSync(target, 'utf8');
+		assert.match(savedText, /^# This file is automatically generated/);
+		for (const slot of ['androidtv', 'android', 'web']) assert(savedText.includes(`### ${slot} ###`));
+		const updated = sessionStore.loadCrunchySessions(target);
+		assert.equal(updated.active, 'web');
+		assert.equal(updated.sessions.androidtv.refresh_token, 'old-tv');
+		assert.equal(updated.sessions.android.refresh_token, 'new-phone');
+		assert.equal(updated.sessions.web.refresh_token, 'old-web');
+		if (process.platform !== 'win32') assert.equal(fs.statSync(target).mode & 0o777, 0o600);
+		for (const invalid of ['version: 999\nsessions: {}\n', 'private: [']) {
+			fs.writeFileSync(target, invalid);
+			assert.equal(sessionStore.saveCrunchySession(target, { auth_type: 'device', refresh_token: 'refused' }), false);
+			assert.equal(fs.readFileSync(target, 'utf8'), invalid);
+		}
+	});
+	await test('Android callback requires correct HTTPS origin, path, state and a single code', () => {
+		const url = new URL('https://sso.crunchyroll.com/android/oauth-callback?code=fake%2Bcode&state=fixture');
+		assert.equal(phoneAuth.parsePhoneCallback(url.href, 'fixture'), 'fake+code');
+		for (const invalid of [
+			url.href.replace('https:', 'http:'),
+			url.href.replace('sso.crunchyroll.com', 'wrong.invalid'),
+			url.href.replace('/android/oauth-callback', '/android/other'),
+			url.href + '&code=duplicate',
+			url.href + '&state=fixture',
+			url.href + '&error=access_denied'
+		])
+			assert.equal(phoneAuth.parsePhoneCallback(invalid, 'fixture'), undefined);
+		assert.equal(phoneAuth.parsePhoneCallback(url.href, 'different state'), undefined);
+	});
+	await test('Android CLI browser flow prints its launch URL and keeps the pasted callback hidden', async () => {
+		let outputText = '';
+		let launched;
+		let requests = 0;
+		const terminal = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+		const fixtureProcess = Object.assign(new EventEmitter(), {
+			stdin: terminal,
+			stdout: {
+				isTTY: true,
+				write(value) {
+					outputText += value;
+				}
+			},
+			env: { CRUNCHYROLL_PHONE_CLIENT_ID: 'fixture-id', CRUNCHYROLL_PHONE_CLIENT_SECRET: 'fixture-secret' }
+		});
+		const flow = compile(
+			path.join(root, 'modules/module.crunchy-phone-auth.ts'),
+			(id) => {
+				if (id === './module.api-urls') return { domain: { cr_www: 'https://www.crunchyroll.com' } };
+				if (id === './module.cfg-loader') return { workingDir: work };
+				if (id === './module.crunchy-device-auth') return deviceHelper;
+				if (id === 'open')
+					return async (url) => {
+						launched = new URL(url);
+						const callback = new URL(launched.searchParams.get('redirect_uri'));
+						callback.searchParams.set('state', launched.searchParams.get('state'));
+						callback.searchParams.set('code', 'fixture-hidden-code');
+						terminal.write(callback.href + '\r');
+					};
+				return require(id);
+			},
+			{ process: fixtureProcess, Buffer, AbortSignal }
+		);
+		const session = await flow.loginWithPhone(async (url, options) => {
+			requests++;
+			assert.equal(url, 'https://www.crunchyroll.com/auth/v1/token');
+			assert.equal(options.redirect, 'manual');
+			assert.equal(options.quietDebug, true);
+			assert.equal(options.body.get('grant_type'), 'authorization_code');
+			assert.equal(options.body.get('code'), 'fixture-hidden-code');
+			assert.equal(options.body.get('code_verifier'), launched.searchParams.get('code_challenge'));
+			return { ok: true, res: Response.json({ access_token: 'fake-access', refresh_token: 'fake-refresh', expires_in: 60, account_id: 'fixture-account' }) };
+		});
+		assert.equal(requests, 1);
+		assert.equal(session.auth_type, 'android');
+		assert(outputText.includes(launched.href));
+		assert(outputText.includes('Paste the full callback URL and press Enter (input hidden)'));
+		assert(!outputText.includes('fixture-hidden-code'));
+		assert(!outputText.includes('fixture-secret'));
 	});
 	await test('device initiation rejects unrepresentable timers and pre-aborted calls', async () => {
 		let requests = 0;
@@ -1433,7 +1563,7 @@ try {
 			{ argv: { service: 'crunchy', addArchive: true, s: 'TEST_SEASON' }, result: true, expectedCalls: 0, exit: undefined, updates: 1, archives: 1 },
 			{ argv: { service: 'crunchy', downloadArchive: true }, result: false, expectedCalls: 1, exit: 1, updates: 1 },
 			{ argv: { service: 'crunchy', downloadArchive: true }, result: true, expectedCalls: 2, exit: undefined, updates: 1 },
-			{ argv: { service: 'crunchy', auth: true }, result: true, expectedCalls: 0, exit: 1, updates: 0, warning: deviceHelper.CRUNCHY_CLI_AUTH_WARNING },
+			{ argv: { service: 'crunchy', auth: true }, result: true, expectedCalls: 1, exit: undefined, updates: 1 },
 			{ argv: { service: 'crunchy', username: 'legacy-user' }, result: true, expectedCalls: 0, exit: 1, updates: 0, warning: deviceHelper.CRUNCHY_CLI_AUTH_WARNING },
 			{ argv: { service: 'crunchy', password: '' }, result: true, expectedCalls: 0, exit: 1, updates: 0, warning: deviceHelper.CRUNCHY_CLI_AUTH_WARNING },
 			{ argv: { service: 'crunchy', password: 'entry-secret' }, result: true, expectedCalls: 0, exit: 1, updates: 0, warning: deviceHelper.CRUNCHY_CLI_AUTH_WARNING },

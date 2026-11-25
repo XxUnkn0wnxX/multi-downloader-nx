@@ -22,39 +22,37 @@ Quality-list rates use decimal `kb/s` (1 kb/s = 1,000 bits/s). `KiB/s` measures 
 | --- | --- | --- | --- | --- | ---|
 | All | `--auth ` | `boolean` | `No`| `—` | `—` |
 
-Most of the shows on both services are only accessible if you payed for the service.
-In order for them to know who you are you are required to log in.
-For Crunchyroll CLI use --device instead. Other services prompt for a username and password.
+For Crunchyroll CLI, open the Android phone sign-in page and print the same URL for manual use. After signing in, paste the full callback URL into the hidden prompt and press Enter. The phone session is saved separately from device-code and browser-cookie sessions. See [Crunchyroll CLI sign-in](GET-STARTED.md#crunchyroll-cli) for client configuration. Other services keep their existing sign-in prompts.
 #### `--device`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
 | Crunchyroll | `--device ` | `boolean` | `No`| `—` | `—` |
 
-Log in to Crunchyroll with an activation code. The CLI prints the URL and code, waits for browser approval, and saves the device session for automatic refresh.
+Log in to Crunchyroll with an activation code. The CLI prints the URL and code, waits for browser approval, and saves the Android TV session for automatic refresh alongside any other saved sessions.
 #### `--username`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
 | All | `--username ${username}` | `string` | `No`| `—` | `undefined`| `username: ` |
 
-Set the username to use for authentication. For Crunchyroll CLI login, use --device instead.
+Set the username to use for authentication. For Crunchyroll CLI, use browser --auth or --device.
 #### `--password`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
 | All | `--password ${password}` | `string` | `No`| `—` | `undefined`| `password: ` |
 
-Set the password to use for authentication. For Crunchyroll CLI login, use --device instead.
+Set the password to use for authentication. For Crunchyroll CLI, use browser --auth or --device.
 #### `--silentAuth`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
 | Crunchyroll | `--silentAuth ` | `boolean` | `No`| `—` | `false`| `silentAuth: ` |
 
-Crunchyroll CLI password login is unavailable. Use --device instead.
+For Crunchyroll CLI, use browser --auth or --device.
 #### `--token`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
 | Crunchyroll | `--token ${token}` | `string` | `No`| `—` | `undefined`| `token: ` |
 
-Log in to Crunchyroll with the UUID-shaped etp_rt cookie value (optionally prefixed with etp_rt=), or the path to a file containing the raw token or a Netscape cookies export. The file may have any name or extension.
+Log in to Crunchyroll with the UUID-shaped etp_rt cookie value (optionally prefixed with etp_rt=), or the path to a file containing the raw token or a Netscape cookies export. The file may have any name or extension. The resulting web session is saved alongside any TV and phone sessions.
 ### Fonts
 #### `--dlFonts`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
@@ -218,13 +216,13 @@ Select the server to use
 | --- | --- | --- | --- | --- | --- | --- | ---|
 | Crunchyroll | `--vstream ${device}` | `string` | `No`| `--vs` | [`androidtv`, `android`, `androidtab`, `chrome`, `firefox`, `none`] | `androidtv`| `vstream: ` or `vs: ` |
 
-Select a specific Crunchyroll video playback endpoint by device. Availability and quality depend on the service.
+Select the video endpoint. The endpoint uses its matching saved Crunchyroll session. See [stream endpoint sign-in requirements](GET-STARTED.md#crunchyroll-streams-and-quality).
 #### `--astream`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | --- | ---|
 | Crunchyroll | `--astream ${device}` | `string` | `No`| `--as` | [`androidtv`, `android`, `androidtab`, `chrome`, `firefox`, `none`] | `android`| `astream: ` or `as: ` |
 
-Select a specific Crunchyroll audio playback endpoint by device. Available renditions and bitrate depend on the service, account, and episode.
+Select the audio endpoint independently of the video endpoint. For Android TV video with Android phone audio, save both sessions for the same account. See [stream endpoint sign-in requirements](GET-STARTED.md#crunchyroll-streams-and-quality).
 #### `--tsd`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|

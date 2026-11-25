@@ -48,6 +48,8 @@ fonts
 !/gui/react/.env
 token.yml
 *_token.yml
+*_token.yml.*.tmp
+*_token.yml*.lock
 *_profile.yml
 *_sess.yml
 *.user.yml

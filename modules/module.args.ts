@@ -56,14 +56,13 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'auth',
-		describe: 'Enter authentication mode (Crunchyroll CLI: use --device)',
+		describe: 'Sign in (Crunchyroll CLI: Android phone browser sign-in)',
 		type: 'boolean',
 		group: 'auth',
 		service: ['all'],
 		docDescribe:
-			'Most of the shows on both services are only accessible if you payed for the service.' +
-			'\nIn order for them to know who you are you are required to log in.' +
-			'\nFor Crunchyroll CLI use --device instead. Other services prompt for a username and password.',
+			'For Crunchyroll CLI, open the Android phone sign-in page and print the same URL for manual use. After signing in, paste the full callback URL into the hidden prompt and press Enter. ' +
+			'The phone session is saved separately from device-code and browser-cookie sessions. See [Crunchyroll CLI sign-in](GET-STARTED.md#crunchyroll-cli) for client configuration. Other services keep their existing sign-in prompts.',
 		usage: ''
 	},
 	{
@@ -73,7 +72,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		group: 'auth',
 		service: ['crunchy'],
 		docDescribe:
-			'Log in to Crunchyroll with an activation code. The CLI prints the URL and code, waits for browser approval, and saves the device session for automatic refresh.',
+			'Log in to Crunchyroll with an activation code. The CLI prints the URL and code, waits for browser approval, and saves the Android TV session for automatic refresh alongside any other saved sessions.',
 		usage: ''
 	},
 	{
@@ -351,11 +350,12 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		service: ['crunchy'],
 		type: 'string',
 		describe: 'Select a specific Crunchyroll video playback endpoint by device. Availability and quality depend on the service.',
+		docDescribe:
+			'Select the video endpoint. The endpoint uses its matching saved Crunchyroll session. See [stream endpoint sign-in requirements](GET-STARTED.md#crunchyroll-streams-and-quality).',
 		choices: [...Object.keys(CrunchyVideoPlayStreams), 'none'],
 		default: {
 			default: 'androidtv'
 		},
-		docDescribe: true,
 		usage: '${device}'
 	},
 	{
@@ -365,11 +365,12 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		service: ['crunchy'],
 		type: 'string',
 		describe: 'Select a specific Crunchyroll audio playback endpoint by device. Available renditions and bitrate depend on the service, account, and episode.',
+		docDescribe:
+			'Select the audio endpoint independently of the video endpoint. For Android TV video with Android phone audio, save both sessions for the same account. See [stream endpoint sign-in requirements](GET-STARTED.md#crunchyroll-streams-and-quality).',
 		choices: [...Object.keys(CrunchyAudioPlayStreams), 'none'],
 		default: {
 			default: 'android'
 		},
-		docDescribe: true,
 		usage: '${device}'
 	},
 	{
@@ -909,7 +910,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	{
 		name: 'username',
 		describe: 'Set the username for authentication (Crunchyroll CLI: use --device)',
-		docDescribe: 'Set the username to use for authentication. For Crunchyroll CLI login, use --device instead.',
+		docDescribe: 'Set the username to use for authentication. For Crunchyroll CLI, use browser --auth or --device.',
 		group: 'auth',
 		service: ['all'],
 		type: 'string',
@@ -921,7 +922,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	{
 		name: 'password',
 		describe: 'Set the password for authentication (Crunchyroll CLI: use --device)',
-		docDescribe: 'Set the password to use for authentication. For Crunchyroll CLI login, use --device instead.',
+		docDescribe: 'Set the password to use for authentication. For Crunchyroll CLI, use browser --auth or --device.',
 		group: 'auth',
 		service: ['all'],
 		type: 'string',
@@ -933,7 +934,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	{
 		name: 'silentAuth',
 		describe: 'Authenticate every time the script runs. Crunchyroll CLI login uses --device instead.',
-		docDescribe: 'Crunchyroll CLI password login is unavailable. Use --device instead.',
+		docDescribe: 'For Crunchyroll CLI, use browser --auth or --device.',
 		group: 'auth',
 		service: ['crunchy'],
 		type: 'boolean',
@@ -946,7 +947,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		name: 'token',
 		describe: 'Login with a Crunchyroll UUID-shaped etp_rt cookie directly or a file containing the raw token or a Netscape cookies export',
 		docDescribe:
-			'Log in to Crunchyroll with the UUID-shaped etp_rt cookie value (optionally prefixed with etp_rt=), or the path to a file containing the raw token or a Netscape cookies export. The file may have any name or extension.',
+			'Log in to Crunchyroll with the UUID-shaped etp_rt cookie value (optionally prefixed with etp_rt=), or the path to a file containing the raw token or a Netscape cookies export. The file may have any name or extension. The resulting web session is saved alongside any TV and phone sessions.',
 		group: 'auth',
 		service: ['crunchy'],
 		type: 'string',

@@ -1265,6 +1265,8 @@ const mediaDeps = {
 		}
 	},
 	'./modules/module.crunchy-device-auth': { validateCrunchyAuthModes: () => undefined },
+	'./modules/module.crunchy-phone-auth': {},
+	'./modules/module.crunchy-session-store': compile('modules/module.crunchy-session-store.ts'),
 	'./package.json': packageMetadata,
 	'./modules/module.fork-display': compile('modules/module.fork-display.ts'),
 	fs: {
@@ -1308,10 +1310,15 @@ const mediaDeps = {
 			}
 		}
 	},
-	'./modules/module.cfg-loader': { workingDir: '', loadBinCfg: async () => ({ ffmpeg: 'fake', mp4decrypt: 'fake' }) },
+	'./modules/module.cfg-loader': {
+		workingDir: '',
+		loadBinCfg: async () => ({ ffmpeg: 'fake', mp4decrypt: 'fake' }),
+		loadCRSessions: () => ({ sessions: {} }),
+		withCRTokenRefreshLock: (_slot, fn) => fn()
+	},
 	'./modules/module.api-urls': {
 		api: { crunchyDefHeader: {}, drm_widevine: 'https://license.invalid/', me: 'https://api.example.test/me', streaming_sessions: 'https://api.example.test/sessions' },
-		domain: {}
+		domain: { cr_www: 'https://www.crunchyroll.com', cr_playback: 'https://cr-play-service.prd.crunchyrollsvc.com' }
 	},
 	'./@types/enums': {
 		CrunchyVideoPlayStreams: { androidtv: 'video', chrome: 'video', android: 'phone', androidtab: 'tablet' },
@@ -3821,6 +3828,7 @@ assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/
 		'modules/module.cfg-loader.ts',
 		{
 			'dotenv/config': {},
+			'./module.crunchy-session-store': mediaDeps['./modules/module.crunchy-session-store'],
 			fs: {
 				existsSync: () => false,
 				mkdirSync: () => {
@@ -3841,5 +3849,56 @@ assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/
 	assert(fs.readFileSync(path.join(root, 'tsc.ts'), 'utf8').includes("'./config/cr_playback_status.json*'"));
 	const builder = fs.readFileSync(path.join(root, 'modules/build.ts'), 'utf8');
 	assert(!builder.includes("copyFileSync('./config/cr_playback_status"));
+}
+{
+	const previous = { request: service.req, token: service.token, cms: service.cmsToken, loader: mediaDeps['./modules/module.cfg-loader'].loadCRSessions };
+	const tv = { auth_type: 'device', device_id: 'test-tv', account_id: 'same-account', access_token: 'fake-tv-bearer', expires: new Date(4e12) };
+	const phone = { auth_type: 'android', device_id: 'test-phone', account_id: 'same-account', access_token: 'fake-phone-bearer', expires: new Date(4e12) };
+	const manifest = 'https://cr-play-service.prd.crunchyrollsvc.com/fixture.mpd';
+	const observed = [];
+	try {
+		resetGlobal();
+		mediaDeps['./modules/module.cfg-loader'].loadCRSessions = () => ({ sessions: { androidtv: tv, android: phone } });
+		service.token = tv;
+		service.cmsToken = { cms: {} };
+		service.req = {
+			argv: { debug: false },
+			async getData(url, options = {}) {
+				observed.push({ url, method: options.method, bearer: options.headers?.Authorization });
+				if (options.method === 'DELETE') return { ok: true, res: new Response(null, { status: 204 }) };
+				if (url === manifest) return { ok: true, res: new Response(mediaMpd('EN', 'current')) };
+				if (url.includes('/play?queue='))
+					return { ok: true, res: new Response(JSON.stringify({ token: 'same-playback-token', url: manifest, hardSubs: {}, audioLocale: 'en-US' })) };
+				throw Error(`Unexpected fixture URL ${url}`);
+			}
+		};
+		const opts = { ...mediaOptions, vstream: 'androidtv', astream: 'android', dryRun: true };
+		const result = await service.downloadMediaList(mediaData, opts);
+		assert.equal(result?.error, false);
+		assert.deepEqual(
+			observed.filter((item) => item.url.includes('/play?')).map((item) => item.bearer),
+			['Bearer fake-tv-bearer', 'Bearer fake-phone-bearer']
+		);
+		assert.deepEqual(
+			observed.filter((item) => item.url === manifest).map((item) => item.bearer),
+			['Bearer fake-tv-bearer', 'Bearer fake-phone-bearer']
+		);
+		assert.deepEqual(
+			observed.filter((item) => item.method === 'DELETE').map((item) => [new URL(item.url).hostname, item.bearer]),
+			[
+				['cr-play-service.prd.crunchyrollsvc.com', 'Bearer fake-tv-bearer'],
+				['www.crunchyroll.com', 'Bearer fake-phone-bearer']
+			]
+		);
+		phone.account_id = 'different-account';
+		observed.length = 0;
+		assert.equal(await service.downloadMediaList(mediaData, opts), undefined);
+		assert.deepEqual(observed, []);
+	} finally {
+		service.req = previous.request;
+		service.token = previous.token;
+		service.cmsToken = previous.cms;
+		mediaDeps['./modules/module.cfg-loader'].loadCRSessions = previous.loader;
+	}
 }
 output.log('Crunchy global two-pass consumer contract passed');

@@ -104,7 +104,7 @@ export function validDeviceToken(token: any): boolean {
 	);
 }
 
-export const CRUNCHY_CLI_AUTH_WARNING = 'Crunchyroll CLI login uses --device; run again with --device.';
+export const CRUNCHY_CLI_AUTH_WARNING = 'Use --auth for Android phone sign-in or --device for Android TV sign-in.';
 
 export function validateCrunchyAuthModes(argv: {
 	service?: string;
@@ -119,7 +119,7 @@ export function validateCrunchyAuthModes(argv: {
 	if (argv.service !== 'crunchy') return;
 	const modes = Number(!!argv.device) + Number(!!argv.auth) + Number(argv.token !== undefined) + Number(!!argv.silentAuth);
 	if (modes > 1) return 'Choose only one of --device, --token, --auth, or --silentAuth.';
-	if (argv.auth || argv.silentAuth || argv.username !== undefined || argv.password !== undefined) return CRUNCHY_CLI_AUTH_WARNING;
+	if (argv.silentAuth || argv.username !== undefined || argv.password !== undefined) return CRUNCHY_CLI_AUTH_WARNING;
 }
 
 const sleep = (ms: number, signal: AbortSignal) =>

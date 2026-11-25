@@ -332,6 +332,7 @@ const audioMap = { 'audio.example.test': { video: [], audio: [originalAudio] } }
 currentMap['current.example.test'].audio = [originalAudio];
 const deps = {
 	'./modules/module.fork-display': forkDisplay,
+	'./modules/module.crunchy-session-store': compile('modules/module.crunchy-session-store.ts', {}),
 	'./package.json': {},
 	'./modules/module.crunchy-video-catalog': catalogModule,
 	'./modules/module.working-indicator': {
@@ -395,13 +396,17 @@ const deps = {
 		)
 	},
 	'./modules/module.cfg-loader': {
+		loadCRSessions: () => ({ sessions: {} }),
 		loadBinCfg: async () => {
 			sideEffects.push('loadBin');
 			return {};
 		}
 	},
-	'./modules/module.api-urls': { api: { crunchyDefHeader: {}, me: 'https://example.test/me', streaming_sessions: 'https://example.test/sessions' }, domain: {} },
-	'./@types/enums': { CrunchyVideoPlayStreams: { androidtv: 'video' }, CrunchyAudioPlayStreams: { web: 'audio' } },
+	'./modules/module.api-urls': {
+		api: { crunchyDefHeader: {}, me: 'https://example.test/me', streaming_sessions: 'https://example.test/sessions' },
+		domain: { cr_www: 'https://www.crunchyroll.com', cr_playback: 'https://cr-play-service.prd.crunchyrollsvc.com' }
+	},
+	'./@types/enums': { CrunchyVideoPlayStreams: { androidtv: 'video', chrome: 'audio' }, CrunchyAudioPlayStreams: { chrome: 'audio' } },
 	'./modules/cdm': {
 		canDecrypt: false,
 		cdm: 'widevine',
@@ -436,6 +441,7 @@ const other = new Set([
 	'./modules/module.vtt2ass',
 	'./modules/module.crunchy-token',
 	'./modules/module.crunchy-device-auth',
+	'./modules/module.crunchy-phone-auth',
 	'm3u8-parser'
 ]);
 const { default: Crunchy } = compile('crunchy.ts', new Proxy(deps, { get: (target, key) => (key in target ? target[key] : other.has(key) ? {} : undefined) }));
@@ -527,7 +533,7 @@ async function preview(q, sameToken = false, failAudio = false, count = 1, extra
 	const options = {
 		dryRun: true,
 		vstream: 'androidtv',
-		astream: 'web',
+		astream: 'chrome',
 		cstream: false,
 		dubLang: [],
 		chapters: false,
@@ -629,6 +635,7 @@ const hard = await preview(0, false, false, 1, { hslang: 'en' });
 assert.equal(hard.result, true);
 assert.equal(hard.optionalCalls, 0);
 const serviceControl = Object.create(Crunchy.prototype);
+serviceControl.token = { access_token: 'test' };
 serviceControl.downloadMediaList = async () => ({ error: false, data: [], fileName: 'unused' });
 serviceControl.muxStreams = async () => {
 	sideEffects.push('mux');

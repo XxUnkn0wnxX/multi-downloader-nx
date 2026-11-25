@@ -80,6 +80,16 @@ By default, downloads go to the `videos/` folder beside the application. Use for
 
 The video and audio endpoints are independent choices. Available renditions and access depend on the episode, account, and service response. Endpoint names do not guarantee a fixed bitrate or CBR. Choosing separate video and audio endpoints can require more than one playback session, subject to provider and account limits. For capacity checks, explicit session reset, and bounded retry behavior, see [Crunchyroll playback recovery](CRUNCHYROLL-RECOVERY.md).
 
+Each `--vstream` or `--astream` endpoint uses the corresponding saved login.
+
+| Endpoint | Sign in with |
+| --- | --- |
+| `androidtv` | `--device` |
+| `android` and `androidtab` | Browser `--auth` |
+| `chrome` and `firefox` | `--token` |
+
+The defaults are `--vstream androidtv --astream android`. Save both Android TV and Android phone sessions for the same account to use that combination. With a single phone login, choose `--vstream android --astream android`. Availability can differ across endpoints.
+
 For raw DASH, the numbered quality list can include compatible video from `[Current M]` and `[Legacy M]` sources, with the video source language shown as `[V:eng]` or `[V:jpn]`. By default, discovery covers exactly the selected audio languages. English-only selection uses English video sources; select both English and Japanese to compare both. All available variants within that scope remain eligible. `--qall` expands the catalogue to all available languages. Resolution headings group the list without resetting quality numbers. `-q 0` selects the compatible candidate with the highest resolution, then advertised bandwidth, in the active catalogue; its choice can differ with `--qall`. The highest current audio rendition is selected independently for each requested dub.
 
 When episode version metadata is available, a missing selected audio language stops the episode before quality discovery or video download. This applies to English, Japanese and other dubs, including audio-only downloads and previews. For Crunchyroll multi-audio downloads, use either `-s SEASON_ID` or `--srz SERIES_ID` with an explicit list such as `--dubLang eng jpn hin`: every requested language must be available for the episode before it starts.
@@ -159,13 +169,23 @@ Status API `Retry-After` information is reported separately from the historical 
 
 ### Crunchyroll CLI
 
-For a new Crunchyroll CLI login, run:
+For Android TV, run:
 
 ```sh
 aniDL --service crunchy --device
 ```
 
-Open the printed activation page, enter the displayed code, and approve the request. The CLI shows the account after approval and saves the device login for later token refresh. If the primary auth endpoint is unavailable, a warning identifies the beta API fallback. The Crunchyroll CLI `--auth`, `--username`, `--password`, and `--silentAuth` options direct users to `--device`. The older browser-cookie `--token` option remains available for existing workflows; see [its option entry](DOCUMENTATION.md#--token).
+Open the printed activation page, enter the code, and approve the request. The CLI shows the account after approval and saves the device login for later refresh. If the primary auth endpoint is unavailable, a warning identifies the beta API fallback.
+
+For Android phone sign-in, configure `CRUNCHYROLL_PHONE_CLIENT_ID` and `CRUNCHYROLL_PHONE_CLIENT_SECRET` in the CLI environment or in an owner-only `config/cr_phone_client.env` file. Then run:
+
+```sh
+aniDL --service crunchy --auth
+```
+
+The CLI opens Crunchyroll sign-in and prints the same link for manual use. Sign in on the Crunchyroll page, then paste the full `https://sso.crunchyroll.com/android/oauth-callback` URL into the hidden Terminal prompt and press Enter. For browser endpoints, see the [browser-cookie sign-in option](DOCUMENTATION.md#--token).
+
+The CLI maintains each login in its own block in `config/cr_token.yml`. It reads existing single-session files and keeps the existing login when it first writes the new layout. Let the CLI update this file automatically.
 
 ### GUI and other services
 
