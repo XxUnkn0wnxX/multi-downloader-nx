@@ -909,7 +909,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'username',
-		describe: 'Set the username for authentication (Crunchyroll CLI: use --device)',
+		describe: 'Set the username for authentication (Crunchyroll CLI: use --auth or --device)',
 		docDescribe: 'Set the username to use for authentication. For Crunchyroll CLI, use browser --auth or --device.',
 		group: 'auth',
 		service: ['all'],
@@ -921,7 +921,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'password',
-		describe: 'Set the password for authentication (Crunchyroll CLI: use --device)',
+		describe: 'Set the password for authentication (Crunchyroll CLI: use --auth or --device)',
 		docDescribe: 'Set the password to use for authentication. For Crunchyroll CLI, use browser --auth or --device.',
 		group: 'auth',
 		service: ['all'],
@@ -933,7 +933,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'silentAuth',
-		describe: 'Authenticate every time the script runs. Crunchyroll CLI login uses --device instead.',
+		describe: 'Crunchyroll CLI sign-in uses --auth or --device.',
 		docDescribe: 'For Crunchyroll CLI, use browser --auth or --device.',
 		group: 'auth',
 		service: ['crunchy'],

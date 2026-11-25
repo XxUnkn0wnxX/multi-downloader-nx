@@ -243,7 +243,7 @@ for (const [argv, cfg, crunchy] of [
 	if (crunchy) assert(text.includes('automatic per batch, or per request for multi-dub/--qall'));
 	assert(text.includes('--help') && text.includes('--version'));
 	assert(!text.includes('--no-qall'));
-	if (!crunchy) assert(!text.includes('Crunchyroll CLI: use --device'));
+	if (!crunchy) assert(!text.includes('Crunchyroll CLI:'));
 }
 output.log('ok - discovery timer, aliases, config precedence and service-aware help');
 

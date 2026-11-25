@@ -416,7 +416,7 @@ const getCommander = (cfg: Record<string, unknown>, isGUI: boolean) => {
 			const selected = program.opts().service;
 			const original = option.description;
 			if (selected !== 'crunchy' && ['--auth', '--username', '--password'].includes(option.long ?? ''))
-				option.description = original.replace(' (Crunchyroll CLI: use --device)', '');
+				option.description = original.replace(/ \(Crunchyroll CLI: [^)]+\)$/, '');
 			const result = Help.prototype.optionDescription.call(this, option);
 			option.description = original;
 			return result;
