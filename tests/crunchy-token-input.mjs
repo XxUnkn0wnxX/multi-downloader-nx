@@ -390,14 +390,16 @@ try {
 		assert.equal(result, token);
 		same(sleeps, [500, 500]);
 		same(JSON.parse(calls[1].options.body), { device_code: 'code', device_id: 'uuid', device_name: 'ANDROIDTV (uuid)', device_type: 'ANDROIDTV' });
-		const presentationStart = messages.indexOf('Opening Crunchyroll activation in your browser…');
-		assert.deepEqual(messages.slice(presentationStart, presentationStart + 5), [
-			'Opening Crunchyroll activation in your browser…',
-			'If your browser doesn’t open, open this link manually.',
-			'https://crunchyroll.com/activate',
-			'Enter Code: ABCD',
-			'Expires in 300 seconds. (Waiting for approval)'
-		]);
+		const firstPrompt = 'If your browser doesn’t open, open this link manually.';
+		const presentationStart = messages.indexOf(firstPrompt);
+		assert(!messages.some((line) => line.startsWith('Opening Crunchyroll activation')));
+		assert.deepEqual(
+			messages
+				.slice(presentationStart, presentationStart + 4)
+				.join('\n')
+				.split('\n'),
+			[firstPrompt, '\thttps://crunchyroll.com/activate', '', 'Enter Code: ABCD', 'Expires in 300 seconds. (Waiting for approval)']
+		);
 		assert.deepEqual(activationUrls, ['https://crunchyroll.com/activate']);
 		assert(messages.some((s) => s.includes('response: 204')));
 	});
@@ -779,7 +781,7 @@ try {
 			};
 			assert.equal(await service.loginWithDevice(new AbortController().signal), true);
 			assert.deepEqual(openedActivationUrls, ['https://crunchyroll.com/activate']);
-			assert(logs.some(([kind, line]) => kind === 'info' && line === openedActivationUrls[0]));
+			assert(logs.some(([kind, line]) => kind === 'info' && line === `\t${openedActivationUrls[0]}\n`));
 			assert.equal(requests.length, 2);
 			assert.equal(requests[0].url, 'https://www.crunchyroll.com/auth/v1/device/code');
 			assert.equal(requests[1].url, 'https://www.crunchyroll.com/auth/v1/device/token');
@@ -1554,7 +1556,7 @@ try {
 				}),
 				undefined
 			);
-			assert(!messages.includes('https://crunchyroll.com/activate'));
+			assert(!messages.some((line) => line.includes('https://crunchyroll.com/activate')));
 		}
 	});
 

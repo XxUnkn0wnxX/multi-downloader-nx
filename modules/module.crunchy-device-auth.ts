@@ -218,11 +218,8 @@ export async function requestDeviceToken(options: DeviceOptions): Promise<Record
 		)
 			throw new Error('Invalid device code response.');
 		const activationUrl = 'https://crunchyroll.com/activate';
-		if (options.openActivation) {
-			log('Opening Crunchyroll activation in your browser…');
-			log('If your browser doesn’t open, open this link manually.');
-		}
-		log(activationUrl);
+		if (options.openActivation) log('If your browser doesn’t open, open this link manually.');
+		log(`\t${activationUrl}\n`);
 		log(`Enter Code: ${data.user_code.toUpperCase()}`);
 		options.openActivation?.(activationUrl);
 		deadline = now() + data.expires_in * 1000;
