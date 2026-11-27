@@ -8,7 +8,9 @@
 
 This fork follows [anidl/multi-downloader-nx](https://github.com/anidl/multi-downloader-nx). `main` is the stable branch. Changes on `develop` are available for testing before release. [Fork changes](fork-changes.md) · [🛠️ Developer guide](DEVELOPMENT.md)
 
-[![Tests](../../../actions/workflows/test.yml/badge.svg?branch=main)](../../../actions/workflows/test.yml) [![Discord](https://img.shields.io/discord/884479461997805568?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/qEpbWen5vq)
+[![Tests main](https://img.shields.io/github/actions/workflow/status/XxUnkn0wnxX/multi-downloader-nx/test.yml?branch=main&label=Tests%20main&style=flat-square)](../../../actions/workflows/test.yml?query=branch%3Amain)
+[![Tests develop](https://img.shields.io/github/actions/workflow/status/XxUnkn0wnxX/multi-downloader-nx/test.yml?branch=develop&label=Tests%20develop&style=flat-square)](../../../actions/workflows/test.yml?query=branch%3Adevelop)
+[![Discord](https://img.shields.io/discord/884479461997805568?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/qEpbWen5vq)
 
 ## Setup
 
