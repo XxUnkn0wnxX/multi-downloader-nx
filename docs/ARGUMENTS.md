@@ -93,7 +93,7 @@ Use the listed quality number; 0 selects the maximum quality. Crunchyroll ranks 
 
 | **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **Default** | **cli-default Entry** |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| All services | `-x ${server}` | `number` | `No` | `--server` | [`1`, `2`, `3`, `4`] | `1` | `x or server: ` |
+| All services | `-x ${server}` | `number` | `No` | `--server` | [`1`, `2`, `3`, `4`] | `1` | `x: ` or `server: ` |
 
 Select the server to use
 #### `--dlsubs`
@@ -175,7 +175,7 @@ Download everything but the -e selection
 | --- | --- | --- | --- | --- | --- |
 | All services | `--downloadArchive` | `boolean` | `No` | `—` | `—` |
 
-Used to download all archived shows
+Replay an archive that already has entries for this service. HIDIVE expects season IDs and ADN expects show IDs. Entries saved with episode IDs can select the wrong collection or fail to replay.
 #### `--partsize`
 
 | **Service** | **Usage** | **Type** | **Required** | **Alias** | **Default** | **cli-default Entry** |
@@ -470,7 +470,7 @@ Scan all languages and show every eligible Crunchyroll video quality. Default pa
 
 | **Service** | **Usage** | **Type** | **Required** | **Alias** | **Default** | **cli-default Entry** |
 | --- | --- | --- | --- | --- | --- | --- |
-| Crunchyroll | `--service crunchy --discovery-timmer ${milliseconds}` | `number` | `No` | `--disctmr` | `automatic` | `discovery-timmer or disctmr: ` |
+| Crunchyroll | `--service crunchy --discovery-timmer ${milliseconds}` | `number` | `No` | `--disctmr` | `automatic` | `discovery-timmer: ` or `disctmr: ` |
 
 Set an exact pause in milliseconds between normal eight-request discovery batches, or before each request for multi-dub or --qall discovery. Unset uses automatic 250–400 ms batch gaps with response-time credit and a six-second added-wait budget, or 700–1100 ms per request for multi-dub or --qall. Zero disables normal pacing. Fixed pauses are not capped at six seconds; discovery and request deadlines and 429 recovery still apply.
 #### `--dlVideoOnce`
@@ -505,14 +505,14 @@ If selected, it will prefer to keep the original Font Size defined by the servic
 
 | **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **Default** | **cli-default Entry** |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Crunchyroll | `--service crunchy --vstream ${device}` | `string` | `No` | `--vs` | [`androidtv`, `android`, `androidtab`, `chrome`, `firefox`, `none`] | `androidtv` | `vstream or vs: ` |
+| Crunchyroll | `--service crunchy --vstream ${device}` | `string` | `No` | `--vs` | [`androidtv`, `android`, `androidtab`, `chrome`, `firefox`, `none`] | `androidtv` | `vstream: ` or `vs: ` |
 
 Select the video endpoint. The endpoint uses its matching saved Crunchyroll session. See [stream endpoint sign-in requirements](GET-STARTED.md#crunchyroll-streams-and-quality).
 #### `--astream`
 
 | **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **Default** | **cli-default Entry** |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Crunchyroll | `--service crunchy --astream ${device}` | `string` | `No` | `--as` | [`androidtv`, `android`, `androidtab`, `chrome`, `firefox`, `none`] | `android` | `astream or as: ` |
+| Crunchyroll | `--service crunchy --astream ${device}` | `string` | `No` | `--as` | [`androidtv`, `android`, `androidtab`, `chrome`, `firefox`, `none`] | `android` | `astream: ` or `as: ` |
 
 Select the audio endpoint independently of the video endpoint. A single Crunchyroll command can use multiple saved sessions from the same account. For example, `--vstream androidtv --astream android` uses the Android TV session for video and the Android phone session for audio. See [stream endpoint sign-in requirements](GET-STARTED.md#crunchyroll-streams-and-quality).
 #### `--tsd`

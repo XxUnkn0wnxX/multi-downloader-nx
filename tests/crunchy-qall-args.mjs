@@ -169,6 +169,7 @@ function parse(argv, config = {}, override, directOverride = false, isGUI = fals
 		{
 			'node:fs': { existsSync: (file) => ['-cookies.txt', '--debug'].includes(file) },
 			'./module.args': { args, groups, configuredDefault, optionAppliesToService },
+			'./module.crunchy-cli-auth': compile('modules/module.crunchy-cli-auth.ts'),
 			'./log': { console: { ...output, error: (message) => errors.push(message) } },
 			'./module.langsData': languageData,
 			'../@types/enums': enums,
@@ -287,26 +288,17 @@ for (const [flag, service] of [
 	['--locale', 'hidive'],
 	['--series', 'adn']
 ]) {
-	const value = ['--disctmr', '-disctmr'].includes(flag)
-		? '0'
-		: flag === '--rawoutput'
-			? 'fixture.txt'
-			: flag === '--locale'
-				? 'fr'
-				: flag === '--series'
-					? '12345'
-				: undefined;
+	const value = ['--disctmr', '-disctmr'].includes(flag) ? '0' : flag === '--rawoutput' ? 'fixture.txt' : flag === '--locale' ? 'fr' : flag === '--series' ? '12345' : undefined;
 	const argv = [flag, ...(value === undefined ? [] : [value])];
-	assert.throws(() => parse(argv, {}, undefined, false, false, service), (error) => {
-		const reportedFlag = ['-qall', '--no-qall'].includes(flag)
-			? '--qall'
-			: ['--disctmr', '-disctmr'].includes(flag)
-				? '--discovery-timmer'
-				: flag;
-		assert.match(error.message, new RegExp(`${reportedFlag} is unavailable with --service ${service}\\.`));
-		assert.match(error.message, /Use --service (crunchy|hidive|adn)/i);
-		return true;
-	});
+	assert.throws(
+		() => parse(argv, {}, undefined, false, false, service),
+		(error) => {
+			const reportedFlag = ['-qall', '--no-qall'].includes(flag) ? '--qall' : ['--disctmr', '-disctmr'].includes(flag) ? '--discovery-timmer' : flag;
+			assert.match(error.message, new RegExp(`${reportedFlag} is unavailable with --service ${service}\\.`));
+			assert.match(error.message, /Use --service (crunchy|hidive|adn)/i);
+			return true;
+		}
+	);
 }
 assert.equal(parse(['--new'], {}, undefined, false, false, 'hidive').new, true, 'the unimplemented HIDIVE --new option remains accepted for its existing diagnostic');
 assert.equal(parse(['--tsd'], {}, undefined, false, false, 'crunchy').tsd, true, 'a Crunchyroll-only option remains accepted for Crunchyroll');
@@ -341,13 +333,7 @@ for (const [flag, service] of [
 	['--fontName', 'crunchy'],
 	['--page', 'adn']
 ]) {
-	const argument = ['--srz', '--series', '-srz'].includes(flag)
-		? '12345'
-		: ['--waittime', '--page'].includes(flag)
-			? '0'
-			: flag === '--fontName'
-				? 'Fixture Font'
-				: undefined;
+	const argument = ['--srz', '--series', '-srz'].includes(flag) ? '12345' : ['--waittime', '--page'].includes(flag) ? '0' : flag === '--fontName' ? 'Fixture Font' : undefined;
 	const parsed = parse([flag, ...(argument === undefined ? [] : [argument])], {}, undefined, false, false, service);
 	if (['--srz', '--series', '-srz'].includes(flag)) assert.equal(parsed.srz, '12345');
 	else assert.equal(parsed[flag.slice(2)], flag === '--fontName' ? 'Fixture Font' : flag === '--dlVideoOnce' ? true : 0);
@@ -371,13 +357,14 @@ const parser = compile(
 	'modules/module.app-args.ts',
 	{
 		'./module.args': { args, groups, configuredDefault, optionAppliesToService },
+		'./module.crunchy-cli-auth': compile('modules/module.crunchy-cli-auth.ts'),
 		'./log': { console: output },
 		'./module.langsData': languageData,
 		'../@types/enums': enums,
 		'../package.json': { description: 'fixture CLI', version: '1.0.0' },
 		leven: () => 99
 	},
-	{ process: { platform: 'darwin' } }
+	{ process: { platform: 'darwin', argv: ['node', 'aniDL'] } }
 );
 assert.equal(parser.statusInvocation(['--service', 'crunchy', '--check-status']), 'valid');
 assert.equal(parser.statusInvocation(['--check-status', '--debug', '--service=crunchy']), 'valid');
@@ -400,6 +387,8 @@ for (const service of ['hidive', 'adn']) {
 	const parsed = parse(['-s', '12345'], { CC: 'invalid' }, undefined, false, false, service);
 	assert.equal(parsed.s, '12345', `${service} keeps parsing a download selector with a foreign CC setting`);
 	assert.equal(parsed.CC, 'invalid', `${service} ignores Crunchyroll-only CC validation`);
+	assert.equal(parse(['-s', '12345'], { disctmr: 'invalid' }, undefined, false, false, service).s, '12345');
+	assert.throws(() => parse(['--disctmr', 'invalid'], {}, undefined, false, false, service), /--discovery-timmer is unavailable/);
 }
 assert.equal(parse([]).qall, false, 'qall is false by default');
 assert.equal(parse([], { qall: true }).qall, true, 'qall can be enabled from the YAML config value');
@@ -464,6 +453,7 @@ function help(argv, config = {}) {
 		'modules/module.app-args.ts',
 		{
 			'./module.args': { args, groups, configuredDefault, optionAppliesToService },
+			'./module.crunchy-cli-auth': compile('modules/module.crunchy-cli-auth.ts'),
 			'./log': { console: output },
 			'./module.langsData': languageData,
 			'../@types/enums': enums,
@@ -580,18 +570,23 @@ const section = (name, service = 'crunchy') => {
 	const scope = service ? providerReferences[service] : globalReference;
 	return scope.split(`#### \`${name}\``)[1]?.split('#### `')[0] ?? '';
 };
-assert.match(section('--discovery-timmer'), /`automatic`[\s\S]*`discovery-timmer or disctmr: `/);
+assert.match(section('--discovery-timmer'), /`automatic`[\s\S]*`discovery-timmer: ` or `disctmr: `/);
 assert.match(section('--dry-run', null), /`false`[\s\S]*`—`/);
-for (const [name, service] of [['--username', 'hidive'], ['--password', 'hidive'], ['--token', 'crunchy'], ['--forceMuxer', null]]) {
+for (const [name, service] of [
+	['--username', 'hidive'],
+	['--password', 'hidive'],
+	['--token', 'crunchy'],
+	['--forceMuxer', null]
+]) {
 	assert.match(section(name, service), /`undefined`/);
 	assert(!section(name, service).includes('`automatic`'));
 }
-assert.equal((section('-x', null).match(/`x or server: `/g) ?? []).length, 1);
+assert.equal((section('-x', null).match(/`x: ` or `server: `/g) ?? []).length, 1);
 assert.match(section('--bypasssync'), /`bypasssync: `/);
 assert(!docs.includes('#### `--forcevideo`'));
 assert.match(section('--check-status'), /`—`/);
-assert.match(section('--vstream'), /`vstream or vs: `/);
-assert.match(section('--astream'), /`astream or as: `/);
+assert.match(section('--vstream'), /`vstream: ` or `vs: `/);
+assert.match(section('--astream'), /`astream: ` or `as: `/);
 
 const serverOption = args.find((argument) => argument.name === 'x');
 serverOption.default.name = 'server';

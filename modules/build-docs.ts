@@ -80,10 +80,12 @@ const renderOptions = (options: typeof args, service?: string) => {
 									? (argument.defaultLabel ?? 'undefined')
 									: (argument.default as any).default
 							: argument.default;
-				const configEntry =
-					typeof argument.default === 'object' && !Array.isArray(argument.default)
-						? `${argument.default.name || argument.name}${argument.alias && argument.alias !== (argument.default.name || argument.name) ? ` or ${argument.alias}` : ''}: `
-						: '—';
+				let configEntry = '`—`';
+				if (typeof argument.default === 'object' && !Array.isArray(argument.default)) {
+					const key = argument.default.name || argument.name;
+					const keys = argument.alias && argument.alias !== key ? [key, argument.alias] : [key];
+					configEntry = keys.map((key) => `\`${key}: \``).join(' or ');
+				}
 				const cells = [
 					transformService(argument.service),
 					`\`${usage}\``,
@@ -92,7 +94,7 @@ const renderOptions = (options: typeof args, service?: string) => {
 					`\`${(argument.alias ? `${argument.alias.length > 1 ? '--' : '-'}${argument.alias}` : undefined) ?? '—'}\``,
 					...(argument.choices ? [`[${argument.choices.map((choice) => `\`${choice || "''"}\``).join(', ')}]`] : []),
 					...(argument.default !== undefined ? [`\`${defaultValue}\``] : []),
-					`\`${configEntry}\``
+					configEntry
 				];
 				return [
 					`#### \`${flag}\``,

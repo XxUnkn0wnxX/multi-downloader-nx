@@ -882,9 +882,10 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'downloadArchive',
-		describe: 'Used to download all archived shows',
+		describe: 'Replay saved archive entries for the selected service',
 		group: 'dl',
-		docDescribe: true,
+		docDescribe:
+			'Replay an archive that already has entries for this service. HIDIVE expects season IDs and ADN expects show IDs. Entries saved with episode IDs can select the wrong collection or fail to replay.',
 		service: ['all'],
 		type: 'boolean',
 		usage: ''

@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { Command, Help } from 'commander';
 import { args, AvailableMuxer, configuredDefault, groups, optionAppliesToService } from './module.args';
+import { leadingCliService } from './module.crunchy-cli-auth';
 import { LanguageItem } from './module.langsData';
 import { DownloadInfo } from '../@types/messageHandler';
 import { HLSCallback } from './hls-download';
@@ -252,10 +253,15 @@ const markActionSelection = (program: Command, parsed: ArgvType, isGUI: boolean)
 const flagName = (name: string) => (name.length === 1 ? '-' : '--') + name;
 const declaredOption = (program: Command, name: string) => program.options.find((option) => (name.length === 1 ? option.short === `-${name}` : option.long === `--${name}`));
 
+const acceptsServiceOption = (item: (typeof args)[number], service: string) =>
+	optionAppliesToService(item, service) || item.compatibilityServices?.some((name) => name === service);
+
+const currentCliService = (isGUI: boolean) => (isGUI ? undefined : leadingCliService(process.argv.slice(2)));
+
 const validateServiceOptions = (program: Command, service: ArgvType['service']) => {
 	if (!service) return;
 	for (const item of args) {
-		if (optionAppliesToService(item, service) || item.compatibilityServices?.includes(service)) continue;
+		if (acceptsServiceOption(item, service)) continue;
 		const option = declaredOption(program, item.name);
 		if (!option || program.getOptionValueSource(option.attributeName()) !== 'cli') continue;
 		const allowed = item.service.map((name) => `--service ${name}`).join(' or ');
@@ -330,7 +336,7 @@ const appArgv = (
 ) => {
 	if (argvC) return argvC;
 	if (!isGUI && statusInvocation(process.argv.slice(2)) === 'invalid') throw new Error('--check-status requires only --service crunchy and optional --debug');
-	const argv = getCommander(cfg, isGUI, !isGUI);
+	const argv = getCommander(cfg, isGUI, !isGUI, currentCliService(isGUI));
 	argv.parse(processArgv(argv, !isGUI).argv);
 	const parsed = argv.opts() as ArgvType;
 	if (!isGUI) validateServiceOptions(argv, parsed.service);
@@ -354,7 +360,7 @@ const appArgv = (
 };
 
 const overrideArguments = (cfg: { [key: string]: unknown }, override: Partial<typeof argvC>, isGUI = false) => {
-	const argv = getCommander(cfg, isGUI);
+	const argv = getCommander(cfg, isGUI, false, currentCliService(isGUI));
 	const { argv: baseArgv, delimiterIndex } = processArgv(argv);
 	const overrides: string[] = [];
 
@@ -393,7 +399,7 @@ const overrideArguments = (cfg: { [key: string]: unknown }, override: Partial<ty
 
 export { appArgv, overrideArguments, getCommander };
 
-const getCommander = (cfg: Record<string, unknown>, isGUI: boolean, requireSingleService = false) => {
+const getCommander = (cfg: Record<string, unknown>, isGUI: boolean, requireSingleService = false, service?: string) => {
 	const program = new Command();
 	program
 		.name(process.platform === 'win32' ? 'aniDL.exe' : 'aniDL')
@@ -411,7 +417,9 @@ const getCommander = (cfg: Record<string, unknown>, isGUI: boolean, requireSingl
 			...a,
 			demandOption: !isGUI && a.demandOption,
 			group: groups[a.group],
-			default: configuredDefault(a, cfg)
+			default: configuredDefault(a, cfg),
+			// A setting for another service can be present in the same YAML file.
+			transformer: !service || acceptsServiceOption(a, service) ? a.transformer : undefined
 		};
 	});
 
