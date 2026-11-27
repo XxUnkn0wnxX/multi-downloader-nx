@@ -21,6 +21,7 @@ const quiet = { info() {}, warn() {}, error() {}, debug() {}, log() {} };
 async function run(args, { exitCode = 1, page, defaults = '' } = {}) {
 	const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'anidl-status-import-'));
 	const originalExitCode = process.exitCode;
+	const originalStdoutWrite = process.stdout.write;
 	try {
 		fs.mkdirSync(path.join(directory, 'config'));
 		fs.writeFileSync(path.join(directory, 'config', 'dir-path.yml'), 'content: ${wdir}/must-not-create\n');
@@ -35,6 +36,7 @@ async function run(args, { exitCode = 1, page, defaults = '' } = {}) {
 		const cache = new Map();
 		const messages = [];
 		const capture = (message) => messages.push(String(message));
+		process.stdout.write = (message) => (capture(message), true);
 		const logger = { ...quiet, info: capture, error: capture };
 		let requests = 0;
 		function load(filename) {
@@ -111,20 +113,51 @@ async function run(args, { exitCode = 1, page, defaults = '' } = {}) {
 			}
 		}
 	} finally {
+		process.stdout.write = originalStdoutWrite;
 		fs.rmSync(directory, { recursive: true, force: true });
 	}
 }
 
 await run(['--service', 'crunchy', '--check-status']);
+// No arguments and a help flag alone always show general help, regardless of saved defaults.
+await run([], { exitCode: 0, page: /Usage:/ });
+await run([], { exitCode: 0, page: /Usage:/, defaults: 'service: crunchy\n' });
+for (const args of [['-h'], ['--help'], ['-help']]) await run(args, { exitCode: 0, page: /Usage:/, defaults: 'service: crunchy\n' });
+
+// Every non-empty invocation needs an explicit supported service at the front.
+for (const args of [
+	['--version'],
+	['-v'],
+	['--dry-run'],
+	['--device'],
+	['--token', '--service', 'crunchy'],
+	['--token=--service=crunchy'],
+	['--', '--service', 'crunchy'],
+	['--help', '--service', 'crunchy'],
+	['--dry-run', '--service', 'crunchy'],
+	['--service', 'unknown', '--help'],
+	['--service'],
+	['--service=unknown', '--dry-run']
+])
+	await run(args, { page: /Choose a service first[\s\S]*--service crunchy/ });
+
 await run(['--service', 'crunchy', '--check-status', '--help']);
-for (const args of [['--device'], ['--device', '--service=crunchy'], ['--service', 'crunchy', '--device']]) {
+for (const args of [
+	['--service', 'crunchy', '--device'],
+	['--service=crunchy', '--device']
+]) {
 	await run(args, { exitCode: 0, page: /--service crunchy --device androidtv/ });
 }
-for (const args of [['--token'], ['--service=crunchy', '--token', '--debug']]) {
+for (const args of [
+	['--service', 'crunchy', '--token'],
+	['--service=crunchy', '--token', '--debug']
+]) {
 	await run(args, { exitCode: 0, page: /cookies\.txt/ });
 }
-await run(['--auth', '--service', 'crunchy'], { page: /--service crunchy --device android/ });
-await run(['--auth'], { defaults: 'service: crunchy\n', page: /--service crunchy --device android/ });
+await run(['--service', 'crunchy', '--auth'], {
+	page: /HIDIVE and ADN still use --auth with a username or email and password\.[\s\S]*--service crunchy --device android/
+});
+await run(['--auth'], { defaults: 'service: crunchy\n', page: /Choose a service first/ });
 await run(['--service', 'crunchy', '--device'], { defaults: 'token: fixture-cookie\n', exitCode: 0, page: /--device androidtv/ });
 await run(['--service', 'crunchy', '--auth'], { defaults: 'username: fixture-name\npassword: fixture-password\n', page: /Used --auth/ });
 await run(['--service', 'crunchy', '--device', 'bad-selector'], { page: /androidtv/ });

@@ -65,6 +65,7 @@ export function crunchyCliAuthDecision(argv: CrunchyCliAuth): CrunchyCliAuthDeci
 		return {
 			kind: 'error',
 			message: `Crunchyroll now uses --device or --token to sign in.
+HIDIVE and ADN still use --auth with a username or email and password.
 
 Used --auth for Android phone sign-in? Run
   ${cmd} --device android
@@ -105,13 +106,5 @@ Have the cookie value instead? Replace YOUR_COOKIE_VALUE with the value
 of the Crunchyroll cookie named etp_rt. Keep this value private.
   ${cmd} --token "YOUR_COOKIE_VALUE"`
 		};
-	return { kind: 'continue' };
-}
-
-/** Only literal bare pages bypass configuration and the full Commander parser. */
-export function earlyCrunchyCliAuth(raw: string[]): CrunchyCliAuthDecision {
-	if (raw.length !== 1) return { kind: 'continue' };
-	if (raw[0] === '--device') return crunchyCliAuthDecision({ service: 'crunchy', device: true });
-	if (raw[0] === '--token') return crunchyCliAuthDecision({ service: 'crunchy', token: true });
 	return { kind: 'continue' };
 }

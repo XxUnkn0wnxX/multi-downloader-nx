@@ -22,13 +22,13 @@ Quality-list rates use decimal `kb/s` (1 kb/s = 1,000 bits/s). `KiB/s` measures 
 | --- | --- | --- | --- | --- | ---|
 | All | `--auth ` | `boolean` | `No`| `—` | `—` |
 
-Sign in to HIDIVE or ADN. For Crunchyroll CLI, use --device or --token.
+HIDIVE and ADN use --auth for username or email and password sign-in. On Crunchyroll, --auth shows how to sign in with --device or --token.
 #### `--device`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
 | Crunchyroll | `--device [type]` | `string` | `No`| `—` | `—` |
 
-Choose androidtv for device activation or android for phone browser sign-in. Omit the value to show the available choices.
+Start with `--service crunchy`. Use `--device androidtv` for TV activation or `--device android` for phone browser sign-in. Use `--service crunchy --device` to see both choices.
 #### `--username`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
@@ -52,7 +52,7 @@ For Crunchyroll CLI, use --device or --token.
 | --- | --- | --- | --- | --- | --- | ---|
 | Crunchyroll | `--token [cookie-or-file]` | `string` | `No`| `—` | `undefined`| `token: ` |
 
-Log in to Crunchyroll with the UUID-shaped etp_rt cookie value (optionally prefixed with etp_rt=), or the path to a file containing the raw token or a Netscape cookies export. The file may have any name or extension. The resulting web session is saved alongside any TV and phone sessions.
+Start with `--service crunchy`. Use `--service crunchy --token` for input examples. Supply the UUID-shaped etp_rt cookie value (optionally prefixed with etp_rt=), or the path to a file containing the raw token or a Netscape cookies export. The file may have any name or extension. The resulting web session is saved alongside any TV and phone sessions.
 ### Fonts
 #### `--dlFonts`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
@@ -132,9 +132,9 @@ Get Raw Show list data
 #### `--series`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--series ${ID}` | `string` | `No`| `--srz` | `—` |
+| Crunchyroll, Hidive | `--series ${ID}` | `string` | `No`| `--srz` | `—` |
 
-Use a Crunchyroll series ID, not a season ID. This path supports multiple --dubLang languages and --allDubs. Combine with -s to restrict selection to one season.
+Use the numeric series ID for HIDIVE. On Crunchyroll, use the series ID. This supports multiple --dubLang languages and --allDubs. Add -s to select one Crunchyroll season.
 #### `-s`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
@@ -177,9 +177,9 @@ Set an exact pause in milliseconds between normal eight-request discovery batche
 #### `--dlVideoOnce`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--dlVideoOnce ` | `boolean` | `No`| `—` | `false`| `dlVideoOnce: ` |
+| Crunchyroll, AnimationDigitalNetwork | `--dlVideoOnce ` | `boolean` | `No`| `—` | `false`| `dlVideoOnce: ` |
 
-For per-language DASH downloads, download video once. Combined HLS downloads may include lower-quality video with later audio tracks. Global Crunchyroll DASH selection already shares one video. --keepAllVideos retains downloaded video tracks.
+On ADN, request the best selected video quality once and use the lowest video quality for later dubs. On Crunchyroll, download video once for per-language DASH downloads. Combined HLS downloads may include lower-quality video with later audio tracks. Global Crunchyroll DASH selection already shares one video. --keepAllVideos retains downloaded video tracks.
 #### `--chapters`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
@@ -398,9 +398,9 @@ Used to download all archived shows
 #### `--addArchive`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
-| All | `--addArchive ` | `boolean` | `No`| `—` | `—` |
+| Crunchyroll, Hidive | `--addArchive ` | `boolean` | `No`| `—` | `—` |
 
-Used to add the `-s` and `--srz` to downloadArchive
+Crunchyroll accepts either -s for a season or --srz for a series. HIDIVE accepts -s for a season.
 #### `--partsize`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
@@ -552,7 +552,7 @@ CLI-only action: use --service crunchy and optional --debug; configuration canno
 | --- | --- | --- | --- | --- | --- | --- | ---|
 | All | `--service ${service}` | `string` | `Yes`| `—` | [`crunchy`, `hidive`, `adn`] | ``| `service: ` |
 
-Set the service you want to use
+Start with --service followed by crunchy, hidive, or adn. Specify one service per command. Add --help to see its commands.
 #### `--update`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|

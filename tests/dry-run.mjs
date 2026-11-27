@@ -55,7 +55,7 @@ function fakeFs() {
 	};
 }
 
-function loadHidive(mpd = hidiveManifest, canDecrypt = false) {
+function loadHidive(mpd = hidiveManifest, canDecrypt = false, cliArgv = {}) {
 	const stubs = {
 		'./package.json': { version: 'test' },
 		'./modules/module.fork-display': forkDisplay,
@@ -73,7 +73,7 @@ function loadHidive(mpd = hidiveManifest, canDecrypt = false) {
 			loadNewHDToken: () => ({ authorisationToken: 'auth', refreshToken: 'refresh' }),
 			loadBinCfg: async () => sideEffect('bin')()
 		},
-		'./modules/module.app-args': { appArgv: () => ({}) },
+		'./modules/module.app-args': { appArgv: () => cliArgv },
 		'./modules/module.merger': {
 			default: class {
 				constructor() {
@@ -304,6 +304,31 @@ try {
 		playerUrlCallback: 'https://playback.example/player',
 		offlinePlaybackLanguages: ['fra', 'deu']
 	};
+	await test('HIDIVE --srz and --series select a numeric series and pass the requested episode through the CLI', async () => {
+		for (const [alias, seriesId, episodeId] of [
+			['--srz', '12345', '4'],
+			['--series', '67890', '7']
+		]) {
+			const argv = { service: 'hidive', srz: seriesId, series: seriesId, e: episodeId, dryRun: true };
+			const service = loadHidive(undefined, false, argv);
+			const selectedEpisode = { episodeInformation: { episodeNumber: Number(episodeId) } };
+			const selections = [];
+			const downloads = [];
+			service.selectSeries = async (...args) => {
+				selections.push(args);
+				return { isOk: true, showData: { id: Number(seriesId) }, value: [selectedEpisode] };
+			};
+			service.downloadEpisode = async (episode, options) => {
+				downloads.push({ episode, options });
+				return true;
+			};
+			assert.equal(await service.cli(), undefined);
+			assert.deepEqual(selections, [[Number(seriesId), episodeId, undefined, undefined]]);
+			assert.equal(downloads.length, 1);
+			assert.equal(downloads[0].episode, selectedEpisode);
+			assert.equal(downloads[0].options.e, episodeId);
+		}
+	});
 	hd.apiReq = async () => ({ ok: true, res: { text: async () => JSON.stringify(episodeData) } });
 	hd.req = { getData: async (url) => (url === 'https://playback.example/player' ? { ok: true, res: { text: async () => JSON.stringify(playback) } } : textResponse('<MPD/>')) };
 

@@ -3,6 +3,8 @@ import { forkReleaseUrl } from './module.fork-display';
 import { dubLanguageCodes, languages, searchLocales, subtitleLanguagesFilter } from './module.langsData';
 import { CrunchyVideoPlayStreams, CrunchyAudioPlayStreams } from '../@types/enums';
 
+export const cliServices = ['crunchy', 'hidive', 'adn'];
+
 const groups = {
 	auth: 'Authentication:',
 	fonts: 'Fonts:',
@@ -30,6 +32,7 @@ export type TAppArg<T extends boolean | string | number | unknown[], K = any> = 
 	choices?: T[];
 	alias?: string;
 	describe: string;
+	sharedHelp?: string;
 	docDescribe: true | string; // true means use describe for the docs
 	defaultLabel?: string;
 	default?:
@@ -56,11 +59,12 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'auth',
+		sharedHelp: 'Sign in with your username or email and password (HIDIVE and ADN)',
 		describe: 'Sign in (Crunchyroll CLI: use --device or --token)',
 		type: 'boolean',
 		group: 'auth',
 		service: ['all'],
-		docDescribe: 'Sign in to HIDIVE or ADN. For Crunchyroll CLI, use --device or --token.',
+		docDescribe: 'HIDIVE and ADN use --auth for username or email and password sign-in. On Crunchyroll, --auth shows how to sign in with --device or --token.',
 		usage: ''
 	},
 	{
@@ -69,7 +73,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		type: 'string',
 		group: 'auth',
 		service: ['crunchy'],
-		docDescribe: 'Choose androidtv for device activation or android for phone browser sign-in. Omit the value to show the available choices.',
+		docDescribe:
+			'Start with `--service crunchy`. Use `--device androidtv` for TV activation or `--device android` for phone browser sign-in. Use `--service crunchy --device` to see both choices.',
 		usage: '[type]'
 	},
 	{
@@ -182,8 +187,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		alias: 'srz',
 		describe: 'Get season list by series ID',
 		docDescribe:
-			'Use a Crunchyroll series ID, not a season ID. This path supports multiple --dubLang languages and --allDubs. Combine with -s to restrict selection to one season.',
-		service: ['crunchy'],
+			'Use the numeric series ID for HIDIVE. On Crunchyroll, use the series ID. This supports multiple --dubLang languages and --allDubs. Add -s to select one Crunchyroll season.',
+		service: ['crunchy', 'hidive'],
 		type: 'string',
 		usage: '${ID}'
 	},
@@ -269,9 +274,9 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		describe: 'Download only once the video with the best selected quality',
 		type: 'boolean',
 		group: 'dl',
-		service: ['crunchy'],
+		service: ['crunchy', 'adn'],
 		docDescribe:
-			'For per-language DASH downloads, download video once. Combined HLS downloads may include lower-quality video with later audio tracks. Global Crunchyroll DASH selection already shares one video. --keepAllVideos retains downloaded video tracks.',
+			'On ADN, request the best selected video quality once and use the lowest video quality for later dubs. On Crunchyroll, download video once for per-language DASH downloads. Combined HLS downloads may include lower-quality video with later audio tracks. Global Crunchyroll DASH selection already shares one video. --keepAllVideos retains downloaded video tracks.',
 		usage: '',
 		default: {
 			default: false
@@ -398,6 +403,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'dlsubs',
+		sharedHelp: 'Choose subtitle languages by tag, separated by spaces. Use all for every available language or none to skip subtitles.',
 		group: 'dl',
 		describe:
 			'Download subtitles by language tag (space-separated)' +
@@ -587,6 +593,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'dubLang',
+		sharedHelp: 'Choose audio languages by tag. Separate tags with spaces or commas, for example --dubLang jpn,fra.',
 		describe:
 			'Set the language to download: ' +
 			`\nCrunchy Only: ${languages
@@ -823,12 +830,12 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'service',
-		describe: 'Set the service you want to use',
+		describe: 'Start with --service followed by crunchy, hidive, or adn. Specify one service per command. Add --help to see its commands.',
 		docDescribe: true,
 		group: 'util',
 		service: ['all'],
 		type: 'string',
-		choices: ['crunchy', 'hidive', 'adn'],
+		choices: cliServices,
 		usage: '${service}',
 		default: {
 			default: ''
@@ -873,10 +880,11 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'addArchive',
-		describe: 'Used to add the `-s` and `--srz` to downloadArchive',
+		sharedHelp: 'Add the selection from -s to the download archive.',
+		describe: 'Add a season with -s or a series with --srz to the download archive.',
 		group: 'dl',
-		docDescribe: true,
-		service: ['all'],
+		docDescribe: 'Crunchyroll accepts either -s for a season or --srz for a series. HIDIVE accepts -s for a season.',
+		service: ['crunchy', 'hidive'],
 		type: 'boolean',
 		usage: ''
 	},
@@ -906,6 +914,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'username',
+		sharedHelp: 'Set the username for authentication',
 		describe: 'Set the username for authentication (Crunchyroll CLI: use --device or --token)',
 		docDescribe: 'Set the username to use for authentication. For Crunchyroll CLI, use --device or --token.',
 		group: 'auth',
@@ -918,6 +927,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'password',
+		sharedHelp: 'Set the password for authentication',
 		describe: 'Set the password for authentication (Crunchyroll CLI: use --device or --token)',
 		docDescribe: 'Set the password to use for authentication. For Crunchyroll CLI, use --device or --token.',
 		group: 'auth',
@@ -944,7 +954,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		name: 'token',
 		describe: 'Crunchyroll browser-cookie sign-in; omit value for instructions',
 		docDescribe:
-			'Log in to Crunchyroll with the UUID-shaped etp_rt cookie value (optionally prefixed with etp_rt=), or the path to a file containing the raw token or a Netscape cookies export. The file may have any name or extension. The resulting web session is saved alongside any TV and phone sessions.',
+			'Start with `--service crunchy`. Use `--service crunchy --token` for input examples. Supply the UUID-shaped etp_rt cookie value (optionally prefixed with etp_rt=), or the path to a file containing the raw token or a Netscape cookies export. The file may have any name or extension. The resulting web session is saved alongside any TV and phone sessions.',
 		group: 'auth',
 		service: ['crunchy'],
 		type: 'string',
@@ -1071,6 +1081,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'defaultAudio',
+		sharedHelp: `Set the default audio language\nPossible Values: ${languages.map((a) => a.code).join(', ')}`,
 		describe: `Set the default audio language for other providers; Crunchyroll marks all included tracks Default=yes\nPossible Values: ${languages.map((a) => a.code).join(', ')}`,
 		docDescribe: `Set the default audio track by language code for other providers. Crunchyroll accepts this setting but marks all included tracks Default=yes; audio order follows dubLang, or English then Japanese then other languages by English name with allDubs.\nPossible Values: ${languages.map((a) => a.code).join(', ')}`,
 		group: 'mux',
@@ -1090,6 +1101,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'defaultSub',
+		sharedHelp: `Set the default subtitle language\nPossible Values: ${languages.map((a) => a.code).join(', ')}`,
 		describe: `Set the default subtitle language for other providers; Crunchyroll marks all included tracks Default=yes\nPossible Values: ${languages.map((a) => a.code).join(', ')}`,
 		docDescribe: `Set the default subtitle track by language code for other providers. Crunchyroll accepts this setting but marks all included tracks Default=yes; audio order follows dubLang, or English then Japanese then other languages by English name with allDubs.\nPossible Values: ${languages.map((a) => a.code).join(', ')}`,
 		group: 'mux',

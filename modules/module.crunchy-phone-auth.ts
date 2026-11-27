@@ -51,7 +51,7 @@ export function parsePhoneCallback(input: string, state: string): string | undef
 	} catch {
 		return;
 	}
-	if (callback.origin !== ssoOrigin || callback.pathname !== callbackPath || callback.username || callback.password || callback.hash) return;
+	if (callback.origin !== ssoOrigin || callback.pathname !== callbackPath || callback.username || callback.password || callback.href.includes('#')) return;
 	const states = callback.searchParams.getAll('state');
 	const codes = callback.searchParams.getAll('code');
 	if (states.length !== 1 || states[0] !== state || codes.length !== 1 || callback.searchParams.has('error') || !/^[!-~]{1,2048}$/.test(codes[0])) return;

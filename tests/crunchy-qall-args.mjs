@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import output from 'node:console';
+import process from 'node:process';
 import path from 'node:path';
 import vm from 'node:vm';
 import { createRequire } from 'node:module';
@@ -68,10 +69,10 @@ assert.match(qallOption.docDescribe, /may trigger rate limits/);
 const yamlConfig = YAML.parse(fs.readFileSync(path.join(root, 'config/cli-defaults.yml'), 'utf8'));
 assert.equal(yamlConfig.qall, false, 'the shared CLI defaults set qall to false');
 
-function parse(argv, config = {}, override, directOverride = false, isGUI = false) {
+function parse(argv, config = {}, override, directOverride = false, isGUI = false, service = 'crunchy') {
 	const errors = [];
 	const mockProcess = {
-		argv: ['node', 'aniDL', '--service', 'crunchy', ...argv],
+		argv: ['node', 'aniDL', ...(service ? ['--service', service] : []), ...argv],
 		platform: 'darwin',
 		exit: (code) => {
 			throw Error(`exit ${code}: ${errors.join('; ')}`);
@@ -100,6 +101,27 @@ function parse(argv, config = {}, override, directOverride = false, isGUI = fals
 	return appArgs.argvC;
 }
 
+for (const selectors of [
+	['--service', 'hidive', '--service', 'hidive'],
+	['--service', 'hidive', '--service', 'crunchy'],
+	['--service=hidive', '-service', 'crunchy']
+]) {
+	const originalExit = process.exit;
+	const originalStderrWrite = process.stderr.write;
+	let errorOutput = '';
+	try {
+		process.exit = (code) => {
+			throw Error(`captured process exit ${code}`);
+		};
+		process.stderr.write = (message) => ((errorOutput += String(message)), true);
+		assert.throws(() => parse(selectors, {}, undefined, false, false, null), /captured process exit 1/);
+		assert.match(errorOutput, /Choose one service per command/);
+	} finally {
+		process.exit = originalExit;
+		process.stderr.write = originalStderrWrite;
+	}
+}
+
 for (const input of [['eng', 'jpn', 'hin'], ['eng,jpn,hin'], ['eng,', 'jpn,', 'hin'], ['eng,jpn', 'hin']]) {
 	assert.deepEqual(Array.from(parse(['--dubLang', ...input]).dubLang), ['eng', 'jpn', 'hin']);
 }
@@ -115,6 +137,35 @@ for (const type of ['android', 'androidtv']) {
 assert.equal(parse(['--token', 'my cookies.txt']).token, 'my cookies.txt');
 assert.equal(parse(['--token', '-cookies.txt']).token, '-cookies.txt');
 assert.equal(parse(['--token', '--debug']).debug, true);
+assert.equal(parse(['--token=--service=crunchy']).token, '--service=crunchy');
+assert.equal(parse(['--', '--service', 'hidive'], {}, undefined, false, false, 'hidive').service, 'hidive');
+assert.equal(parse(['--auth'], {}, undefined, false, false, 'hidive').auth, true);
+assert.equal(parse(['--auth'], {}, undefined, false, false, 'adn').auth, true);
+{
+	const originalExit = process.exit;
+	const originalStderrWrite = process.stderr.write;
+	let errorOutput = '';
+	try {
+		process.exit = (code) => {
+			throw Error(`captured process exit ${code}`);
+		};
+		process.stderr.write = (message) => ((errorOutput += String(message)), true);
+		assert.throws(() => parse(['--token', '-fixture-private-cookie']), /captured process exit 1/);
+		assert.match(errorOutput, /Invalid --token input or unknown option/);
+		assert(!errorOutput.includes('fixture-private-cookie'));
+	} finally {
+		process.exit = originalExit;
+		process.stderr.write = originalStderrWrite;
+	}
+}
+for (const [flag, id, episode] of [
+	['--srz', '12345', '4'],
+	['--series', '67890', '7']
+]) {
+	const hidive = parse([flag, id, '--episode', episode], {}, undefined, false, false, 'hidive');
+	assert.equal(hidive.srz, id, `${flag} is accepted by the HIDIVE parser`);
+	assert.equal(hidive.e, episode, 'the selected episode is retained');
+}
 assert.equal(parse(['--device', 'android'], { token: 'configured-cookie' }).token, undefined);
 assert.equal(parse(['--device=--token']).device, '--token');
 assert.deepEqual(Array.from(parse([], { dubLang: ['eng,jpn', 'hin'] }).dubLang), ['eng', 'jpn', 'hin']);
@@ -269,6 +320,49 @@ for (const [argv, cfg, crunchy] of [
 	assert(!text.includes('--no-qall'));
 	if (!crunchy) assert(!text.includes('Crunchyroll CLI:'));
 }
+const generalHelp = help(['--help']);
+const crunchyServiceHelp = help(['--service', 'crunchy', '--help']);
+const hidiveServiceHelp = help(['--service', 'hidive', '--help']);
+const adnServiceHelp = help(['--service', 'adn', '--help']);
+const helpFlags = (text) => new Set(Array.from(text.matchAll(/(?:^|[^\w-])(--[\w-]+|-[A-Za-z])(?=$|[^\w-])/g), (match) => match[1]));
+const crunchyOnlyOptions = args.filter((option) => option.service.length === 1 && option.service[0] === 'crunchy');
+assert(crunchyOnlyOptions.length > 0, 'the exclusive option metadata should define the Crunchyroll help contract');
+const crunchyOnlyFlags = new Set();
+for (const { name, alias } of crunchyOnlyOptions) {
+	crunchyOnlyFlags.add(`${name.length === 1 ? '-' : '--'}${name}`);
+	if (alias) crunchyOnlyFlags.add(`${alias.length === 1 ? '-' : '--'}${alias}`);
+}
+for (const flag of crunchyOnlyFlags) {
+	assert(helpFlags(crunchyServiceHelp).has(flag), `Crunchyroll help should include ${flag}`);
+	assert(!helpFlags(generalHelp).has(flag), `general help should hide ${flag}`);
+	assert(!helpFlags(hidiveServiceHelp).has(flag), `HIDIVE help should hide ${flag}`);
+	assert(!helpFlags(adnServiceHelp).has(flag), `ADN help should hide ${flag}`);
+}
+assert.match(crunchyServiceHelp, /--auth[\s\S]{0,100}Crunchyroll CLI: use --device or --token/);
+for (const text of [generalHelp, hidiveServiceHelp, adnServiceHelp]) {
+	assert.match(text, /--auth[\s\S]{0,140}Sign in with your username or email and password\s+\(HIDIVE and ADN\)/);
+	assert(!text.includes('Crunchyroll CLI: use --device or --token'));
+}
+for (const flag of ['--srz', '--series']) {
+	assert(helpFlags(crunchyServiceHelp).has(flag), `Crunchyroll help should include ${flag}`);
+	assert(helpFlags(hidiveServiceHelp).has(flag), `HIDIVE help should include ${flag}`);
+	assert(!helpFlags(generalHelp).has(flag), `general help should hide ${flag}`);
+	assert(!helpFlags(adnServiceHelp).has(flag), `ADN help should hide ${flag}`);
+}
+for (const text of [generalHelp, crunchyServiceHelp, hidiveServiceHelp, adnServiceHelp]) assert(helpFlags(text).has('--allDubs'));
+assert(helpFlags(crunchyServiceHelp).has('--dlVideoOnce'));
+assert(helpFlags(adnServiceHelp).has('--dlVideoOnce'));
+assert(!helpFlags(hidiveServiceHelp).has('--dlVideoOnce'));
+assert(!helpFlags(generalHelp).has('--dlVideoOnce'));
+const dubLangOption = args.find((option) => option.name === 'dubLang');
+assert(dubLangOption?.sharedHelp);
+for (const text of [generalHelp, hidiveServiceHelp, adnServiceHelp]) {
+	assert(text.replace(/\s+/g, ' ').includes(dubLangOption.sharedHelp.replace(/\s+/g, ' ')));
+	assert(!text.includes('Crunchy Only:'));
+	assert(!text.includes('Direct episode-ID'));
+	assert(!helpFlags(text).has('--extid'));
+}
+for (const hint of ['--srz', '--allDubs', '--extid']) assert(helpFlags(crunchyServiceHelp).has(hint));
 const configuredHelp = help(['--help', '--service', 'crunchy'], { token: 'private-cookie', username: 'private-user', password: 'private-password' });
 for (const value of ['private-cookie', 'private-user', 'private-password']) assert(!configuredHelp.includes(value));
 output.log('ok - discovery timer, aliases, config precedence and service-aware help');

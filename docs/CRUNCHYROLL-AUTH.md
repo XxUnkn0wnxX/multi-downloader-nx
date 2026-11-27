@@ -2,6 +2,8 @@
 
 Rev7 uses three independent account logins. Use this reference when a previously working sign-in starts failing. The checkpoints below describe what AniDL expects and when it will replace a saved session.
 
+Start Crunchyroll CLI commands with `--service crunchy` and specify the service only once. Run `aniDL --service crunchy --help` to see the Crunchyroll options, or add just `--device` or `--token` after the service to open that method’s short help page.
+
 | CLI option | Input to check first | Required before saving |
 | --- | --- | --- |
 | `--device android` | Final address from the Android phone browser sign-in | Matching callback and a successful code exchange with usable tokens and an account ID |

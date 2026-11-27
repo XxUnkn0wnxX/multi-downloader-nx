@@ -128,7 +128,8 @@ const processArgv = (program: Command) => {
 			const long = flag.replace(/^-(?=[a-zA-Z]{2,}$)/, '--');
 			const known = program.options.some((option) => option.short === flag || option.long === flag || option.long === long);
 			// A dash-prefixed file was valid with the old required token argument. Real flags still take precedence.
-			if (!known && existsSync(next)) {
+			if (!known) {
+				if (!existsSync(next)) program.error('Invalid --token input or unknown option. Use --service crunchy --token for examples.');
 				argv.push(`--token=${next}`);
 				i++;
 				continue;
@@ -284,9 +285,13 @@ const appArgv = (
 ) => {
 	if (argvC) return argvC;
 	if (!isGUI && statusInvocation(process.argv.slice(2)) === 'invalid') throw new Error('--check-status requires only --service crunchy and optional --debug');
-	const argv = getCommander(cfg, isGUI);
+	const argv = getCommander(cfg, isGUI, !isGUI);
 	argv.parse(processArgv(argv));
 	const parsed = argv.opts() as ArgvType;
+	if (!isGUI && parsed.version) {
+		global.console.log(pj.version);
+		process.exit(0);
+	}
 
 	normalizeDubLang(parsed, !isGUI && !(parsed.downloadArchive && argv.getOptionValueSource('dubLang') !== 'cli'));
 	normalizeCC(parsed);
@@ -345,14 +350,18 @@ const overrideArguments = (cfg: { [key: string]: unknown }, override: Partial<ty
 
 export { appArgv, overrideArguments, getCommander };
 
-const getCommander = (cfg: Record<string, unknown>, isGUI: boolean) => {
+const getCommander = (cfg: Record<string, unknown>, isGUI: boolean, requireSingleService = false) => {
 	const program = new Command();
 	program
 		.name(process.platform === 'win32' ? 'aniDL.exe' : 'aniDL')
 		.description(pj.description)
-		.version(pj.version, '-v, --version', 'Show version')
+		.usage('--service <service> [options]')
 		.allowUnknownOption(false)
 		.allowExcessArguments(true);
+
+	// Let the CLI validate the entire invocation before displaying a requested version.
+	if (requireSingleService) program.option('-v, --version', 'Show version');
+	else program.version(pj.version, '-v, --version', 'Show version');
 
 	const data = args.map((a) => {
 		return {
@@ -380,6 +389,8 @@ const getCommander = (cfg: Record<string, unknown>, isGUI: boolean) => {
 		const optionNames = [...args.map((a) => `--${a.name}`), ...args.map((a) => (a.alias ? `-${a.alias}` : null)).filter(Boolean)];
 
 		option.argParser((value) => {
+			if (item.name === 'service' && requireSingleService && program.getOptionValueSource('service') === 'cli')
+				program.error('Choose one service per command. Put --service and its name first.');
 			if (['CC', 'device', 'token'].includes(item.name)) return value;
 			if (item.transformer) return item.transformer(value);
 
@@ -440,13 +451,10 @@ const getCommander = (cfg: Record<string, unknown>, isGUI: boolean) => {
 			});
 		},
 		optionDescription(option) {
-			const selected = program.opts().service;
-			const original = option.description;
-			if (selected !== 'crunchy' && ['--auth', '--username', '--password'].includes(option.long ?? ''))
-				option.description = original.replace(/ \(Crunchyroll CLI: [^)]+\)$/, '');
-			const result = Help.prototype.optionDescription.call(this, option);
-			option.description = original;
-			return result;
+			const full = Help.prototype.optionDescription.call(this, option);
+			if (program.opts().service === 'crunchy') return full;
+			const shared = args.find((item) => option.long === `--${item.name}`)?.sharedHelp;
+			return shared ? full.replace(option.description, () => shared) : full;
 		}
 	});
 

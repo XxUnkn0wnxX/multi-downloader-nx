@@ -1,12 +1,22 @@
 import packageJson from './package.json';
 import { forkReleaseUrl } from './modules/module.fork-display';
-import { earlyCrunchyCliAuth, crunchyCliAuthDecision } from './modules/module.crunchy-cli-auth';
+import { cliServices } from './modules/module.args';
+import { cliInvocation, crunchyCliAuthDecision } from './modules/module.crunchy-cli-auth';
 
 (async () => {
-	const early = earlyCrunchyCliAuth(process.argv.slice(2));
-	if (early.kind !== 'continue') {
-		(early.kind === 'notice' ? global.console.info : global.console.error)(early.message);
-		if (early.kind === 'error') process.exitCode = 1;
+	const raw = process.argv.slice(2);
+	const [first, value] = raw;
+	if (raw.length === 0 || (raw.length === 1 && ['--help', '-h', '-help'].includes(first))) {
+		const { getCommander } = await import('./modules/module.app-args');
+		getCommander({}, false).outputHelp();
+		return;
+	}
+	const selectedService = first === '--service' || first === '-service' ? value : first.startsWith('--service=') ? first.slice('--service='.length) : undefined;
+	if (!selectedService || !cliServices.includes(selectedService)) {
+		global.console.error(
+			`Choose a service first (${cliServices.join(', ')}). For example, to see the Crunchyroll commands, run\n  ${cliInvocation()} --service crunchy --help`
+		);
+		process.exitCode = 1;
 		return;
 	}
 	const [{ console }, { appArgv, overrideArguments, statusInvocation }, yamlCfg] = await Promise.all([
@@ -15,7 +25,7 @@ import { earlyCrunchyCliAuth, crunchyCliAuthDecision } from './modules/module.cr
 		import('./modules/module.cfg-loader')
 	]);
 	const recoveryBudget = { used: false };
-	const status = statusInvocation(process.argv.slice(2));
+	const status = statusInvocation(raw);
 	if (status === 'invalid') {
 		console.error('--check-status requires only --service crunchy and optional --debug');
 		process.exitCode = 1;

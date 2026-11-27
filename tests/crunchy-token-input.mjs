@@ -280,21 +280,7 @@ try {
 		assert(!logs.some(([, line]) => line.includes(fakeToken)));
 		assert(!logs.some(([, line]) => line.includes('succeeded')));
 	});
-	await test('early Crunchyroll CLI routing handles deprecated auth, optional help, and malformed input before side effects', () => {
-		const early = cliAuth.earlyCrunchyCliAuth;
-		for (const [raw, expected] of [
-			[['--device'], /Which Crunchyroll login/],
-			[['--token'], /Use your Crunchyroll browser login/]
-		]) {
-			const routed = early(raw);
-			assert.equal(routed.kind, 'notice');
-			assert.match(routed.message, expected);
-		}
-		for (const raw of [
-			['--device', '--update'],
-			['--token', '--check-status']
-		])
-			assert.equal(early(raw).kind, 'continue');
+	await test('Crunchyroll CLI decision handles deprecated auth, optional help, and malformed/conflicting input', () => {
 		const cases = [
 			[{ service: 'crunchy', auth: true }, 'error', /now uses --device or --token/],
 			[{ service: 'crunchy', device: true }, 'notice', /Android TV[\s\S]*--device androidtv[\s\S]*Android phone or tablet[\s\S]*--device android/],
@@ -1386,7 +1372,7 @@ try {
 			url.href + '&code=duplicate',
 			url.href + '&state=fixture',
 			url.href + '&error=access_denied',
-			url.href + '#unexpected',
+			url.href + '#',
 			url.href.replace('https://sso.crunchyroll.com', 'https://user@sso.crunchyroll.com')
 		])
 			assert.equal(phoneAuth.parsePhoneCallback(invalid, 'fixture'), undefined);
@@ -1727,7 +1713,7 @@ try {
 			{ argv: { service: 'adn', dryRun: true }, result: true, expectedCalls: 1, exit: undefined, updates: 0 },
 			{
 				argv: { service: 'crunchy', dryRun: true, update: true, auth: true, addArchive: true },
-				rawArgs: ['--update', '--dry-run', '--auth', '--addArchive'],
+				rawArgs: ['--service', 'crunchy', '--update', '--dry-run', '--auth', '--addArchive'],
 				result: true,
 				expectedCalls: 0,
 				exit: 1,
@@ -1736,7 +1722,7 @@ try {
 			},
 			{
 				argv: { service: 'crunchy', update: true },
-				rawArgs: ['--update'],
+				rawArgs: ['--service', 'crunchy', '--update'],
 				result: true,
 				expectedCalls: 0,
 				exit: 1,
@@ -1769,7 +1755,15 @@ try {
 			},
 			{ argv: { service: 'hidive', downloadArchive: true }, result: false, expectedCalls: 2, exit: undefined, updates: 1 },
 			{ argv: { service: 'hidive', username: 'user', password: 'pass' }, result: true, expectedCalls: 1, exit: undefined, updates: 1 },
-			{ argv: { service: 'hidive', device: true, crunchyAuthExplicit: true }, result: true, expectedCalls: 0, exit: 1, updates: 0, error: /only supported for Crunchyroll/ }
+			{
+				argv: { service: 'hidive', device: true, crunchyAuthExplicit: true },
+				rawArgs: ['--service', 'hidive', '--device'],
+				result: true,
+				expectedCalls: 0,
+				exit: 1,
+				updates: 0,
+				error: /only supported for Crunchyroll/
+			}
 		]) {
 			logs.length = 0;
 			const budgets = [];
@@ -1779,7 +1773,7 @@ try {
 				cfgReads = 0,
 				cfgReadOnly;
 			const fakeProcess = {
-				argv: ['node', 'index', ...(scenario.rawArgs ?? [])],
+				argv: ['node', 'index', ...(scenario.rawArgs ?? ['--service', scenario.argv.service])],
 				exitCode: undefined,
 				exit: () => {
 					throw new Error('unexpected exit');
@@ -1801,6 +1795,7 @@ try {
 					if (id === './modules/log') return { console: fakeConsole };
 					if (id === './package.json') return JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 					if (id === './modules/module.fork-display') return forkDisplay;
+					if (id === './modules/module.args') return { cliServices: ['crunchy', 'hidive', 'adn'] };
 					if (id === './modules/module.app-args') return { appArgv: () => scenario.argv, overrideArguments: () => {}, statusInvocation: () => scenario.status ?? 'none' };
 					if (id === './modules/module.cfg-loader')
 						return {
@@ -1821,11 +1816,10 @@ try {
 							__esModule: true
 						};
 					if (id === './modules/module.crunchy-device-auth') return deviceHelper;
-					if (id === './modules/module.crunchy-cli-auth')
-						return { earlyCrunchyCliAuth: () => ({ kind: 'continue' }), crunchyCliAuthDecision: cliAuth.crunchyCliAuthDecision };
+					if (id === './modules/module.crunchy-cli-auth') return { cliInvocation: cliAuth.cliInvocation, crunchyCliAuthDecision: cliAuth.crunchyCliAuthDecision };
 					throw new Error(`Unexpected index import ${id}`);
 				},
-				{ process: fakeProcess }
+				{ process: fakeProcess, global: { console: fakeConsole } }
 			);
 			await new Promise((resolve) => setTimeout(resolve, 0));
 			assert.equal(calls, scenario.expectedCalls, JSON.stringify(scenario.argv));
