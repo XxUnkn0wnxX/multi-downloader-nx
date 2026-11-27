@@ -22,7 +22,9 @@ Start with **Getting Started** to open a terminal, sign in and preview one Crunc
 
 With the default settings, sign in once for Android TV (video) and once for Android phone (audio), using the same account. A browser cookie works for Chrome or Firefox streams. [Choose your Crunchyroll sign-in](AUTHENTICATION.md#crunchyroll)
 
-By default, AniDL looks for qualities in your selected audio languages. **Crunchyroll only** — `--qall` checks all available languages and displays the full quality list. The extra requests take longer and can trigger rate limits. [Crunchyroll streams and quality](GET-STARTED.md#crunchyroll-streams-and-quality)
+By default, AniDL checks video quality options for your selected audio languages. Use `--qall` to check all available languages and show the full list. The extra requests take longer and can trigger rate limits. [Crunchyroll streams and quality](GET-STARTED.md#crunchyroll-streams-and-quality)
+
+Use `--check-status` to view your account’s playback sessions. If you enable `--tsd` or set `tsd: true`, even a download preview can clear playback sessions when your account is full. [Playback status and recovery](CRUNCHYROLL-RECOVERY.md)
 
 ### HIDIVE
 
@@ -37,8 +39,6 @@ Use `--service adn --auth` and enter your username or email and password when pr
 The walkthrough takes you from a series search to a season ID, then shows the preview and its matching download command. [Find and download one episode](GET-STARTED.md#find-and-download-one-episode)
 
 A download preview (`--dry-run`) works on all three services. It contacts the service for metadata and can refresh your login. It stops before downloading media, subtitles or fonts, muxing the output or marking an episode as downloaded.
-
-**Crunchyroll only** — `--check-status` shows a read-only playback status snapshot. If you enabled `--tsd` or set `tsd: true`, even a download preview can clear playback sessions when the account is full. [Playback status and recovery](CRUNCHYROLL-RECOVERY.md)
 
 ## Build from source
 
