@@ -186,3 +186,5 @@ The [documentation generator](../modules/build-docs.ts) writes only the [CLI ref
 ## Already incorporated upstream
 
 The Android TV client credentials and User-Agent update from fork commit 78ea053 match upstream commit [8599faa](https://github.com/anidl/multi-downloader-nx/commit/8599faab539a878bcfb57a6fc07eac27dab1f873). The auth module has no remaining fork difference after that upstream merge. Follow upstream for subsequent auth changes; do not preserve the old credential values as a permanent fork requirement.
+
+[Back to the developer guide](DEVELOPMENT.md#branches-and-upstream-changes)

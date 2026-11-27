@@ -103,4 +103,4 @@ The folder, ignore rules and separation from application checks/builds are prepa
 
 </details>
 
-[🏠 README](README.md) · [Fork changes](fork-changes.md) · [Changelog](CHANGELOG.md)
+[Back to the project README](README.md#build-from-source) · [Fork changes](fork-changes.md) · [Changelog](CHANGELOG.md)

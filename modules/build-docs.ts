@@ -105,6 +105,8 @@ These options apply only to Crunchyroll. Use \`--service crunchy\` before the op
 ${renderOptions(crunchyOptions, '--service crunchy')}
 
 </details>
+
+[Back to the CLI walkthrough](GET-STARTED.md)
 `;
 
 fs.writeFileSync(path.resolve(__dirname, '..', 'docs', 'ARGUMENTS.md'), docs);

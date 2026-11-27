@@ -446,4 +446,6 @@ aniDL.exe --service crunchy --check-status
 
 Sign in first. The check can refresh your saved login, but it won’t start playback or close anyone’s streams. Look for the available slot count and any suggested retry time. If a value shows **unknown**, AniDL couldn’t verify it. [How to read the status and retry times](CRUNCHYROLL-RECOVERY.md#read-only-playback-status)
 
-See the [CLI reference](ARGUMENTS.md) for all options and the [README](README.md) for platform and source-build information.
+See the [CLI reference](ARGUMENTS.md) for all options.
+
+[Back to the setup overview](README.md#setup)

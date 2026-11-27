@@ -116,3 +116,5 @@ Commits: [c262a81](../../../commit/c262a81b836ff94fe61458f0ab337739ab89ef60), [8
 - Group video choices by resolution, ordered by dimensions and advertised bitrate, with continuous numbering and compact indentation. Use decimal `kb/s` (1,000 bits/s), `[Current M]` / `[Legacy M]`, and `[V:lang]` video-source labels.
 - Mark the actual selection; fallback prints only discarded and re-selected rows with their original numbers and a short reason.
 - Give audio its own `[A:lang]` labels, selection marker, and nested server line, removing the duplicate selected-audio summary. Audio selection remains independent of video.
+
+[Back to fork builds and releases](README.md#fork-builds-and-releases)

@@ -616,3 +616,5 @@ Include tracks identified as closed captions by Crunchyroll. Use --CC false or C
 CLI-only action: use --service crunchy and optional --debug; configuration cannot activate it. After normal login refresh, one read-only snapshot has a 15-second deadline. It reports capacity and any current status-request HTTP 429/Retry-After separately from the last observed playback wait; it does not start playback.
 
 </details>
+
+[Back to the CLI walkthrough](GET-STARTED.md)

@@ -137,3 +137,5 @@ When AniDL looks up a manifest, it uses cooldowns of 1, 5 and 20 seconds with a 
 A successful recovery resumes the interrupted discovery or acquisition step. Completed downloads are not repeated. These checks cannot guarantee that Crunchyroll has reserved a slot or removed a rate limit.
 
 </details>
+
+[Back to the playback status walkthrough](GET-STARTED.md#check-crunchyroll-playback-status)
