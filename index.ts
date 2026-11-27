@@ -62,8 +62,14 @@ import { cliInvocation, crunchyCliAuthDecision, leadingCliService } from './modu
 			return;
 		}
 	}
-	const [{ makeCommand, addToArchive }, { default: Crunchy }, { default: Hidive }, { default: ADN }, { default: update }] = await Promise.all([
-		import('./modules/module.downloadArchive'),
+	const { makeCommand, addToArchive } = await import('./modules/module.downloadArchive');
+	const archiveCommands = argv.downloadArchive && !argv.addArchive && !(argv.all && argv.but) ? makeCommand(argv.service) : undefined;
+	if (archiveCommands?.length === 0) {
+		const name = argv.service === 'crunchy' ? 'Crunchyroll' : argv.service.toUpperCase();
+		console.info(`No archived entries for ${name}.`);
+		return;
+	}
+	const [{ default: Crunchy }, { default: Hidive }, { default: ADN }, { default: update }] = await Promise.all([
 		import('./crunchy'),
 		import('./hidive'),
 		import('./adn'),
@@ -106,10 +112,9 @@ import { cliInvocation, crunchyCliAuthDecision, leadingCliService } from './modu
 			);
 			console.info('Added %s to the downloadArchive list', argv.s === undefined ? argv.series : argv.s);
 		}
-	} else if (argv.downloadArchive && argv.service) {
-		const ids = makeCommand(argv.service);
-		for (const id of ids) {
-			overrideArguments(cliDefaults, id);
+	} else if (archiveCommands) {
+		for (const command of archiveCommands) {
+			overrideArguments(cliDefaults, command);
 			const Service = SERVICES[argv.service];
 			if (!Service) {
 				console.error('Unknown service:', argv.service);

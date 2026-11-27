@@ -40,6 +40,13 @@ import { canDecrypt, getKeysWVD, cdm, getKeysPRD } from './modules/cdm';
 import { FetchParams } from './modules/module.fetch';
 import { KeyContainer } from 'widevine';
 
+function recordArchivedEpisode(episode: NewHidiveEpisodeExtra) {
+	const seasonId = episode.episodeInformation?.season;
+	if (Number.isSafeInteger(seasonId) && seasonId > 0) {
+		downloaded({ service: 'hidive', type: 's' }, String(seasonId), [String(episode.episodeInformation.episodeNumber)]);
+	}
+}
+
 export default class Hidive implements ServiceClass {
 	public cfg: yamlCfg.ConfigObject;
 	private token: Record<string, any>;
@@ -676,14 +683,7 @@ export default class Hidive implements ServiceClass {
 			} else {
 				console.info('Skipping mux');
 			}
-			downloaded(
-				{
-					service: 'hidive',
-					type: 's'
-				},
-				selectedEpisode.titleId + '',
-				[selectedEpisode.episodeInformation.episodeNumber + '']
-			);
+			recordArchivedEpisode(selectedEpisode);
 			return { isOk: res, value: undefined };
 		}
 	}
@@ -771,14 +771,7 @@ export default class Hidive implements ServiceClass {
 			} else {
 				console.info('Skipping mux');
 			}
-			downloaded(
-				{
-					service: 'hidive',
-					type: 's'
-				},
-				selectedEpisode.titleId + '',
-				[selectedEpisode.episodeInformation.episodeNumber + '']
-			);
+			recordArchivedEpisode(selectedEpisode);
 			return { isOk: res, value: undefined };
 		}
 	}

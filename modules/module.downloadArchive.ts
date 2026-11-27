@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as fs from 'fs';
-import { ArgvType } from './module.app-args';
+import type { ArgvType } from './module.app-args';
 import { workingDir } from './module.cfg-loader';
 
 export const archiveFile = path.join(workingDir, 'config', 'archive.json');
@@ -10,156 +10,50 @@ export type ItemType = {
 	already: string[];
 }[];
 
-export type DataType = {
-	hidive: {
-		s: ItemType;
-	};
-	adn: {
-		s: ItemType;
-	};
-	crunchy: {
-		srz: ItemType;
-		s: ItemType;
-	};
+type ArchiveKind = { service: 'crunchy'; type: 's' | 'srz' } | { service: 'hidive' | 'adn'; type: 's' };
+type ArchiveLists = Partial<Record<ArchiveKind['type'], ItemType>>;
+export type DataType = Partial<Record<ArchiveKind['service'], ArchiveLists>>;
+
+const loadData = (): DataType => {
+	if (!fs.existsSync(archiveFile)) return {};
+	const contents = fs.readFileSync(archiveFile, 'utf8').trim();
+	return contents ? JSON.parse(contents) : {};
 };
 
-const addToArchive = (
-	kind:
-		| {
-				service: 'crunchy';
-				type: 's' | 'srz';
-		  }
-		| {
-				service: 'hidive';
-				type: 's';
-		  }
-		| {
-				service: 'adn';
-				type: 's';
-		  },
-	ID: string
-) => {
+const addToArchive = (kind: ArchiveKind, id: string, completed: string[] = []) => {
 	const data = loadData();
-
-	if (Object.prototype.hasOwnProperty.call(data, kind.service)) {
-		const items = kind.service === 'crunchy' ? data[kind.service][kind.type] : data[kind.service][kind.type];
-		if (items.findIndex((a) => a.id === ID) >= 0)
-			// Prevent duplicate
-			return;
-		items.push({
-			id: ID,
-			already: []
-		});
-		(data as any)[kind.service][kind.type] = items;
+	const lists = (data[kind.service] ??= kind.service === 'crunchy' ? { s: [], srz: [] } : { s: [] });
+	const entries = (lists[kind.type] ??= []);
+	const entry = entries.find((item) => item.id === id);
+	const episodes = [...new Set(completed)];
+	if (entry) {
+		const additions = episodes.filter((episode) => !entry.already.includes(episode));
+		if (!additions.length) return;
+		entry.already.push(...additions);
 	} else {
-		if (kind.service === 'crunchy') {
-			data['crunchy'] = {
-				s: ([] as ItemType).concat(
-					kind.type === 's'
-						? {
-								id: ID,
-								already: [] as string[]
-							}
-						: []
-				),
-				srz: ([] as ItemType).concat(
-					kind.type === 'srz'
-						? {
-								id: ID,
-								already: [] as string[]
-							}
-						: []
-				)
-			};
-		} else if (kind.service === 'adn') {
-			data['adn'] = {
-				s: [
-					{
-						id: ID,
-						already: []
-					}
-				]
-			};
-		} else {
-			data['hidive'] = {
-				s: [
-					{
-						id: ID,
-						already: []
-					}
-				]
-			};
-		}
+		entries.push({ id, already: episodes });
 	}
 	fs.writeFileSync(archiveFile, JSON.stringify(data, null, 4));
 };
 
-const downloaded = (
-	kind:
-		| {
-				service: 'crunchy';
-				type: 's' | 'srz';
-		  }
-		| {
-				service: 'hidive';
-				type: 's';
-		  }
-		| {
-				service: 'adn';
-				type: 's';
-		  },
-	ID: string,
-	episode: string[]
-) => {
-	let data = loadData();
-	if (
-		!Object.prototype.hasOwnProperty.call(data, kind.service) ||
-		!Object.prototype.hasOwnProperty.call(data[kind.service], kind.type) ||
-		!Object.prototype.hasOwnProperty.call((data as any)[kind.service][kind.type], ID)
-	) {
-		addToArchive(kind, ID);
-		data = loadData(); // Load updated version
-	}
+const downloaded = (kind: ArchiveKind, id: string, episodes: string[]) => addToArchive(kind, id, episodes);
 
-	const archivedata = kind.service == 'crunchy' ? data[kind.service][kind.type] : data[kind.service][kind.type];
-	const alreadyData = archivedata.find((a) => a.id === ID)?.already;
-	for (const ep of episode) {
-		if (alreadyData?.includes(ep)) continue;
-		alreadyData?.push(ep);
-	}
-	fs.writeFileSync(archiveFile, JSON.stringify(data, null, 4));
-};
-
-const makeCommand = (service: 'crunchy' | 'hidive' | 'adn'): Partial<ArgvType>[] => {
-	const data = loadData();
-	const ret: Partial<ArgvType>[] = [];
-	const kind = data[service];
-	for (const type of Object.keys(kind)) {
-		const item = kind[type as 's']; // 'srz' is also possible but will be ignored for the compiler
-		item.forEach((i) =>
-			ret.push({
+const makeCommand = (service: ArchiveKind['service']): Partial<ArgvType>[] => {
+	const commands: Partial<ArgvType>[] = [];
+	for (const [type, entries] of Object.entries(loadData()[service] ?? {})) {
+		if (type !== 's' && !(service === 'crunchy' && type === 'srz')) continue;
+		for (const entry of entries) {
+			commands.push({
 				but: true,
 				all: false,
 				service,
-				e: i.already.join(','),
-				...(type === 's'
-					? {
-							s: i.id,
-							series: undefined
-						}
-					: {
-							series: i.id,
-							s: undefined
-						})
-			})
-		);
+				e: entry.already.join(','),
+				s: type === 's' ? entry.id : undefined,
+				series: type === 'srz' ? entry.id : undefined
+			});
+		}
 	}
-	return ret;
-};
-
-const loadData = (): DataType => {
-	if (fs.existsSync(archiveFile)) return JSON.parse(fs.readFileSync(archiveFile).toString()) as DataType;
-	return {} as DataType;
+	return commands;
 };
 
 export { addToArchive, downloaded, makeCommand };

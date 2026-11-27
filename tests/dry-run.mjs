@@ -55,7 +55,7 @@ function fakeFs() {
 	};
 }
 
-function loadHidive(mpd = hidiveManifest, canDecrypt = false, cliArgv = {}) {
+function loadHidive(mpd = hidiveManifest, canDecrypt = false, cliArgv = {}, archive = sideEffect('archive')) {
 	const stubs = {
 		'./package.json': { version: 'test' },
 		'./modules/module.fork-display': forkDisplay,
@@ -87,7 +87,7 @@ function loadHidive(mpd = hidiveManifest, canDecrypt = false, cliArgv = {}) {
 		'./modules/module.api-urls': { api: { hd_new_api: 'https://api.hidive.test', hd_new_apiKey: 'k', hd_new_version: 'v' } },
 		'./modules/module.fetch': { Req: class {} },
 		'./modules/module.filename': { default: () => sideEffect('path')(), __esModule: true },
-		'./modules/module.downloadArchive': { downloaded: sideEffect('archive') },
+		'./modules/module.downloadArchive': { downloaded: archive },
 		'./modules/module.parseSelect': { default: () => [], __esModule: true },
 		'./modules/module.transform-mpd': { parse: async () => mpd },
 		'./modules/cdm': { canDecrypt, getKeysWVD: sideEffect('cdm'), getKeysPRD: sideEffect('cdm') },
@@ -163,7 +163,7 @@ const adnManifests = {
 	}
 };
 
-function loadAdn(allowOutputPath = false) {
+function loadAdn(allowOutputPath = false, archive = sideEffect('archive')) {
 	const stubs = {
 		'./package.json': { version: 'test' },
 		'./modules/module.fork-display': forkDisplay,
@@ -200,7 +200,7 @@ function loadAdn(allowOutputPath = false) {
 			},
 			__esModule: true
 		},
-		'./modules/module.downloadArchive': { downloaded: sideEffect('archive') },
+		'./modules/module.downloadArchive': { downloaded: archive },
 		'./modules/module.helper': { default: {}, __esModule: true },
 		'm3u8-parser': {
 			Parser: class {
@@ -389,6 +389,52 @@ try {
 			assert.equal(result.isOk, false);
 			assert.equal(effects.archive, 0);
 		}
+	});
+
+	await test('HIDIVE completed selected and direct episodes archive by season, and missing parents are skipped', async () => {
+		const records = [];
+		const service = loadHidive(undefined, false, {}, (...args) => records.push(JSON.parse(JSON.stringify(args))));
+		const episode = { ...episodeData, id: 901, episodeInformation: { season: 120, seasonNumber: 1, episodeNumber: 4 } };
+		service.apiReq = async () => jsonResponse(episode);
+		service.req = { getData: async (url) => (url === episode.playerUrlCallback ? jsonResponse(playback) : textResponse('<MPD/>')) };
+		service.getSeason = async (id) => {
+			assert.equal(id, 120);
+			return { isOk: true, value: { title: 'Season', series: { title: 'Series' } } };
+		};
+		service.downloadMPD = async () => ({ data: [], fileName: 'episode' });
+		service.muxStreams = async () => true;
+		const selected = { ...selectedHidiveEpisode(), id: 901, titleId: 901, episodeInformation: episode.episodeInformation };
+		assert((await service.downloadEpisode(selected, hidiveOptions({ dryRun: false }))).isOk);
+		assert((await service.downloadSingleEpisode(901, hidiveOptions({ dryRun: false }))).isOk);
+		assert.deepEqual(records, [
+			[{ service: 'hidive', type: 's' }, '120', ['4']],
+			[{ service: 'hidive', type: 's' }, '120', ['4']]
+		]);
+		service.apiReq = async () => jsonResponse({ ...episode, episodeInformation: undefined });
+		assert((await service.downloadSingleEpisode(901, hidiveOptions({ dryRun: false }))).isOk);
+		assert.equal(records.length, 2);
+		assert((await service.downloadEpisode({ ...selected, episodeInformation: { ...episode.episodeInformation, season: 0 } }, hidiveOptions({ dryRun: false }))).isOk);
+		assert.equal(records.length, 2);
+	});
+
+	await test('ADN completed episodes and listed specials archive by show, and missing parents are skipped', async () => {
+		const records = [];
+		const service = loadAdn(false, (...args) => records.push(JSON.parse(JSON.stringify(args))));
+		service.downloadEpisode = async () => ({ data: [], fileName: 'episode' });
+		service.muxStreams = async () => true;
+		const episode = { ...adnVideo(), id: 901, shortNumber: '4', show: { ...adnVideo().show, id: 120 } };
+		assert((await service.getEpisode(episode, adnOptions({ dryRun: false }))).isOk);
+		service.getShow = async () => ({ isOk: true, value: { videos: [{ ...episode, id: 902, shortNumber: '0', number: 'Special' }] } });
+		const listed = await service.listShow(120);
+		assert.equal(listed.value.videos[0].shortNumber, 'S1');
+		assert((await service.getEpisode(listed.value.videos[0], adnOptions({ dryRun: false }))).isOk);
+		assert.deepEqual(records, [
+			[{ service: 'adn', type: 's' }, '120', ['4']],
+			[{ service: 'adn', type: 's' }, '120', ['S1']]
+		]);
+		assert((await service.getEpisode({ ...episode, show: { ...episode.show, id: 0 } }, adnOptions({ dryRun: false }))).isOk);
+		assert((await service.getEpisode({ ...episode, show: undefined }, adnOptions({ dryRun: false }))).isOk);
+		assert.equal(records.length, 2);
 	});
 
 	await test('ADN preview lists all selected-language quality URLs without fetching rendition playlists', async () => {

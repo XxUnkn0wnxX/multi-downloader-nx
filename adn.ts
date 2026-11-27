@@ -485,14 +485,10 @@ export default class AnimationDigitalNetwork implements ServiceClass {
 			} else {
 				console.info('Skipping mux');
 			}
-			downloaded(
-				{
-					service: 'adn',
-					type: 's'
-				},
-				data.id + '',
-				[data.shortNumber]
-			);
+			const showId = data.show?.id;
+			if (Number.isSafeInteger(showId) && showId > 0) {
+				downloaded({ service: 'adn', type: 's' }, String(showId), [data.shortNumber]);
+			}
 			return { isOk: res, value: undefined };
 		}
 	}

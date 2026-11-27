@@ -18,7 +18,7 @@ const nativeRequire = createRequire(import.meta.url);
 const transformed = new Map();
 const quiet = { info() {}, warn() {}, error() {}, debug() {}, log() {} };
 
-async function run(args, { exitCode = 1, page, exactMessage, defaults = '' } = {}) {
+async function run(args, { exitCode = 1, page, exactMessage, defaults = '', archiveData, allowArchiveReader = false } = {}) {
 	const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'anidl-status-import-'));
 	const originalExitCode = process.exitCode;
 	const originalStdoutWrite = process.stdout.write;
@@ -30,9 +30,15 @@ async function run(args, { exitCode = 1, page, exactMessage, defaults = '' } = {
 		fs.mkdirSync(path.join(directory, 'config'));
 		fs.writeFileSync(path.join(directory, 'config', 'dir-path.yml'), 'content: ${wdir}/must-not-create\n');
 		fs.writeFileSync(path.join(directory, 'config', 'cli-defaults.yml'), defaults);
+		const archivePath = path.join(directory, 'config', 'archive.json');
+		if (archiveData !== undefined) fs.writeFileSync(archivePath, JSON.stringify(archiveData, null, 4));
+		const originalArchive = fs.existsSync(archivePath) ? fs.readFileSync(archivePath, 'utf8') : undefined;
 		const tokenPath = path.join(directory, 'config', 'cr_token.yml');
 		const oldSession = 'auth_type: web\nrefresh_token: dummy-old-session\n';
 		if (page || exactMessage) fs.writeFileSync(tokenPath, oldSession);
+		const otherAccountFiles = ['hd_token.yml', 'adn_token.yml', 'cr_sess.yml', 'hd_sess.yml', 'adn_sess.yml'];
+		if (allowArchiveReader) for (const file of otherAccountFiles) fs.writeFileSync(path.join(directory, 'config', file), `fixture-${file}\n`);
+		const originalOtherAccounts = allowArchiveReader ? otherAccountFiles.map((file) => fs.readFileSync(path.join(directory, 'config', file), 'utf8')) : [];
 		const fakeProcess = Object.create(process);
 		Object.defineProperty(fakeProcess, 'exitCode', { value: undefined, writable: true, enumerable: true, configurable: true });
 		fakeProcess.exit = (code) => {
@@ -115,11 +121,19 @@ async function run(args, { exitCode = 1, page, exactMessage, defaults = '' } = {
 		assert.equal(requests, 0);
 		assert.equal(fs.existsSync(path.join(directory, 'must-not-create')), false);
 		assert.equal(fs.existsSync(path.join(directory, 'config', 'updates.json')), false);
+		assert.equal(fs.existsSync(archivePath) ? fs.readFileSync(archivePath, 'utf8') : undefined, originalArchive, 'CLI notice leaves archive data untouched');
 		if (page || exactMessage) {
 			assert.equal(fs.readFileSync(tokenPath, 'utf8'), oldSession);
+			if (allowArchiveReader)
+				assert.deepEqual(
+					otherAccountFiles.map((file) => fs.readFileSync(path.join(directory, 'config', file), 'utf8')),
+					originalOtherAccounts,
+					'archive notice leaves all other account files untouched'
+				);
 			if (page) assert.match(messages.join('\n'), page);
 			if (exactMessage) assert.equal(messages.join('\n'), exactMessage);
 			for (const file of ['crunchy.ts', 'adn.ts', 'hidive.ts', 'modules/module.updater.ts', 'modules/module.downloadArchive.ts']) {
+				if (allowArchiveReader && file === 'modules/module.downloadArchive.ts') continue;
 				assert.equal(cache.has(path.join(root, file)), false, `unexpected import on a notice: ${file}`);
 			}
 		}
@@ -187,6 +201,16 @@ for (const [args, error] of [
 	[['--service', 'adn', '--series', '12345'], /--series is unavailable with --service adn[\s\S]*Use --service crunchy or --service hidive/]
 ]) {
 	await run(args, { page: error });
+}
+
+for (const [service, label, foreignArchive] of [
+	['crunchy', 'Crunchyroll', { hidive: { s: [{ id: 'foreign', already: [] }] } }],
+	['hidive', 'HIDIVE', { crunchy: { s: [{ id: 'foreign', already: [] }], srz: [] } }],
+	['adn', 'ADN', { hidive: { s: [{ id: 'foreign', already: [] }] } }]
+]) {
+	const notice = new RegExp(`No archived entries for ${label}\\.`);
+	await run(['--service', service, '--downloadArchive'], { exitCode: 0, page: notice, allowArchiveReader: true });
+	await run(['--service', service, '--downloadArchive'], { exitCode: 0, page: notice, archiveData: foreignArchive, allowArchiveReader: true });
 }
 
 await run(['--service', 'crunchy', '--check-status', '--help']);
