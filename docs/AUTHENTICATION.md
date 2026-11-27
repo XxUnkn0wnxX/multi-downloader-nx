@@ -6,7 +6,7 @@ Open a terminal in your extracted AniDL folder. Choose your service, then open t
 
 ## Crunchyroll
 
-🔄 **Previously used `--auth` for Crunchyroll?** Starting with Rev7, use `--service crunchy --device android` for phone sign-in. The old Crunchyroll command shows the sign-in options. HIDIVE and ADN still use `--auth`.
+🔄 **Previously used `--auth` for Crunchyroll?** Starting with Rev7, use `--service crunchy --device android` **(Crunchyroll only)** for phone sign-in. The old Crunchyroll command shows the sign-in options. HIDIVE and ADN still use `--auth`.
 
 With the default settings, complete [Android TV sign-in](#android-tv) for video and [Android phone sign-in](#android-phone-or-tablet) for audio. Use the **same Crunchyroll account** both times. Both commands run on your computer.
 
@@ -14,7 +14,7 @@ Already have a [browser cookie](#browser-cookie), or prefer to use only one devi
 
 ### Android TV
 
-Use this for Android TV video or audio. Leave the terminal open while you enter the activation code in your browser.
+Use `--device androidtv` **(Crunchyroll only)** for Android TV video or audio. Leave the terminal open while you enter the activation code in your browser.
 
 <details>
 <summary>🪟 Windows — Command Prompt</summary>
@@ -44,7 +44,7 @@ aniDL.exe --service crunchy --device androidtv
 
 ### Android phone or tablet
 
-Use this for Android phone or tablet video or audio. If AniDL asks for phone client settings, supply both `CRUNCHYROLL_PHONE_CLIENT_ID` and `CRUNCHYROLL_PHONE_CLIENT_SECRET` in your environment or in `config/cr_phone_client.env`. The file takes one `NAME=value` per line. On Linux and macOS, only your user account may have access to it (`chmod 600 config/cr_phone_client.env`).
+Use `--device android` **(Crunchyroll only)** for phone or tablet video or audio. If AniDL asks for phone client settings, supply both `CRUNCHYROLL_PHONE_CLIENT_ID` and `CRUNCHYROLL_PHONE_CLIENT_SECRET` in your environment or in `config/cr_phone_client.env`. The file takes one `NAME=value` per line. On Linux and macOS, only your user account may have access to it (`chmod 600 config/cr_phone_client.env`).
 
 If you don’t have these settings, choose [Android TV](#android-tv) or [a browser cookie](#browser-cookie) and use the [matching single-login commands](GET-STARTED.md#if-you-signed-in-with-one-method).
 
@@ -77,7 +77,7 @@ aniDL.exe --service crunchy --device android
 
 ### Browser cookie
 
-Use this for Chrome or Firefox streams. Choose **one** command below. Using a file keeps your private cookie value out of the command and your shell history.
+Use `--token` **(Crunchyroll only)** for Chrome or Firefox streams. Choose **one** command below. Using a file keeps your private cookie value out of the command and your shell history.
 
 - **Have a file?** Put `cookies.txt` in the folder where the terminal is open, or use its full path in quotes. AniDL accepts a Netscape cookies export or a plain text file containing your Crunchyroll `etp_rt` cookie value.
 - **Have the value itself?** Replace `YOUR_COOKIE_VALUE` with your own `etp_rt` value.

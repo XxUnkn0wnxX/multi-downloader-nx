@@ -8,7 +8,7 @@ If Crunchyroll refuses a playback request, start by checking the account's curre
 
 ## Read-only playback status
 
-You need an existing Crunchyroll sign-in. Open a terminal in the AniDL folder and run the command for your computer.
+Use `--check-status` **(Crunchyroll only)** with an existing sign-in. Open a terminal in the AniDL folder and run the command for your computer.
 
 <details>
 <summary>🪟 Windows — Command Prompt</summary>
@@ -50,7 +50,7 @@ The local wait record is informational and best effort. It does not trigger a re
 
 ## Episode capacity checks
 
-Add `--tsd` to check capacity before each episode. **Even a preview with this option can close other viewers’ playback sessions if the account is full.**
+Add `--tsd` **(Crunchyroll only)** to check capacity before each episode. **Even a preview with this option can close other viewers’ playback sessions if the account is full.**
 
 This example previews episode 1 of a season. Replace `SEASON_ID` with your own ID and keep any video and audio options your sign-in requires.
 
@@ -91,7 +91,7 @@ When waiting for capacity, AniDL polls about every five seconds for up to 60 sec
 
 ## Explicit standalone reset
 
-**This closes all playback sessions listed for the account, including other viewers’ streams. Adding `--dry-run` or `--debug` still performs the reset.** To see how many sessions are active first, use the [read-only status check](#read-only-playback-status).
+Running `--service crunchy --tsd` **(Crunchyroll only)** without an episode selector closes all listed sessions, **including other viewers’ streams**. Adding `--dry-run` or `--debug` still performs the reset. To see how many sessions are active first, use the [read-only status check](#read-only-playback-status).
 
 <details>
 <summary>🪟 Windows — Command Prompt</summary>
@@ -130,7 +130,7 @@ Each TSD-owned replay requires a newly verified recovery event, such as a succes
 
 TSD owns the related acquisition group until all dependent requests succeed. A later independent incident can use the remaining ordinary policy unless TSD intervenes again. Displayed retry numbering may restart for that new incident, but success does not replenish the shared limits. Reset operations allow at most two acquisition replays, other operations at most three, and TSD-owned incidents at most two within those limits. The command-wide account clear remains limited to one.
 
-Playback cooldown and slot-poll sleeps share a 120-second allowance. Each request is bounded to 15 seconds. The scheduler allows 90 seconds of active work normally or 180 seconds for multi-dub or Crunchyroll-only `--qall` discovery. Admitted playback-recovery sleep extends that scheduler window. A whole command may include multiple episodes and other stages.
+Playback cooldown and slot-poll sleeps share a 120-second allowance. Each request is bounded to 15 seconds. The scheduler allows 90 seconds of active work normally or 180 seconds for multi-dub discovery or `--qall` **(Crunchyroll only)**. Admitted playback-recovery sleep extends that scheduler window. A whole command may include multiple episodes and other stages.
 
 When AniDL looks up a manifest, it uses cooldowns of 1, 5 and 20 seconds with a 45-second wait budget. Manifest lookups and playback recovery share three retry slots and use smaller request batches between waits. The discovery timer controls normal pacing. Recovery waits still apply when the timer is zero. Overlapping waits use the longer applicable requirement. Downstream manifest and media retries remain available where TSD does not handle a failure.
 

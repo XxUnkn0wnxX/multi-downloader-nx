@@ -4,15 +4,15 @@ AniDL keeps separate Crunchyroll sessions for Android phone, Android TV and brow
 
 For instructions you can follow at the terminal, see the [🔑 Crunchyroll sign-in guide](AUTHENTICATION.md#crunchyroll).
 
-Start Crunchyroll CLI commands with `--service crunchy` and specify the service only once. Run `aniDL --service crunchy --help` to see the Crunchyroll options, or add just `--device` or `--token` after the service to open that method’s short help page.
+Start Crunchyroll CLI commands with `--service crunchy` and specify the service only once. Run `aniDL --service crunchy --help` to see the Crunchyroll options, or add `--device` or `--token` **(Crunchyroll only)** after the service to open its sign-in help.
 
-| CLI option | Input to check first | Required before saving |
+| CLI option **(Crunchyroll only)** | Input to check first | Required before saving |
 | --- | --- | --- |
 | `--device android` | Final address from the Android phone browser sign-in | Matching callback and a successful code exchange with usable tokens and an account ID |
 | `--device androidtv` | User code entered on the TV activation page | Provider approval, usable tokens, profile lookup and fresh CMS authorization |
 | `--token` | Browser cookie value or cookies file | Successful web-cookie exchange, profile lookup and fresh CMS authorization |
 
-Run either command to preview sign-in.
+Device sign-in previews **(Crunchyroll only)** show the terminal prompts and then cancel automatically.
 
 ```sh
 aniDL --service crunchy --device android --dry-run
@@ -47,7 +47,7 @@ If the activation page opens but approval never completes, compare the two code 
 
 ## Browser cookie inputs
 
-| Input passed to `--token` | Accepted format |
+| Input passed to `--token` **(Crunchyroll only)** | Accepted format |
 | --- | --- |
 | Cookie value | The `etp_rt` value, optionally prefixed with `etp_rt=`. The UUID-shaped value has hexadecimal groups of 8–4–4–4–12 characters. |
 | Plain text file | A readable file containing that same value. Surrounding whitespace is allowed. |

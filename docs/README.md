@@ -20,7 +20,7 @@ Start with **Getting Started** to open a terminal, sign in and preview one Crunc
 
 ### Crunchyroll
 
-Use `--service crunchy --device {type}` to sign in. Replace `{type}` with `androidtv` for Android TV or `android` for a phone or tablet. Search for a show and choose episodes from a season. [Crunchyroll sign-in](AUTHENTICATION.md#crunchyroll)
+Use `--service crunchy --device {type}` **(Crunchyroll only)** to sign in. Replace `{type}` with `androidtv` for Android TV or `android` for a phone or tablet. Search for a show and choose episodes from a season. [Crunchyroll sign-in](AUTHENTICATION.md#crunchyroll)
 
 ### HIDIVE
 

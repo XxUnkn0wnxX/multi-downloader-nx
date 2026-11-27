@@ -6,13 +6,13 @@ Changes specific to this fork are grouped below with their implementation commit
 
 ### Nightly Rev7 — Crunchyroll CLI sign-in
 
-| Previous Crunchyroll command | Command from Rev7 onward |
+| Previous Crunchyroll command | Command from Rev7 onward **(Crunchyroll only)** |
 | --- | --- |
 | `--service crunchy --device` for Android TV | `--service crunchy --device androidtv` |
 | `--service crunchy --auth` for Android phone | `--service crunchy --device android` |
 | `--service crunchy --token` with a cookie value or file | Keep using the same command and input. |
 
-- Start each service command with one `--service` and its name. Bare `--help` opens general help. On Crunchyroll, bare `--device` or `--token` **after the service** shows examples. HIDIVE and ADN still use `--auth` for username or email and password. [CLI routing](../../../commit/497e32af4bca05a08d919fd74b9199dbe49a9583)
+- Start each service command with one `--service` and its name. Bare `--help` opens general help. Bare `--device` and `--token` **(Crunchyroll only)** show examples after the service. HIDIVE and ADN still use `--auth` for username or email and password. [CLI routing](../../../commit/497e32af4bca05a08d919fd74b9199dbe49a9583)
 - Add `--dry-run` to either Crunchyroll device sign-in to see the prompt. AniDL skips the browser and cancels automatically. Android TV requests a real code before cancelling. [Device sign-in previews](../../../commit/ec91cd8ec223e36ffbc4b53af3da99ecb2beb944)
 - Reject a repeated service, an invalid saved Crunchyroll token setting, or a dry-run archive addition before taking action. [Validation changes](../../../commit/1198ac44bce0721c31ed0c5055365fb2659148c5)
 - Follow the Windows or Linux walkthrough from sign-in through a first episode. [Getting started](GET-STARTED.md) · [Service sign-in guide](AUTHENTICATION.md)
@@ -24,9 +24,9 @@ Changes specific to this fork are grouped below with their implementation commit
 Implemented in [54f0114](../../../commit/54f011470e4077ceabdee49ce0968817de301711) and [3ba3f15](../../../commit/3ba3f15f33465f3f4bbccde96aa7e85480b8387b).
 
 - Re-enable `--auth` for Android phone browser sign-in. The CLI opens the sign-in page, prints the same link for manual use, and accepts the callback URL in a hidden prompt. [Phone client setup and sign-in](GET-STARTED.md#crunchyroll-cli)
-- Open the Android TV activation page automatically with `--device` and print the same link and activation code for manual use.
-- Save phone, Android TV, and web sessions in separate blocks in `cr_token.yml`. Existing files migrate on save, and each refresh updates its own block. Keep `--device` activation and `--token` cookie input available.
-- Use the saved session for the endpoint chosen by `--vstream` or `--astream`. Mixed video and audio routes require sessions from the same account. Discovery, manifests, and playback cleanup use the session that owns the request.
+- Open the Android TV activation page automatically with `--device` **(Crunchyroll only)** and print the same link and activation code for manual use.
+- Save phone, Android TV, and web sessions in separate blocks in `cr_token.yml`. Existing files migrate on save, and each refresh updates its own block. Keep `--device` activation and `--token` cookie input **(Crunchyroll only)** available.
+- Use the saved session for the endpoint chosen by `--vstream` or `--astream` **(Crunchyroll only)**. Mixed video and audio routes require sessions from the same account. Discovery, manifests, and playback cleanup use the session that owns the request.
 - Report which video or audio endpoint needs sign-in and show its matching command when the saved session is missing or rejected. [b0e6777](../../../commit/b0e6777f4b3e12c52700c638cf40b7ea6e43e081)
 - Prefer HTTP/2 for direct and proxied provider requests after repeated HTTP/1.1 Cloudflare challenges on the Android phone playback gateway. Destinations can still negotiate HTTP/1.1. [e37f2b0](../../../commit/e37f2b08f7b67e9c2b225a1c12310e6b32fe4217)
 - Restore segment downloads and combined video/audio muxing in the Crunchyroll HLS fallback after releasing the playback session. [90340f1](../../../commit/90340f19e35252fa272b6f5372afd11beff5b53b)
@@ -41,14 +41,14 @@ Implemented in [54f0114](../../../commit/54f011470e4077ceabdee49ce0968817de30171
 - Preserve existing intentional skip behavior and `--nocleanup` retention. Keep download, decryption and legacy HLS processing order unchanged.
 - Reject missing selected audio versions before quality discovery or video download, for every dub, including previews and audio-only requests. Keep the GUI-selected language authoritative and preserve the legacy path when version metadata is absent.
 - Support multiple `--dubLang` selections and `--allDubs` with Crunchyroll `-s`, using the same per-episode multi-audio flow as `--srz` while preserving season episode selection. HIDIVE selection remains unchanged.
-- Add Crunchyroll `--CC true/false` and `CC` config control for captions, enabled by default; clarify that `ccTag` changes their label. Keep regional English subtitle locales distinct when classifying signs.
+- Add `--CC true/false` **(Crunchyroll only)** and `CC` config control for captions, enabled by default; clarify that `ccTag` changes their label. Keep regional English subtitle locales distinct when classifying signs.
 - Save VTT-to-ASS conversions with the correct `.ass` filesystem path. Clean recorded chapter intermediates after successful subtitle-only downloads unless `--nocleanup`, preserving final subtitle files and explicit skip/failure behavior.
 - Report missing requested dubs together by full language name. Accept spaces, commas and mixed separators in `--dubLang`; reject invalid CLI/config language tags together before provider requests.
 - Require every explicitly requested `--dubLang` language before starting a multi-audio episode; let `--allDubs` download whatever dubs are available without failing for missing configured or expected languages. Preserve that distinction through CLI/config and GUI selection.
-- Warn once for more than two explicitly selected dubs or any `--allDubs` request, using "Multi-stream discovery" wording. Keep the "Full stream discovery" warning for `--qall`, without duplication.
+- Warn once for more than two explicitly selected dubs or any `--allDubs` request, using "Multi-stream discovery" wording. Keep the "Full stream discovery" warning for `--qall` **(Crunchyroll only)**, without duplication.
 - Reuse the all-language discovery scheduler for multi-dub requests, including 700–1100 ms per-request pacing and explicit timer overrides, while retaining compact output and the selected-language source pool.
 - Allow video-only downloads with `--noaudio` when the selected dub is unavailable, retaining subtitle and chapter processing without a misleading missing-language error.
-- Build video comparison from exactly the selected audio languages, or from each episode’s available dubs with `--allDubs`; `--qall` overrides that scope to search all available languages. Keep requested audio independent of video selection and preserve timing checks, quality ranking and stable catalogue numbers.
+- Build video comparison from exactly the selected audio languages, or from each episode’s available dubs with `--allDubs`; `--qall` **(Crunchyroll only)** overrides that scope to search all available languages. Keep requested audio independent of video selection and preserve timing checks, quality ranking and stable catalogue numbers.
 
 ## 2026-11-16
 
@@ -67,8 +67,8 @@ Implementation: [901f783](../../../commit/901f783802beeb057132d98c6d167f25576cc3
 Implementation: [f997444](../../../commit/f9974441993ea46106a1ec1329432c33967c6cbb).
 
 - Pace every all-language discovery request with a fresh 600–999 ms delay. Keep normal selected-language batch pacing and exact fixed timer overrides, including zero, in both modes.
-- Allow 180 seconds of active work for qall discovery and update the existing status row after 90 seconds. Stop after cleanup when discovery or its next required wait cannot fit the budget.
-- Keep TSD recovery within the affected complete acquisition group, without ordinary retry-tier delays for the same unresolved problem or replenished shared limits. Finish the whole clear and fresh verification before resuming; episode recovery accepts capacity below the account’s API-derived limit, while standalone reset still requires zero.
+- Allow 180 seconds of active work for `--qall` **(Crunchyroll only)** discovery and update the existing status row after 90 seconds. Stop after cleanup when discovery or its next required wait cannot fit the budget.
+- Keep recovery with `--tsd` **(Crunchyroll only)** within the affected complete acquisition group, without ordinary retry-tier delays for the same unresolved problem or replenished shared limits. Finish the whole clear and fresh verification before resuming; episode recovery accepts capacity below the account’s API-derived limit, while standalone reset still requires zero.
 - Store the Nightly revision alongside the base version in package metadata. Show it in provider/GUI displays and use the exact released source’s revision for the rolling release title. Keep raw CLI version output, the release tag, URLs and assets compatible.
 - Update the recovery and getting-started guides, fork maintenance notes, CLI help and regenerated reference.
 
@@ -103,7 +103,7 @@ Commit: [26657a9](../../../commit/26657a9ee8e24d160fadbf3118d949c4ff0e08e1).
 Commit: [1f915c4](../../../commit/1f915c446ed74b5e7681aa61012350bb7a369bf8).
 
 - Discover available legacy video renditions alongside current manifests, including compatible same-episode language versions. Keep requested current audio, subtitles, and signs independent of the video choice.
-- Check declared video timing before cross-language selection, with concise fallback notices and a timing-only override (now named `--bypasssync`). Matching manifest timing does not guarantee identical edits or decoded synchronization.
+- Check declared video timing before cross-language selection, with concise fallback notices and a timing-only override, subsequently named `--bypasssync` **(Crunchyroll only)**. Matching manifest timing does not guarantee identical edits or decoded synchronization.
 - Add `--dry-run` previews for Crunchyroll, HIDIVE, and ADN, stopping before licenses, downloaded output, decryption, muxing, and completed-download history writes.
 - Preserve bounded playback-session ownership and cleanup, full debug diagnostics, generated CLI documentation, and focused offline coverage. Legacy availability remains dependent on provider manifest families; this is not a guaranteed higher-bitrate fix.
 
