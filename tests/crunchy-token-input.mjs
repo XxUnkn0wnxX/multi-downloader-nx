@@ -1458,10 +1458,14 @@ try {
 		});
 		assert.equal(requests, 1);
 		assert.equal(session.auth_type, 'android');
-		assert(phoneFixture.outputText.includes(phoneFixture.launched.href));
-		assert.match(phoneFixture.outputText, /copy the full address from your browser’s address bar/i);
-		assert.match(phoneFixture.outputText, /404.*That’s fine/i);
-		assert.match(phoneFixture.outputText, /Paste the address here once and press Enter[\s\S]*Nothing will appear as you\s+paste[\s\S]*AniDL hides the address/i);
+		assert.deepEqual(phoneFixture.outputText.trimEnd().split('\n'), [
+			'Opening Crunchyroll sign-in… If needed, open the link below.',
+			'',
+			`\t${phoneFixture.launched.href}`,
+			'',
+			'After sign-in, copy the full browser address, even on a 404 page.',
+			'Paste it here and press Enter. Input is hidden to protect your sign-in code.'
+		]);
 		assert(!phoneFixture.outputText.includes('fixture-hidden-code'));
 		assert(!phoneFixture.outputText.includes('fixture-secret'));
 	});

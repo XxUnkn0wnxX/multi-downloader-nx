@@ -71,9 +71,7 @@ async function readCallback(): Promise<string | undefined> {
 	process.once('SIGTERM', close);
 	const timer = setTimeout(close, inputTimeoutMs);
 	try {
-		process.stdout.write(
-			'After you sign in, copy the full address from your browser’s address bar.\nThe page may say “404 – Page Not Found.” That’s fine.\n\nPaste the address here once and press Enter. Nothing will appear as you\npaste. AniDL hides the address because it contains your private sign-in code.\n'
-		);
+		process.stdout.write('After sign-in, copy the full browser address, even on a 404 page.\nPaste it here and press Enter. Input is hidden to protect your sign-in code.\n');
 		for await (const line of input) return line;
 	} finally {
 		clearTimeout(timer);
@@ -148,7 +146,7 @@ export async function loginWithPhone(request: Req['getData']): Promise<CrunchySe
 		response_type: 'code',
 		state
 	}).toString();
-	process.stdout.write(`Opening Crunchyroll sign-in in your browser…\nIf your browser didn’t open, open this link manually:\n${authorize.href}\n\n`);
+	process.stdout.write(`Opening Crunchyroll sign-in… If needed, open the link below.\n\n\t${authorize.href}\n\n`);
 	void import('open').then(({ default: open }) => open(authorize.href)).catch(() => {});
 	const input = await readCallback();
 	if (!input) return;
