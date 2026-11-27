@@ -64,7 +64,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		type: 'boolean',
 		group: 'auth',
 		service: ['all'],
-		docDescribe: 'HIDIVE and ADN use --auth for username or email and password sign-in. On Crunchyroll, --auth shows how to sign in with --device or --token.',
+		docDescribe:
+			'Use `--service hidive --auth` or `--service adn --auth` to sign in with a username or email and password. Only Crunchyroll disables sign-in through `--auth`. On Crunchyroll the command shows a reminder. Use `--device android` for the former phone login, `--device androidtv` for TV, or `--token` for a browser cookie. [Service sign-in guide](AUTHENTICATION.md).',
 		usage: ''
 	},
 	{
@@ -74,7 +75,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		group: 'auth',
 		service: ['crunchy'],
 		docDescribe:
-			'Start with `--service crunchy`. Choose `--device androidtv` or `--device android`; bare `--device` shows both choices. With `--dry-run`, phone sign-in prints the URL and paste instructions, then cancels before opening a browser or reading input. TV sign-in requests a code and reports its expiry, then cancels before opening the activation page or polling for approval. Neither flow exchanges tokens or saves a session.',
+			'Crunchyroll only. After `--service crunchy`, use `--device` on its own for help. Use `--device androidtv` to enter an activation code online or `--device android` to sign in and paste the full browser address into the terminal. With `--dry-run`, phone sign-in shows the link and hidden-paste prompt, and TV sign-in requests a real code and shows its expiry. Both previews cancel automatically before opening a browser, reading a callback or polling for approval. Neither preview exchanges tokens or saves a session. [Android TV steps](AUTHENTICATION.md#android-tv) · [Android phone steps](AUTHENTICATION.md#android-phone-or-tablet).',
 		usage: '[type]'
 	},
 	{
@@ -219,7 +220,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		name: 'extid',
 		group: 'dl',
 		describe: 'Set the external id to lookup/download',
-		docDescribe: 'Set the external id to lookup/download.' + '\nAllows you to download or view legacy Crunchyroll Ids ',
+		docDescribe: 'Look up or download a title by its legacy Crunchyroll ID.',
 		service: ['crunchy'],
 		type: 'string',
 		usage: '${selection}',
@@ -954,7 +955,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		name: 'token',
 		describe: 'Crunchyroll browser-cookie sign-in; omit value for instructions',
 		docDescribe:
-			'Start with `--service crunchy`. Use `--service crunchy --token` for input examples. Supply the UUID-shaped etp_rt cookie value (optionally prefixed with etp_rt=), or the path to a file containing the raw token or a Netscape cookies export. The file may have any name or extension. The resulting web session is saved alongside any TV and phone sessions.',
+			'Start with `--service crunchy`. Use `--service crunchy --token` for input examples. Supply the UUID-shaped etp_rt cookie value (optionally prefixed with etp_rt=), or the path to a file containing the raw token or a Netscape cookies export. The file may have any name or extension. The resulting web session is saved alongside any TV and phone sessions. [Browser cookie steps](AUTHENTICATION.md#browser-cookie).',
 		group: 'auth',
 		service: ['crunchy'],
 		type: 'string',

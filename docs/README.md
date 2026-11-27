@@ -1,91 +1,55 @@
 # 🎬 Anime Downloader NX
 
-**AniDL** downloads episodes from **Crunchyroll**, **HIDIVE**, and **AnimationDigitalNetwork (ADN)** through a command-line interface or GUI. This is a fork of [anidl/multi-downloader-nx](https://github.com/anidl/multi-downloader-nx); its additions and compatibility fixes are documented in [Fork changes](fork-changes.md).
+**AniDL** is a command-line downloader for Crunchyroll, HIDIVE and Animation Digital Network (ADN). You can search for a show, choose episodes, audio and subtitles, and save the result as MKV or MP4. Available titles and tracks depend on the service, region and account.
 
-> [!WARNING]
-> `develop` is under active development and testing and may contain unfinished changes.
->
-> `main` contains the current implementation, but testing is ongoing and further fixes may be needed.
+**[🚀 Get started with the CLI](GET-STARTED.md)** · [🔑 Sign in to a service](AUTHENTICATION.md) · [📖 CLI options](DOCUMENTATION.md) · [📝 Changelog](CHANGELOG.md)
+
+This fork follows [anidl/multi-downloader-nx](https://github.com/anidl/multi-downloader-nx). `main` is the stable branch. Changes on `develop` are available for testing before release. [Fork changes](fork-changes.md)
 
 [![Tests](../../../actions/workflows/test.yml/badge.svg?branch=main)](../../../actions/workflows/test.yml) [![Discord](https://img.shields.io/discord/884479461997805568?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/qEpbWen5vq)
 
-**Browse:** [Setup](#setup) · [Services](#services) · [CLI options](DOCUMENTATION.md) · [GUI guide](GET-STARTED.md) · [Changelog](CHANGELOG.md) · [Releases](../../../releases) · [Issues](../../../issues)
-
-- Search catalogs and select individual episodes, ranges, or whole seasons/shows.
-- Choose available dub and subtitle languages, including multiple audio tracks.
-- Select video quality, customize filenames, and mux downloads into MKV or MP4.
-- Preview a download's qualities and stream URLs with `--dry-run`.
-
-Available titles, languages, and qualities depend on the provider, region, and account.
-
 ## Setup
 
-Obtain a CLI archive from [Releases](../../../releases) when available, or [build from source](#build-from-source). Automated CLI builds target Windows, macOS, Linux, and Alpine, each for x64 and arm64. The GUI is built from source; the [Windows GUI guide](GET-STARTED.md) walks through its setup and use.
+Download the **Nightly Fork** CLI archive for your operating system and processor, then extract the whole archive. Builds target Windows, macOS, Linux and Alpine on x64 and arm64. Each includes its Node.js runtime. The macOS package uses Node 22 for Big Sur compatibility, and the other packages use Node 24. [Download the Nightly CLI](../../../releases/tag/nightly-fork)
 
-- **Media tools:** install [ffmpeg](https://www.videohelp.com/software/ffmpeg) and [MKVToolNix](https://www.videohelp.com/software/MKVToolNix). DRM decryption also needs [Bento4's `mp4decrypt`](https://www.bento4.com/downloads/) or [Shaka Packager](https://github.com/stratumadev/shaka-packager/releases).
-- **CDM files:** these are not included. Supported Widevine files belong in `widevine/` and PlayReady files in `playready/`; see the [supported formats](GET-STARTED.md#cdm-files). For Widevine key setup, see [Widevine keys](../widevine/README.md).
-- **Source builds:** install [Node.js](https://nodejs.org/) 22 or newer and [pnpm](https://pnpm.io/) 10 or newer. Standalone CLI packages include their own runtime: Node 22 for macOS to retain the Big Sur baseline, and Node 24 for other targets.
-
-Set executable locations in [`config/bin-path.yml`](../config/bin-path.yml) and save preferred options in [`config/cli-defaults.yml`](../config/cli-defaults.yml). The [CLI reference](DOCUMENTATION.md) lists supported settings and defaults.
+Start with **Getting Started** to open a terminal, sign in and preview one Crunchyroll episode. The guide includes separate Windows and Linux commands and explains which tools you need to save the finished file. [Open the first-download walkthrough](GET-STARTED.md)
 
 ## Services
 
-The commands below assume `aniDL` is on your `PATH`. After a source build, use `node lib/index.js` in its place.
-
 ### Crunchyroll
 
-Use `--device` for Android TV, browser `--auth` for Android phone, and `--token` for browser-cookie sessions. One Crunchyroll command can use multiple saved sessions from the same account. For example, `--vstream androidtv --astream android` uses the Android TV login for video and the Android phone login for audio. See [Crunchyroll CLI sign-in](GET-STARTED.md#crunchyroll-cli).
+With the default settings, sign in once for Android TV (video) and once for Android phone (audio), using the same account. A browser cookie works for Chrome or Firefox streams. [Choose your Crunchyroll sign-in](AUTHENTICATION.md#crunchyroll)
 
-Search for a series, list its seasons, and select episodes with the dubs and subtitles you want. For raw DASH streams, discovery uses exactly the selected audio languages, keeping all available variants within that scope. Requested audio must be available before discovery begins; `--noaudio` permits video-only downloads. `--qall` expands discovery to all available languages and shows the full quality list, with a fresh 700–1100 ms pause before each discovery request. The scan is slower and sends more requests; those additional requests can trigger rate limits that affect normal viewing.
-
-Legacy availability varies by episode and dub; advertised bandwidth is not measured file-average bitrate. Timing checks cannot prove identical edits or decoded synchronization, and `--bypasssync` skips video/audio timing checks with a risk of desynchronization. See [Crunchyroll streams and quality](GET-STARTED.md#crunchyroll-streams-and-quality) for quality labels, selection scope, and timing limits.
+By default, AniDL looks for qualities in your selected audio languages. **Crunchyroll only** — `--qall` checks all available languages and displays the full quality list. The extra requests take longer and can trigger rate limits. [Crunchyroll streams and quality](GET-STARTED.md#crunchyroll-streams-and-quality)
 
 ### HIDIVE
 
-**Log in:** `aniDL --service hidive --auth`, then enter your username/email and password when prompted.
-
-Search the catalog, choose episodes from a season, or select an individual episode by ID. Available audio tracks and subtitles can be chosen by language. The current HIDIVE implementation does not support the `--new` listing option.
+Use `--service hidive --auth` and enter your username or email and password when prompted. Search for a show, select episodes from a series or season, or use an episode ID. Use search to find titles on HIDIVE, which does not support the `--new` listing. [HIDIVE sign-in](AUTHENTICATION.md#hidive-and-adn)
 
 ### AnimationDigitalNetwork (ADN)
 
-**Log in:** `aniDL --service adn --auth`, then enter your username/email and password when prompted.
-
-Search for a show and select its episodes, audio versions, and subtitles. ADN supports the French, German, and Polish catalog locales through `--locale fr`, `--locale de`, and `--locale pl`; French is the default. Available languages depend on the title and catalog.
+Use `--service adn --auth` and enter your username or email and password when prompted. Search the French catalog by default, or choose German (`--locale de`) or Polish (`--locale pl`). Select episodes by show ID. [ADN sign-in](AUTHENTICATION.md#hidive-and-adn)
 
 ## Search and preview
 
-After logging in, replace `SERVICE` with `crunchy`, `hidive`, or `adn`. Use a season ID for Crunchyroll or HIDIVE, or a show ID for ADN:
+The walkthrough takes you from a series search to a season ID, then shows the preview and its matching download command. [Find and download one episode](GET-STARTED.md#find-and-download-one-episode)
 
-```sh
-aniDL --service SERVICE --search "show name"
-aniDL --service SERVICE -s ID -e 1,2 --dry-run
-```
+A download preview (`--dry-run`) works on all three services. It contacts the service for metadata and can refresh your login. It stops before downloading media, subtitles or fonts, muxing the output or marking an episode as downloaded.
 
-Remove `--dry-run` to download. Use the [CLI reference](DOCUMENTATION.md#downloading) to adjust episode selection, quality, audio languages, and subtitles.
-
-Preview mode works across all three services. It stops before license requests, media/subtitle/font downloads, chapter output, decryption, muxing, and completed-download archive writes. Authentication and token refresh, metadata requests, required HEAD checks, logging, and GUI queue progression may still occur. `--debug` adds full request and manifest diagnostics.
-
-For Crunchyroll episodes, `--tsd` or `tsd: true` can clear playback sessions when the account is full, including during a preview. Standalone `aniDL --service crunchy --tsd` force-clears listed sessions even with `--dry-run` or `--debug`; config alone does not trigger that standalone action. Use `aniDL --service crunchy --check-status` for a read-only status snapshot without playback or session clearing. See [Crunchyroll playback recovery](CRUNCHYROLL-RECOVERY.md) for capacity checks, status, waiting and retry limits. Clearing sessions does not log out and may not resolve a rate limit.
+**Crunchyroll only** — `--check-status` shows a read-only playback status snapshot. If you enabled `--tsd` or set `tsd: true`, even a download preview can clear playback sessions when the account is full. [Playback status and recovery](CRUNCHYROLL-RECOVERY.md)
 
 ## Build from source
 
-Copy this fork's clone URL from the **Code** menu, then install dependencies. The final command runs the CLI directly from TypeScript using your installed Node:
+Install [Node.js](https://nodejs.org/) 22 or newer and [pnpm](https://pnpm.io/) 10 or newer. Run these commands to open CLI help from a checkout.
 
 ```sh
-git clone <repository-clone-url>
+git clone https://github.com/XxUnkn0wnxX/multi-downloader-nx.git
 cd multi-downloader-nx
 pnpm install --frozen-lockfile
 pnpm exec tsx index.ts --help
 ```
 
-| Interface | Build JavaScript        | Run from the checkout      |
-| --------- | ----------------------- | -------------------------- |
-| CLI       | `pnpm run prebuild-cli` | `node lib/index.js --help` |
-| GUI       | `pnpm run prebuild-gui` | `node lib/gui.js`          |
-
-The GUI remains buildable, but it is not actively supported in this fork. Development and support focus on the CLI.
-
-To package a standalone application, use a `build-{platform}-{arch}-{type}` script from [`package.json`](../package.json).
+To compile the CLI, run `pnpm run prebuild-cli`. From the checkout, use `node lib/index.js` in place of `aniDL.exe` or `./aniDL` in the guides and keep the same options. Standalone packaging scripts are listed in [package.json](../package.json).
 
 ## Fork builds and releases
 
@@ -95,15 +59,15 @@ For a manual build of the current `main` commit, open **Actions → Nightly Fork
 
 Automatic Tests skips changes limited to Markdown, `docs/` and/or `tools/`. Changes to downloader source, dependencies, build configuration or workflows still run the normal checks. The separate maintenance tools stay outside the application’s TypeScript, ESLint, Prettier and packaging scans; their tests run locally only.
 
-The workflow replaces eight `.7z` CLI archives and their checksums on the same release page under the fixed `nightly-fork` tag. Its title includes the manually maintained fork revision, for example **Nightly Fork (Rev6)**, and it remains a normal release marked **Latest**. Release notes identify the released commit and the source revision validated by Tests separately, with links to the [fork changelog](CHANGELOG.md), Tests, and build run. GitHub also provides source ZIP and tar.gz downloads for the release tag. GUI packages remain a source-build option.
+The workflow replaces eight `.7z` CLI archives and their checksums on the same release page under the fixed `nightly-fork` tag. Its title includes the manually maintained fork revision, for example **Nightly Fork (Rev7)**, and it remains a normal release marked **Latest**. Release notes identify the released commit and the source revision validated by Tests separately, with links to the [fork changelog](CHANGELOG.md), Tests, and build run. GitHub also provides source ZIP and tar.gz downloads for the release tag.
 
-Provider banners and the GUI display the base version, channel and revision, for example `5.8.8 (Nightly) [Rev6]`. CLI `--version` keeps the base version for compatibility. Maintainers update the shared metadata in [package.json](../package.json). See [fork revision maintenance](fork-changes.md#nightly-revision-metadata).
+Provider banners display the base version, channel and revision, for example `5.8.8 (Nightly) [Rev7]`. A service command with `--version` prints the base version for compatibility. Maintainers update the shared metadata in [package.json](../package.json). See [fork revision maintenance](fork-changes.md#nightly-revision-metadata).
 
 ## Fork update notices
 
 Source and packaged CLI runs check for a newer published Nightly version at startup. The check reads GitHub release/package metadata and prints a download link; it does not install updates or download update packages. Successful lookups are cached for 24 hours, and a batch checks once before processing its episodes.
 
-Use `--skipUpdate` or set `skipUpdate: true` in `config/cli-defaults.yml` to disable the check. The code default is `false`; previews and playback-status commands also skip it. Explicit `--update` prints the Nightly link and exits instead of installing anything.
+Use `--skipUpdate` or set `skipUpdate: true` in `config/cli-defaults.yml` to disable the check. The code default is `false`; previews and playback-status commands also skip it. A service command with `--update` prints the Nightly link and exits instead of installing anything.
 
 For example, an installed Rev3 detecting published Rev4 prints:
 

@@ -2,7 +2,7 @@
 
 This fork follows [anidl/multi-downloader-nx](https://github.com/anidl/multi-downloader-nx). Keep the changes below on `develop` until upstream supplies equivalent behavior. An upstream version bump alone does not replace a workaround: compare the actual implementation and dependency resolutions before removing it.
 
-**Browse:** [README](README.md) · [Getting started](GET-STARTED.md) · [CLI reference](DOCUMENTATION.md) · [Issues](../../../issues)
+**Browse:** [🏠 README](README.md) · [🚀 Getting started](GET-STARTED.md) · [🔑 Service sign-in](AUTHENTICATION.md) · [📖 CLI reference](DOCUMENTATION.md) · [Issues](../../../issues)
 
 ## Branch boundaries
 
@@ -29,20 +29,20 @@ Keep the base semver in `version` and the fork display metadata in the root [pac
   "version": "5.8.8",
   "fork": {
     "channel": "Nightly",
-    "revision": 6,
+    "revision": 7,
     "repository": "XxUnkn0wnxX/multi-downloader-nx",
     "releaseTag": "nightly-fork"
   }
 }
 ```
 
-The [shared formatter](../modules/module.fork-display.ts) supplies provider banners, GUI startup/version responses and the generated CLI reference. Displays use `5.8.8 (Nightly) [Rev6]`. CLI `--version` retains the raw base semver. Fork update notices compare semantic base versions first and revisions only at equal version precedence. Existing build copies carry this metadata into `lib` and archives.
+The [shared formatter](../modules/module.fork-display.ts) supplies provider banners, GUI startup/version responses and the generated CLI reference. Displays use `5.8.8 (Nightly) [Rev7]`. A service-qualified `--version` retains the raw base semver. Fork update notices compare semantic base versions first and revisions only at equal version precedence. Existing build copies carry this metadata into `lib` and archives.
 
 Increment `fork.revision` manually when releasing a new fork revision, then regenerate the reference with `pnpm run docs`. CI never increments it. The publisher reads the manifest at the immutable target source SHA, validates it before any release mutation, and uses one `Nightly Fork (RevN)` title for draft creation and final publication. Never use the workflow-controller checkout’s metadata for a different target. Preserve the fixed `nightly-fork` tag/URL and asset names. A package metadata change requires fresh Tests and is outside the documentation/controller-only proof-reuse exception.
 
 ### Disable manual update requests on the fork
 
-Keep `--update` recognized so a manual request receives the fork-specific release location instead of invoking the upstream updater. The CLI exits with a nonzero status and prints this plain-text notice before authentication, provider, archive, or download actions:
+Keep `--update` recognized after a leading service so a manual request receives the fork-specific release location instead of invoking the upstream updater. The CLI exits with a nonzero status and prints this plain-text notice before authentication, provider, archive, or download actions:
 
 ```text
 Updates disabled on this fork. Download updates: https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork
@@ -106,7 +106,9 @@ The root and GUI workspace overrides pin transitive `proxy-addr` to `2.0.8` for 
 
 The CLI opens global help with no arguments or with `--help` alone. Use `--debug` alone or with global `--help` to show the local version and platform. For service commands, put `--service crunchy`, `--service hidive` or `--service adn` first and specify the service only once. Global help lists shared options. Each service’s help adds its own options. Crunchyroll device and cookie sign-in appear in `--service crunchy --help`. Once Crunchyroll is selected, its sign-in notices show which options to replace in the current command. Complete examples use `anidl` for source runs and from outside the executable’s folder. On HIDIVE and ADN, `--auth` still prompts for a username or email and password.
 
-On `develop`, `--token` accepts the Crunchyroll `etp_rt` UUID value directly or a path to a file containing that value or a Netscape cookies export. File names and extensions are unrestricted. Only the existing Crunchyroll web-token request is used; authentication reports failure unless both the profile and CMS token requests succeed. Keep the existing cookie-based authentication and refresh behavior. See the [browser cookie input formats](CRUNCHYROLL-AUTH.md#browser-cookie-inputs).
+On Crunchyroll, `--auth` redirects the user to device or cookie sign-in. Bare `--device` and `--token` after the service show their own help. Keep these notices ahead of provider startup and session writes. A second service marker or an invalid token setting must fail before an archive or download action. An explicitly selected login method takes precedence over a saved token default. [User sign-in guide](AUTHENTICATION.md#crunchyroll)
+
+`--token` accepts the Crunchyroll `etp_rt` UUID value directly or a path to a file containing that value or a Netscape cookies export. File names and extensions are unrestricted. Only the existing Crunchyroll web-token request is used; authentication reports failure unless both the profile and CMS token requests succeed. Keep the existing cookie-based authentication and refresh behavior. See the [browser cookie input formats](CRUNCHYROLL-AUTH.md#browser-cookie-inputs).
 
 ### Log in to Crunchyroll with a device code
 
@@ -222,7 +224,9 @@ Release recreation is not atomic. A failed upload must fail the workflow visibly
 
 ### Keep documentation links relative
 
-Use relative links for repository files and supported GitHub project navigation, and named Markdown links for external resources. Keep upstream issue/commit provenance links pointed at upstream. The generator in [modules/build-docs.ts](../modules/build-docs.ts) must preserve this behavior and the reference text sourced from CLI option definitions; it writes only [DOCUMENTATION.md](DOCUMENTATION.md). The [README](README.md) and [getting-started guide](GET-STARTED.md) are maintained separately.
+Use relative links for repository files and supported GitHub project navigation, and named Markdown links for external resources. Keep upstream issue/commit provenance links pointed at upstream. The generator in [modules/build-docs.ts](../modules/build-docs.ts) must preserve this behavior and the reference text sourced from CLI option definitions; it writes only [DOCUMENTATION.md](DOCUMENTATION.md). Generate each option once. Keep shared options in the main list and group options exclusive to Crunchyroll in its own disclosure, using the service metadata.
+
+Maintain the [README](README.md), [getting-started guide](GET-STARTED.md) and [sign-in guide](AUTHENTICATION.md) separately. Link the CLI screenshots relative to the guide from `imgs/cli/` so the packaged documentation can display them offline.
 
 ## Already incorporated upstream
 

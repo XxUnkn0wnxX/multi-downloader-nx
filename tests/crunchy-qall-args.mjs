@@ -468,6 +468,18 @@ for (const value of ['private-cookie', 'private-user', 'private-password']) asse
 output.log('ok - discovery timer, aliases, config precedence and service-aware help');
 
 const docs = fs.readFileSync(path.join(root, 'docs/DOCUMENTATION.md'), 'utf8');
+const [mainReference, crunchyReference] = docs.split('## Crunchyroll-only commands and options');
+assert.match(crunchyReference, /<details>[\s\S]*<summary>[^\n]+--service crunchy[\s\S]*<\/details>/);
+const headings = (text) => Array.from(text.matchAll(/^#### `([^`]+)`$/gm), (match) => match[1]);
+const mainFlags = headings(mainReference);
+const crunchyFlags = headings(crunchyReference);
+for (const option of args) {
+	const flag = (option.name.length === 1 ? '-' : '--') + option.name;
+	const expected = crunchyOnlyOptions.includes(option) ? crunchyFlags : mainFlags;
+	assert(expected.includes(flag), `wrong reference section for ${flag}`);
+}
+assert.equal(mainFlags.length + crunchyFlags.length, args.length, 'document each option exactly once');
+assert.match(crunchyReference, /`--service crunchy --device \[type\]`/);
 const section = (name) => docs.split(`#### \`${name}\``)[1].split('#### `')[0];
 assert.match(section('--discovery-timmer'), /`automatic`[\s\S]*`discovery-timmer: ` or `disctmr: `/);
 assert.match(section('--dry-run'), /`false`[\s\S]*`—`/);

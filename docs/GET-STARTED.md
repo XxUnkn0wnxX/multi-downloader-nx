@@ -1,29 +1,262 @@
-# Getting started: Windows GUI
+# 🚀 Getting started with the AniDL CLI
 
-This walkthrough covers the Windows setup shown in the screenshots. For source builds and CLI usage on other supported systems, see the [README](README.md). Browse the [CLI option reference](DOCUMENTATION.md), [fork notes](fork-changes.md), or [report an issue](../../../issues).
+[🏠 README](README.md) · [🔑 Sign in to a service](AUTHENTICATION.md) · [CLI reference](DOCUMENTATION.md)
 
-## Legal warning
+Use this guide with **Nightly Rev7**. You’ll open AniDL, sign in to Crunchyroll and preview one episode before downloading it.
 
-This application is not endorsed by or affiliated with *Crunchyroll*, *Hidive* or *AnimationDigitalNetwork*.
-This application enables you to download videos for offline viewing which may be forbidden by law in your country.
-The usage of this application may also cause a violation of the *Terms of Service* between you and the stream provider.
-This tool is not responsible for your actions; please make an informed decision before using this application.
+[💻 Open AniDL](#open-anidl) · [🔑 Choose your sign-in](#choose-your-sign-in) · [📥 Find and download an episode](#find-and-download-one-episode) · [🛠️ Troubleshooting](#troubleshooting)
 
-## Install the required tools
+## Open AniDL
 
-Install [ffmpeg](https://www.videohelp.com/software/ffmpeg) and [MKVToolNix](https://www.videohelp.com/software/MKVToolNix). DRM decryption also needs either [Bento4 (`mp4decrypt`)](https://www.bento4.com/downloads/) or [Shaka Packager](https://github.com/stratumadev/shaka-packager/releases). The project does not include these programs.
+1. Download a **CLI** archive for your operating system and processor from the [Nightly Fork release](../../../releases/tag/nightly-fork). For example, a typical Intel or AMD Windows PC uses `multi-downloader-nx-windows-x64-cli.7z`. On Linux, choose the matching `linux-x64` or `linux-arm64` CLI archive. On an ARM-based Windows PC, choose `windows-arm64`.
+2. Extract the archive into a folder you can find again. Keep the included `config`, `videos`, `widevine` and `playready` folders beside the application.
+3. Open a terminal in the extracted folder. On Windows, double-click `cmd-here.bat` to open Command Prompt there. On Linux, open your terminal and change to the extracted folder.
+4. Run the command for your computer. You should see the Crunchyroll options.
 
-These screenshots show example download choices; filenames and versions may differ:
+<details>
+<summary>🪟 Windows — Command Prompt</summary>
 
-| Tool | Example |
-| --- | --- |
-| ffmpeg | ![Example ffmpeg download](./imgs/ffmpeg.png) |
-| MKVToolNix | ![Example MKVToolNix download](./imgs/mkvtoolnix.png) |
-| Bento4 | ![Example Bento4 download](./imgs/bento4.png) |
+```bat
+aniDL.exe --service crunchy --help
+```
 
-Extract the tools, install MKVToolNix, then add the directories containing `ffmpeg`, `mkvmerge`, and `mp4decrypt` (or Shaka Packager) to your Windows `Path`. Alternatively, set the executable locations in [`config/bin-path.yml`](../config/bin-path.yml). Open a new terminal and check that each command runs:
+</details>
 
-![MKVToolNix installer](./imgs/mkvtoolnix-install.png)
+<details>
+<summary>🐧 Linux — Terminal</summary>
+
+```sh
+./aniDL --service crunchy --help
+```
+
+</details>
+
+To check the installed revision, look for `[Rev7]` in the startup banner, or run `aniDL.exe --debug` on Windows or `./aniDL --debug` on Linux. If you have an older revision, open the guide in the `docs/` folder that came with that archive.
+
+Keep this terminal open for the commands below. If Windows cannot find `aniDL.exe` or Linux cannot find `./aniDL`, check that your terminal is open in the extracted folder. Linux may require making the executable runnable first with `chmod +x ./aniDL`.
+
+These examples use the standalone CLI. If you built from source, use `node lib/index.js` from your checkout in place of `aniDL.exe` or `./aniDL`. See [Build from source](README.md#build-from-source).
+
+## Choose your sign-in
+
+The names Android TV, Android phone and browser cookie describe how AniDL connects to Crunchyroll. You run every command on your computer. The [sign-in guide](AUTHENTICATION.md) shows the full steps.
+
+**Using the default settings?** Sign in with both Android TV and Android phone, using the same Crunchyroll account. AniDL uses the TV session for video and the phone session for audio.
+
+| Your setup | Sign in | Video and audio options |
+| --- | --- | --- |
+| Default video and audio | [Android TV](AUTHENTICATION.md#android-tv) and [Android phone](AUTHENTICATION.md#android-phone-or-tablet) | No extra options needed |
+| Android TV only | [Android TV](AUTHENTICATION.md#android-tv) | `--vstream androidtv --astream androidtv` |
+| Android phone only | [Android phone](AUTHENTICATION.md#android-phone-or-tablet) | `--vstream android --astream android` |
+| Browser cookie only | [Browser cookie](AUTHENTICATION.md#browser-cookie) | `--vstream chrome --astream chrome` |
+
+`--vstream` chooses the video connection and `--astream` chooses the audio connection. The phone session also supports `androidtab`, and the browser cookie session also supports `firefox`. Available quality depends on the episode, account and service response.
+
+🔄 **Already signed in with an older version?** Keep your existing `config/cr_token.yml` in the AniDL folder you use. AniDL can read the older file and updates its layout the next time it saves a login. A working web login can still be used for Chrome or Firefox streams. If AniDL asks for an Android TV or Android phone login, follow the matching sign-in guide. A browser cookie or cookies file goes with `--token`. Leave your saved AniDL session in `config/cr_token.yml`.
+
+Once you have signed in, return here to find an episode.
+
+## Find and download one episode
+
+The following commands are for **Crunchyroll**. Run each command separately and wait for its result.
+
+### Find the series
+
+Search for a title. Replace `Spy x Family` with the series you want.
+
+<details>
+<summary>🪟 Windows — Command Prompt</summary>
+
+```bat
+aniDL.exe --service crunchy --search "Spy x Family"
+```
+
+</details>
+
+<details>
+<summary>🐧 Linux — Terminal</summary>
+
+```sh
+./aniDL --service crunchy --search "Spy x Family"
+```
+
+</details>
+
+Find the series in the results. AniDL shows the series ID after `Z:` and lists its seasons beneath it. Copy the ID after `S:` for the season you want.
+
+### List the episodes
+
+Replace `SEASON_ID` with the season ID you copied. AniDL lists the episodes in that season.
+
+<details>
+<summary>🪟 Windows — Command Prompt</summary>
+
+```bat
+aniDL.exe --service crunchy -s SEASON_ID
+```
+
+</details>
+
+<details>
+<summary>🐧 Linux — Terminal</summary>
+
+```sh
+./aniDL --service crunchy -s SEASON_ID
+```
+
+</details>
+
+AniDL prints “Episodes not selected!” after the list because this command only lists episodes. Note the episode selection number shown in the list. Replace `SEASON_ID` and `1` in the following commands with your own season ID and episode selection number.
+
+### Preview the episode
+
+Signed in with **both Android TV and Android phone**? Run the preview below. If you used just one method, go straight to the [single-login commands](#if-you-signed-in-with-one-method).
+
+<details>
+<summary>🪟 Windows — Command Prompt</summary>
+
+```bat
+aniDL.exe --service crunchy -s SEASON_ID -e 1 --dry-run
+```
+
+</details>
+
+<details>
+<summary>🐧 Linux — Terminal</summary>
+
+```sh
+./aniDL --service crunchy -s SEASON_ID -e 1 --dry-run
+```
+
+</details>
+
+The preview contacts Crunchyroll and shows the available and selected streams. It stops before downloading media. Check that it identifies the episode and the video and audio you expect.
+
+### Download the episode
+
+First check the [download tools](#download-tools) and [CDM files](#cdm-files). Then run the same command without `--dry-run`.
+
+<details>
+<summary>🪟 Windows — Command Prompt</summary>
+
+```bat
+aniDL.exe --service crunchy -s SEASON_ID -e 1
+```
+
+</details>
+
+<details>
+<summary>🐧 Linux — Terminal</summary>
+
+```sh
+./aniDL --service crunchy -s SEASON_ID -e 1
+```
+
+</details>
+
+By default, AniDL writes downloads to the `videos` folder beside the application. To choose dubs, subtitles and quality, see [Crunchyroll streams and quality](#crunchyroll-streams-and-quality) and the [CLI reference](DOCUMENTATION.md).
+
+### If you signed in with one method
+
+Choose the method you signed in with. Replace `SEASON_ID` and the episode number in each command. Run **Preview** first. Once the episode, video and audio look right, check the [download tools](#download-tools) and run **Download**. The download goes to `videos/` by default.
+
+<details>
+<summary>🪟 Windows — Command Prompt</summary>
+
+**Android TV only** · Preview
+
+```bat
+aniDL.exe --service crunchy -s SEASON_ID -e 1 --vstream androidtv --astream androidtv --dry-run
+```
+
+Download
+
+```bat
+aniDL.exe --service crunchy -s SEASON_ID -e 1 --vstream androidtv --astream androidtv
+```
+
+**Android phone only** · Preview
+
+```bat
+aniDL.exe --service crunchy -s SEASON_ID -e 1 --vstream android --astream android --dry-run
+```
+
+Download
+
+```bat
+aniDL.exe --service crunchy -s SEASON_ID -e 1 --vstream android --astream android
+```
+
+**Browser cookie only** · Preview
+
+```bat
+aniDL.exe --service crunchy -s SEASON_ID -e 1 --vstream chrome --astream chrome --dry-run
+```
+
+Download
+
+```bat
+aniDL.exe --service crunchy -s SEASON_ID -e 1 --vstream chrome --astream chrome
+```
+
+</details>
+
+<details>
+<summary>🐧 Linux — Terminal</summary>
+
+**Android TV only** · Preview
+
+```sh
+./aniDL --service crunchy -s SEASON_ID -e 1 --vstream androidtv --astream androidtv --dry-run
+```
+
+Download
+
+```sh
+./aniDL --service crunchy -s SEASON_ID -e 1 --vstream androidtv --astream androidtv
+```
+
+**Android phone only** · Preview
+
+```sh
+./aniDL --service crunchy -s SEASON_ID -e 1 --vstream android --astream android --dry-run
+```
+
+Download
+
+```sh
+./aniDL --service crunchy -s SEASON_ID -e 1 --vstream android --astream android
+```
+
+**Browser cookie only** · Preview
+
+```sh
+./aniDL --service crunchy -s SEASON_ID -e 1 --vstream chrome --astream chrome --dry-run
+```
+
+Download
+
+```sh
+./aniDL --service crunchy -s SEASON_ID -e 1 --vstream chrome --astream chrome
+```
+
+</details>
+
+### Troubleshooting
+
+- **AniDL asks for an Android TV or Android phone login.** Follow the named method in the [sign-in guide](AUTHENTICATION.md), using the same account for both default streams. Then repeat your original command.
+- **The Android phone command asks for client settings.** Follow the prerequisite steps in [Android phone sign-in](AUTHENTICATION.md#android-phone-or-tablet), then run the phone command again.
+- **The Android TV code expired.** Run the Android TV command again and use the new code.
+- **The browser cookie file cannot be read.** Check the filename and path, then follow [Browser cookie](AUTHENTICATION.md#browser-cookie) to provide the file or cookie value again.
+- **Your selected dub is unavailable.** Choose an available audio language using `--dubLang` or use `--allDubs` for the dubs available for each episode. Both options apply to Crunchyroll selections.
+
+A valid saved login is reused across episodes and dubs. For playback capacity and retry information, see [Crunchyroll playback recovery](CRUNCHYROLL-RECOVERY.md).
+
+## Download tools
+
+For a normal download and mux, install [FFmpeg](https://www.videohelp.com/software/ffmpeg) and [MKVToolNix](https://www.videohelp.com/software/MKVToolNix). DRM decryption also needs either [Bento4 (`mp4decrypt`)](https://www.bento4.com/downloads/) or [Shaka Packager](https://github.com/stratumadev/shaka-packager/releases). These tools are separate from AniDL.
+
+Add the folders containing the tools to your system path, or set their locations in `config/bin-path.yml`. Open a new terminal and check the commands you installed.
 
 ```text
 ffmpeg -version
@@ -31,50 +264,35 @@ mkvmerge --version
 mp4decrypt --help
 ```
 
-![Example Windows Path configuration](./imgs/env_setup_1.png)
+If you use Shaka Packager, check its command in place of `mp4decrypt`. The exact executable names depend on your system and the tools you installed.
 
 ## CDM files
 
-CDM files are not included. For Widevine key setup, see [Widevine keys](../widevine/README.md). Supported file formats are:
+The application does not include CDM files. Supported Widevine inputs are a `.wvd` file, or a `client_id.bin` and `private_key.pem` pair. It also accepts the pair named `device_client_id_blob` and `device_private_key`. Supported PlayReady inputs are a `.prd` file, or `bgroupcert.dat` and `zgpriv.dat`; supported security levels are SL2000 and SL3000.
 
-- **Widevine:** a `.wvd` file, or `client_id.bin` with `private_key.pem`; the application also accepts `device_client_id_blob` with `device_private_key`.
-- **PlayReady:** a `.prd` file, or `bgroupcert.dat` with `zgpriv.dat`. The supported security levels are SL2000 and SL3000. When renaming a pair of blobs, the certificate file is `bgroupcert.dat` (usually around 1 KiB) and the 32-byte key file is `zgpriv.dat`; [MediaInfo](https://mediaarea.net/en/MediaInfo) can show file sizes.
-
-Place Widevine files in `widevine/` and PlayReady files in `playready/` beside the application. If using Shaka Packager for PlayReady, use a build compatible with this application; see its [release page](https://github.com/stratumadev/shaka-packager/releases).
-
-## Start the GUI
-
-This fork's automated releases contain CLI archives. For the Windows GUI shown below, follow the [source build instructions](README.md#build-from-source), build with `pnpm run prebuild-gui`, then launch with `node lib/gui.js` from the checkout. If using an existing GUI archive, choose the one matching your system, extract it, and run `aniDL.exe`.
-
-On first launch, set an optional application password or leave it blank, then choose **CONFIRM**. Reopen the application to reach the main window.
-
-![First launch](./imgs/anidl_start.png)
-
-![Main window](./imgs/anidl_home.png)
+Place Widevine files in `widevine/` or PlayReady files in `playready/`, beside the application. See the [CLI reference](DOCUMENTATION.md) for additional settings.
 
 ## Set defaults and output paths
 
-Open **SETTINGS → Open advanced options** to edit `config/cli-defaults.yml`, or open that file directly in the application's `config/` directory. The [option reference](DOCUMENTATION.md) lists each supported setting. In its **CLI default** column, `—` means the option is not available in `cli-defaults.yml`.
-
-For CLI runs, `skipUpdate: true` disables the [startup update notice check](README.md#fork-update-notices); `--skipUpdate` does the same for one invocation. Source and packaged CLIs otherwise check published Nightly metadata, with successful lookups cached for 24 hours. The notifier prints a link and never installs updates.
-
-![Open advanced options](./imgs/open_adv_config.png)
-
-For example, set the default audio endpoint and dub language in YAML:
+Edit `config/cli-defaults.yml` to save options for later commands. The [CLI reference](DOCUMENTATION.md) lists the settings and their defaults. For example, choose an audio endpoint and dub languages:
 
 ```yaml
 astream: "android"
 dubLang: ["jpn", "eng"]
 ```
 
-To change the output directory, edit `content` in `config/dir-path.yml`:
+To change where AniDL writes downloads, edit `content` in `config/dir-path.yml`. The default is `./videos/`. Forward slashes work in Windows paths.
 
 ```yaml
 content: D:/Plex/Anime/
 fonts: ./fonts/
 ```
 
-By default, downloads go to the `videos/` folder beside the application. Use forward slashes in Windows paths. Save YAML changes before restarting the app.
+Use `skipUpdate: true` in the defaults or `--skipUpdate` on a command to disable its [startup update notice check](README.md#fork-update-notices). Save changes before running AniDL again.
+
+## Crunchyroll CLI
+
+[Sign in to Crunchyroll](AUTHENTICATION.md#crunchyroll) for the Android TV, Android phone and browser cookie walkthroughs. The same guide covers [HIDIVE and ADN](AUTHENTICATION.md#hidive-and-adn).
 
 ## Crunchyroll streams and quality
 
@@ -84,13 +302,15 @@ Each `--vstream` or `--astream` endpoint uses the corresponding saved login.
 
 | Endpoint | Sign in with |
 | --- | --- |
-| `androidtv` | `--device` |
-| `android` and `androidtab` | Browser `--auth` |
+| `androidtv` | `--device androidtv` |
+| `android` and `androidtab` | `--device android` |
 | `chrome` and `firefox` | `--token` |
 
 Crunchyroll can use multiple saved sign-in types in the same command. The default combination, `--vstream androidtv --astream android`, uses the saved Android TV session for video and the saved Android phone session for audio. Both sessions must belong to the same Crunchyroll account. With a single phone login, choose `--vstream android --astream android`. Availability can differ across endpoints.
 
 If a selected endpoint has no valid session, the CLI names the affected stream and tells you which sign-in option to use. If both endpoints need a login, it reports each one.
+
+The `--qall` option is available for Crunchyroll only.
 
 For raw DASH, the numbered quality list can include compatible video from `[Current M]` and `[Legacy M]` sources, with the video source language shown as `[V:eng]` or `[V:jpn]`. By default, discovery covers exactly the selected audio languages. English-only selection uses English video sources; select both English and Japanese to compare both. All available variants within that scope remain eligible. `--qall` expands the catalogue to all available languages. Resolution headings group the list without resetting quality numbers. `-q 0` selects the compatible candidate with the highest resolution, then advertised bandwidth, in the active catalogue; its choice can differ with `--qall`. The highest current audio rendition is selected independently for each requested dub.
 
@@ -119,7 +339,7 @@ Discovery pacing depends on the selected language scope:
 
 An explicit `--disctmr`, `-disctmr`, or `--discovery-timmer` sets an exact fixed pause instead: per batch for a single dub, per request for multiple selected dubs or `--qall`. The `discovery-timmer` and `disctmr` config keys do the same; the canonical key wins when both are present, including zero. Zero disables this pacing, while request deadlines and rate-limit recovery still apply. Fixed pauses can exceed the automatic six-second normal-mode budget. The all-language scan sends more requests and can trigger limits that affect normal viewing.
 
-During video-quality discovery, the CLI uses one transient status row. For multiple selected dubs or `--qall`, its discovery text becomes “Discovering all qualities is taking extra time” once 90 seconds of active work have elapsed, checked between requests. Retry, clearing and slot-wait messages temporarily take priority, then the extra-time text returns. Debug and non-interactive output receive at most one plain extra-time notice; GUI output does not animate the row.
+During video-quality discovery, the CLI uses one transient status row. For multiple selected dubs or `--qall`, its discovery text becomes “Discovering all qualities is taking extra time” once 90 seconds of active work have elapsed, checked between requests. Retry, clearing and slot-wait messages temporarily take priority, then the extra-time text returns. Debug and non-interactive output receive at most one plain extra-time notice.
 
 A rate-limited manifest follows the existing 1, 5 and 20-second cooldown schedule, smaller retry batches, and a 45-second rate-wait budget. Playback and manifest recovery share the scheduler’s retry count; the server’s `Retry-After` can require a longer wait. Separately bounded playback-recovery sleeps can extend the active-work window. Owned-session cleanup runs without a pacing delay, and overlapping pacing/recovery waits use the longer applicable requirement. A discovery timeout or a required pause that cannot fit stops the operation after cleanup. See [Crunchyroll playback recovery](CRUNCHYROLL-RECOVERY.md) for the TSD rules. `partsize` controls concurrent media segment downloads and does not control discovery pacing.
 
@@ -157,67 +377,28 @@ MKVToolNix replaces an existing final MKV at the same output path. FFmpeg normal
 
 ## Check Crunchyroll playback status
 
-Use this CLI-only command to inspect a read-only capacity snapshot and the latest recorded wait information:
+To see the current capacity and the latest recorded wait, open the command for your computer.
+
+<details>
+<summary>🪟 Windows — Command Prompt</summary>
+
+```bat
+aniDL.exe --service crunchy --check-status
+```
+
+</details>
+
+<details>
+<summary>🐧 Linux — Terminal</summary>
 
 ```sh
-aniDL --service crunchy --check-status
+./aniDL --service crunchy --check-status
 ```
+
+</details>
 
 Only `--service crunchy` and optional `--debug` are accepted. The command requires an existing saved login and performs the usual token refresh first; that refresh may take additional time. The status snapshot is bounded to 15 seconds and does not start playback or clear sessions. Known capacity and available slots are shown even if another lookup fails; missing or incomplete values are unknown, not zero. A snapshot failure returns an error after any partial results are shown.
 
 Status API `Retry-After` information is reported separately from the historical playback wait recorded after an earlier playback refusal. When active, the record includes its observation time, remaining wait and earliest suggested retry; an elapsed or missing record leaves current playback unverified. This command does not verify whether playback is currently allowed because it does not start playback. The local account-bound wait record is informational and best effort; it never changes recovery behavior. See [Crunchyroll playback recovery](CRUNCHYROLL-RECOVERY.md) for session recovery and its limits.
 
-## Log in
-
-### Crunchyroll CLI
-
-For Android TV, run:
-
-```sh
-aniDL --service crunchy --device
-```
-
-The CLI opens the activation page in your browser and prints the same link for manual use. Enter the printed code and approve the request. The CLI shows the account after approval and saves the device login for later refresh. If the primary auth endpoint is unavailable, a warning identifies the beta API fallback.
-
-For Android phone sign-in, configure `CRUNCHYROLL_PHONE_CLIENT_ID` and `CRUNCHYROLL_PHONE_CLIENT_SECRET` in the CLI environment or in an owner-only `config/cr_phone_client.env` file. Then run:
-
-```sh
-aniDL --service crunchy --auth
-```
-
-The CLI opens Crunchyroll sign-in and prints the same link for manual use. Sign in on the Crunchyroll page, then paste the full `https://sso.crunchyroll.com/android/oauth-callback` URL into the hidden Terminal prompt and press Enter. For browser endpoints, see the [browser-cookie sign-in option](DOCUMENTATION.md#--token).
-
-The CLI maintains each login in its own block in `config/cr_token.yml`. It reads existing single-session files and keeps the existing login when it first writes the new layout. Let the CLI update this file automatically.
-
-### GUI and other services
-
-In the GUI, choose a service and select **AUTHENTICATE**. Crunchyroll's existing GUI cookie flow accepts the `etp_rt` value in the username field. Other services use the credentials requested by their dialog. In the CLI, other services continue to use `--auth`.
-
-## Add episodes to the queue
-
-Choose a service, then open **ADD TO QUEUE**:
-
-![Add to queue](./imgs/add_to_queue_1.png)
-
-1. **Search:** enter a series title and select a result. Its ID fills the **Show ID** field. If results do not appear, press Enter to submit the search.
-2. **Show ID:** alternatively, enter an ID directly. For Crunchyroll, the ID is the value after `/series/` in the show URL, for example `https://www.crunchyroll.com/series/G4PH0WXVJ/spy-x-family`.
-3. **List Episodes:** load the episode list, select episodes, and add them to the **Episode Select** field. You can also enter a comma-separated list such as `,1,2,5,8`; specials use an `S` prefix such as `S1`.
-4. **Download All / Download All But:** choose whether to include every episode or exclude the numbers entered in **Episode Select**.
-5. **Language options:** choose dub and subtitle languages. See [`--dubLang`](DOCUMENTATION.md#--dublang) and [`--dlsubs`](DOCUMENTATION.md#--dlsubs).
-6. **Filename Overwrite:** set a per-queue filename format. See [`--fileName`](DOCUMENTATION.md#--filename).
-
-![Episode selection](./imgs/ep_select.png)
-
-Episode-window settings apply only to that queue. To pause or resume queued work, use **STOP QUEUE** / **START QUEUE**. **CLEAR QUEUE** removes queued items that are not already downloading.
-
-## Preview from the CLI
-
-`--dry-run` is an explicit CLI or programmatic action and cannot be enabled through `cli-defaults.yml`. It prints metadata, available qualities, and selected stream URLs, then stops before licenses, media, subtitle, font, or chapter downloads; decryption, muxing, and completed-download history writes are skipped. Normal authentication, refresh, metadata, and required HEAD requests may still run. With episode selection, explicit `--tsd` or config `tsd: true` checks Crunchyroll playback capacity before every episode, including previews, and clears other sessions only when the validated assessment is full and the command clear allowance is available. A standalone explicit `--tsd` instead force-clears the validated listed sessions even with `--dry-run` or `--debug`; config alone does not trigger that reset. `--debug` keeps full request diagnostics.
-
-```sh
-aniDL --service crunchy -s SEASON_ID -e 1 --dry-run
-```
-
-To clear active Crunchyroll playback sessions without selecting an episode, run `aniDL --service crunchy --tsd`. The standalone command checks once and reports how many sessions were closed and how many remain. `--dry-run` and `--debug` can accompany this command. Episode capacity checks and any required reset finish before playback begins. See [Crunchyroll playback recovery](CRUNCHYROLL-RECOVERY.md) for capacity uncertainty, waiting and retry limits. Resetting does not log out, and a rate limit can persist afterward.
-
-See the [CLI reference](DOCUMENTATION.md) for all flags, and the [README](README.md#build-from-source) for source setup and target commands.
+See the [CLI reference](DOCUMENTATION.md) for all options and the [README](README.md) for platform and source-build information.

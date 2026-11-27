@@ -1,6 +1,10 @@
 # multi-downloader-nx v5.8.8 (Nightly) [Rev7]
 
-If you find any bugs in this documentation or in the program itself, please report them on [GitHub issues](../../../issues).
+[🚀 Getting started](GET-STARTED.md) · [🔑 Sign in to a service](AUTHENTICATION.md) · [Report an issue](../../../issues)
+
+Start each service command with `--service` and one name (`crunchy`, `hidive` or `adn`). The Service column below shows where each option applies.
+
+For general help, run `aniDL --help`. For service-specific help, put the service first, for example `aniDL --service crunchy --help`. [📺 Crunchyroll-only commands and options](#crunchyroll-only-commands-and-options)
 
 ## Legal Warning
 
@@ -20,15 +24,9 @@ Quality-list rates use decimal `kb/s` (1 kb/s = 1,000 bits/s). `KiB/s` measures 
 #### `--auth`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
-| All | `--auth ` | `boolean` | `No`| `—` | `—` |
+| All | `--auth` | `boolean` | `No`| `—` | `—` |
 
-HIDIVE and ADN use --auth for username or email and password sign-in. On Crunchyroll, --auth shows how to sign in with --device or --token.
-#### `--device`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
-| --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--device [type]` | `string` | `No`| `—` | `—` |
-
-Start with `--service crunchy`. Choose `--device androidtv` or `--device android`; bare `--device` shows both choices. With `--dry-run`, phone sign-in prints the URL and paste instructions, then cancels before opening a browser or reading input. TV sign-in requests a code and reports its expiry, then cancels before opening the activation page or polling for approval. Neither flow exchanges tokens or saves a session.
+Use `--service hidive --auth` or `--service adn --auth` to sign in with a username or email and password. Only Crunchyroll disables sign-in through `--auth`. On Crunchyroll the command shows a reminder. Use `--device android` for the former phone login, `--device androidtv` for TV, or `--token` for a browser cookie. [Service sign-in guide](AUTHENTICATION.md).
 #### `--username`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
@@ -41,26 +39,7 @@ Set the username to use for authentication. For Crunchyroll CLI, use --device or
 | All | `--password ${password}` | `string` | `No`| `—` | `undefined`| `password: ` |
 
 Set the password to use for authentication. For Crunchyroll CLI, use --device or --token.
-#### `--silentAuth`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
-| --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--silentAuth ` | `boolean` | `No`| `—` | `false`| `silentAuth: ` |
-
-For Crunchyroll CLI, use --device or --token.
-#### `--token`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
-| --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--token [cookie-or-file]` | `string` | `No`| `—` | `undefined`| `token: ` |
-
-Start with `--service crunchy`. Use `--service crunchy --token` for input examples. Supply the UUID-shaped etp_rt cookie value (optionally prefixed with etp_rt=), or the path to a file containing the raw token or a Netscape cookies export. The file may have any name or extension. The resulting web session is saved alongside any TV and phone sessions.
 ### Fonts
-#### `--dlFonts`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
-| --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--dlFonts ` | `boolean` | `No`| `—` | `—` |
-
-Crunchyroll uses a variaty of fonts for the subtitles.
-Use this command to download all the fonts and add them to the muxed **mkv** file.
 #### `--fontName`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
@@ -74,12 +53,6 @@ Set the font to use in subtiles
 | All | `--search ${search}` | `string` | `No`| `-f` | `—` |
 
 Search of an anime by the given string
-#### `--search-type`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **Default** |**cli-default Entry**
-| --- | --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--search-type ${type}` | `string` | `No`| `—` | [`''`, `top_results`, `series`, `movie_listing`, `episode`] | ``| `search-type: ` |
-
-Search only for type of anime listings (e.g. episodes, series)
 #### `--page`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
@@ -95,40 +68,10 @@ Set the local that will be used for the API.
 #### `--new`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
-| Crunchyroll, Hidive | `--new ` | `boolean` | `No`| `—` | `—` |
+| Crunchyroll, Hidive | `--new` | `boolean` | `No`| `—` | `—` |
 
 Get last updated series list
 ### Downloading
-#### `--absolute`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
-| --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--absolute ` | `boolean` | `No`| `—` | `—` |
-
-Use absolute numbers for the episode. If not set, it will use the default index numbers
-#### `--movie-listing`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
-| --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--movie-listing ${ID}` | `string` | `No`| `--flm` | `—` |
-
-Get video list by Movie Listing ID
-#### `--show-raw`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
-| --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--show-raw ${ID}` | `string` | `No`| `--sraw` | `—` |
-
-Get Raw Show data
-#### `--season-raw`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
-| --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--season-raw ${ID}` | `string` | `No`| `--seraw` | `—` |
-
-Get Raw Season data
-#### `--show-list-raw`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
-| --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--show-list-raw ` | `boolean` | `No`| `--slraw` | `—` |
-
-Get Raw Show list data
 #### `--series`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
@@ -149,54 +92,35 @@ Used to set the season ID to download from. Crunchyroll -s supports multiple --d
 Set the episode(s) to download from any given show.
 For multiple selection: 1-4 OR 1,2,3,4 
 For special episodes: S1-4 OR S1,S2,S3,S4 where S is the special letter
-#### `--extid`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
-| --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--extid ${selection}` | `string` | `No`| `--externalid` | `—` |
-
-Set the external id to lookup/download.
-Allows you to download or view legacy Crunchyroll Ids 
 #### `-q`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
 | All | `-q ${qualityLevel}` | `number` | `No`| `—` | `0`| `q: ` |
 
 Use the listed quality number; 0 selects the maximum quality. Crunchyroll ranks by dimensions, then advertised bitrate, and compares compatible current and legacy video within exactly the selected audio languages while keeping the highest current audio for the requested dubs. Use --qall to include all languages. Crunchyroll reports a short reason when checks force video fallback. Its compact quality list shows up to four Current and four Legacy entries in each of the top three resolution groups, with stable full-catalogue numbers; compact view may have gaps where rows are hidden. Use --qall to show every eligible video quality. Short manifest and video-source language tags such as [V:jpn] identify each row, which marks the selected entry. Its audio quality list uses independent [A:eng] language tags and shows the selected audio server below the row. A fallback prints only the discarded and re-selected rows, when applicable.
-#### `--qall`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
-| --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--qall ` | `boolean` | `No`| `—` | `false`| `qall: ` |
-
-Scan all languages and show every eligible Crunchyroll video quality. Default pacing samples 700–1100 ms before each discovery request; an explicit discovery timer replaces it. Active discovery work is limited to 180 seconds, with an extra-time message on the existing status row after 90 seconds. This sends more requests and may trigger rate limits affecting normal viewing. Quality numbers remain stable within the active catalogue; switching --qall can change them.
-#### `--discovery-timmer`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
-| --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--discovery-timmer ${milliseconds}` | `number` | `No`| `--disctmr` | `automatic`| `discovery-timmer: ` or `disctmr: ` |
-
-Set an exact pause in milliseconds between normal eight-request discovery batches, or before each request for multi-dub or --qall discovery. Unset uses automatic 250–400 ms batch gaps with response-time credit and a six-second added-wait budget, or 700–1100 ms per request for multi-dub or --qall. Zero disables normal pacing. Fixed pauses are not capped at six seconds; discovery and request deadlines and 429 recovery still apply.
 #### `--dlVideoOnce`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll, AnimationDigitalNetwork | `--dlVideoOnce ` | `boolean` | `No`| `—` | `false`| `dlVideoOnce: ` |
+| Crunchyroll, AnimationDigitalNetwork | `--dlVideoOnce` | `boolean` | `No`| `—` | `false`| `dlVideoOnce: ` |
 
 On ADN, request the best selected video quality once and use the lowest video quality for later dubs. On Crunchyroll, download video once for per-language DASH downloads. Combined HLS downloads may include lower-quality video with later audio tracks. Global Crunchyroll DASH selection already shares one video. --keepAllVideos retains downloaded video tracks.
 #### `--chapters`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll, AnimationDigitalNetwork | `--chapters ` | `boolean` | `No`| `—` | `true`| `chapters: ` |
+| Crunchyroll, AnimationDigitalNetwork | `--chapters` | `boolean` | `No`| `—` | `true`| `chapters: ` |
 
 Will fetch the chapters and add them into the final video.
 #### `--removeBumpers`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| Hidive | `--removeBumpers ` | `boolean` | `No`| `—` | `true`| `removeBumpers: ` |
+| Hidive | `--removeBumpers` | `boolean` | `No`| `—` | `true`| `removeBumpers: ` |
 
 If selected, it will remove the bumpers such as the hidive intro from the final file.
 Currently disabling this sometimes results in bugs such as video/audio desync
 #### `--originalFontSize`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| Hidive | `--originalFontSize ` | `boolean` | `No`| `—` | `true`| `originalFontSize: ` |
+| Hidive | `--originalFontSize` | `boolean` | `No`| `—` | `true`| `originalFontSize: ` |
 
 If selected, it will prefer to keep the original Font Size defined by the service.
 #### `-x`
@@ -205,36 +129,6 @@ If selected, it will prefer to keep the original Font Size defined by the servic
 | All | `-x ${server}` | `number` | `No`| `--server` | [`1`, `2`, `3`, `4`] | `1`| `x: ` or `server: ` |
 
 Select the server to use
-#### `--cstream`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **cli-default Entry**
-| --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--cstream ${device}` | `string` | `No`| `--cs` | [`androidtv`, `android`, `androidtab`, `chrome`, `firefox`, `none`] | `—` |
-
-(Please use --vstream and --astream instead, this will deprecate soon)
-#### `--vstream`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **Default** |**cli-default Entry**
-| --- | --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--vstream ${device}` | `string` | `No`| `--vs` | [`androidtv`, `android`, `androidtab`, `chrome`, `firefox`, `none`] | `androidtv`| `vstream: ` or `vs: ` |
-
-Select the video endpoint. The endpoint uses its matching saved Crunchyroll session. See [stream endpoint sign-in requirements](GET-STARTED.md#crunchyroll-streams-and-quality).
-#### `--astream`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **Default** |**cli-default Entry**
-| --- | --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--astream ${device}` | `string` | `No`| `--as` | [`androidtv`, `android`, `androidtab`, `chrome`, `firefox`, `none`] | `android`| `astream: ` or `as: ` |
-
-Select the audio endpoint independently of the video endpoint. A single Crunchyroll command can use multiple saved sessions from the same account. For example, `--vstream androidtv --astream android` uses the Android TV session for video and the Android phone session for audio. See [stream endpoint sign-in requirements](GET-STARTED.md#crunchyroll-streams-and-quality).
-#### `--tsd`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
-| --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--tsd ` | `boolean` | `No`| `—` | `false`| `tsd: ` |
-
-Before each episode, assess account playback capacity and clear the validated session list only when full and the command clear allowance is available. Finish all planned deletions and fresh verification before resuming below the API-derived account limit. Explicit standalone --tsd force-clears listed sessions and requires verified zero. For qualifying playback refusals, actual TSD intervention uses bounded recovery instead of ordinary retry tiers for that unresolved acquisition group; otherwise ordinary recovery remains available. This does not log out and may not clear a rate limit. See [Crunchyroll playback recovery](CRUNCHYROLL-RECOVERY.md).
-#### `--hslang`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **Default** |**cli-default Entry**
-| --- | --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--hslang ${hslang}` | `string` | `No`| `—` | [`none`, `un`, `en`, `en-IN`, `es-419`, `es-ES`, `pt-BR`, `pt-PT`, `fr`, `de`, `ar`, `it`, `ru`, `tr`, `hi`, `zh`, `zh-CN`, `zh-TW`, `zh-HK`, `ko`, `ca-ES`, `pl-PL`, `th-TH`, `ta-IN`, `ms-MY`, `vi-VN`, `id-ID`, `te-IN`, `ja`] | `none`| `hslang: ` |
-
-Download video with specific hardsubs
 #### `--dlsubs`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | --- | ---|
@@ -245,91 +139,37 @@ Crunchy Only: un, en, en-IN, es-419, es-419, es-ES, pt-BR, pt-PT, fr, de, ar, ar
 #### `--skipMuxOnSubFail`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| All | `--skipMuxOnSubFail ` | `boolean` | `No`| `—` | `false`| `skipMuxOnSubFail: ` |
+| All | `--skipMuxOnSubFail` | `boolean` | `No`| `—` | `false`| `skipMuxOnSubFail: ` |
 
 Skips muxing when a subtitle download fails.
 #### `--noASSConv`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll, Hidive | `--noASSConv ` | `boolean` | `No`| `—` | `false`| `noASSConv: ` |
+| Crunchyroll, Hidive | `--noASSConv` | `boolean` | `No`| `—` | `false`| `noASSConv: ` |
 
 Disables VTT conversion to ASS.
-#### `--noSubFix`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
-| --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--noSubFix ` | `boolean` | `No`| `—` | `false`| `noSubFix: ` |
-
-Disables all subtitle fixes and downloads raw subtitles.
-#### `--srtAssFix`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
-| --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--srtAssFix ` | `boolean` | `No`| `—` | `true`| `srtAssFix: ` |
-
-Fixes the recently changed Crunchyroll subtitles provided by Closed Caption Converter.
-#### `--layoutResFix`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
-| --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--layoutResFix ` | `boolean` | `No`| `—` | `true`| `layoutResFix: ` |
-
-Applies the LayoutRes Fix to all ASS subtitles.
-#### `--scaledBorderAndShadowFix`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
-| --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--scaledBorderAndShadowFix ` | `boolean` | `No`| `—` | `true`| `scaledBorderAndShadowFix: ` |
-
-Applies the ScaledBorderAndShadow Fix to all ASS subtitles.
-#### `--scaledBorderAndShadow`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **Default** |**cli-default Entry**
-| --- | --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--scaledBorderAndShadow ${yes/no}` | `string` | `No`| `—` | [`yes`, `no`] | `yes`| `scaledBorderAndShadow: ` |
-
-Select if ScaledBorderAndShadow should be set to "yes" or "no".
-#### `--originalScriptFix`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
-| --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--originalScriptFix ` | `boolean` | `No`| `—` | `true`| `originalScriptFix: ` |
-
-Removes the URL in the Original Script line of the ASS subtitles, it prevents from bricking the subs in VLC (Fonts not loading when url not returning 200).
-#### `--subtitleTimestampFix`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
-| --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--subtitleTimestampFix ` | `boolean` | `No`| `—` | `false`| `subtitleTimestampFix: ` |
-
-Fixes subtitle dialogues that go over the video length (deletes dialogues where start is over video length and updates the end timestamp when end is over video length).
-#### `--bypasssync`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
-| --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--bypasssync ` | `boolean` | `No`| `—` | `false`| `bypasssync: ` |
-
-Bypass video/audio timing checks for selected dubs and all-language --qall discovery. May cause audio/video desync. Not needed with --noaudio; subtitle timings are never used.
 #### `--dry-run`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| All | `--dry-run ` | `boolean` | `No`| `--dryRun` | `false`| `—` |
+| All | `--dry-run` | `boolean` | `No`| `--dryRun` | `false`| `—` |
 
 Preview available qualities and stream URLs without downloading files. During download previews, authentication and token refresh still run. This option is CLI or programmatic only and cannot be enabled through cli-defaults.
 #### `--novids`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
-| All | `--novids ` | `boolean` | `No`| `—` | `—` |
+| All | `--novids` | `boolean` | `No`| `—` | `—` |
 
 Skip downloading videos
 #### `--noaudio`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
-| Crunchyroll, Hidive | `--noaudio ` | `boolean` | `No`| `—` | `—` |
+| Crunchyroll, Hidive | `--noaudio` | `boolean` | `No`| `—` | `—` |
 
 Skip downloading audio
-#### `--CC`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
-| --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--CC ${boolean}` | `boolean` | `No`| `—` | `true`| `CC: ` |
-
-Include tracks identified as closed captions by Crunchyroll. Use --CC false or CC: false to skip captions while keeping selected regular subtitles and signs. Use --CC true to include captions for one command. The default is true; ccTag only controls the caption label.
 #### `--nosubs`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
-| All | `--nosubs ` | `boolean` | `No`| `—` | `—` |
+| All | `--nosubs` | `boolean` | `No`| `—` | `—` |
 
 Skip downloading subtitles
 #### `--dubLang`
@@ -343,7 +183,7 @@ Separate language tags with spaces, commas or a mixture, for example --dubLang e
 #### `--all`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| All | `--all ` | `boolean` | `No`| `—` | `false`| `all: ` |
+| All | `--all` | `boolean` | `No`| `—` | `false`| `all: ` |
 
 Used to download all episodes from the show
 #### `--fontSize`
@@ -356,13 +196,13 @@ In most cases, requires "--originaFontSize false" to take effect
 #### `--combineLines`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
-| Hidive | `--combineLines ` | `boolean` | `No`| `—` | `—` |
+| Hidive | `--combineLines` | `boolean` | `No`| `—` | `—` |
 
 If selected, will prevent a line from shifting downwards
 #### `--allDubs`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
-| All | `--allDubs ` | `boolean` | `No`| `—` | `—` |
+| All | `--allDubs` | `boolean` | `No`| `—` | `—` |
 
 Download the audio dubs actually available for each episode; a missing configured or expected language does not stop the download. For example, Japanese can download even when English is unavailable. For each episode independently, Crunchyroll compares video manifests for the found audio languages and uses the same multi-audio timing checks and compact quality output. This option always prints a multi-stream discovery warning, even when only one or two dubs are available. --qall instead uses the full-stream warning; warnings are printed only once per command.
 #### `--timeout`
@@ -380,25 +220,25 @@ Set the time the program waits between downloads. Set in millisecods
 #### `--simul`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| Hidive | `--simul ` | `boolean` | `No`| `—` | `false`| `simul: ` |
+| Hidive | `--simul` | `boolean` | `No`| `—` | `false`| `simul: ` |
 
 Force downloading simulcast version instead of uncut version (if available).
 #### `--but`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
-| All | `--but ` | `boolean` | `No`| `—` | `—` |
+| All | `--but` | `boolean` | `No`| `—` | `—` |
 
 Download everything but the -e selection
 #### `--downloadArchive`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
-| All | `--downloadArchive ` | `boolean` | `No`| `—` | `—` |
+| All | `--downloadArchive` | `boolean` | `No`| `—` | `—` |
 
 Used to download all archived shows
 #### `--addArchive`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
-| Crunchyroll, Hidive | `--addArchive ` | `boolean` | `No`| `—` | `—` |
+| Crunchyroll, Hidive | `--addArchive` | `boolean` | `No`| `—` | `—` |
 
 Crunchyroll accepts either -s for a season or --srz for a series. HIDIVE accepts -s for a season.
 #### `--partsize`
@@ -424,19 +264,19 @@ If a file already exists, the tool will ask you how to proceed. With this, you c
 #### `--mp4`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| All | `--mp4 ` | `boolean` | `No`| `—` | `false`| `mp4: ` |
+| All | `--mp4` | `boolean` | `No`| `—` | `false`| `mp4: ` |
 
 If selected, the output file will be an mp4 file (not recommended tho)
 #### `--keepAllVideos`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll, Hidive | `--keepAllVideos ` | `boolean` | `No`| `—` | `false`| `keepAllVideos: ` |
+| Crunchyroll, Hidive | `--keepAllVideos` | `boolean` | `No`| `—` | `false`| `keepAllVideos: ` |
 
 If set to true, it will keep all videos in the merge process, rather than discarding the extra videos.
 #### `--syncTiming`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll, Hidive | `--syncTiming ` | `boolean` | `No`| `—` | `false`| `syncTiming: ` |
+| Crunchyroll, Hidive | `--syncTiming` | `boolean` | `No`| `—` | `false`| `syncTiming: ` |
 
 If enabled attempts to sync timing for multi-dub downloads.
 NOTE: This is currently experimental and syncs audio and subtitles, though subtitles has a lot of guesswork
@@ -444,19 +284,19 @@ If you find bugs with this, please report it in the discord or github
 #### `--skipmux`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
-| All | `--skipmux ` | `boolean` | `No`| `—` | `—` |
+| All | `--skipmux` | `boolean` | `No`| `—` | `—` |
 
 Skip muxing video, audio and subtitles
 #### `--nocleanup`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| All | `--nocleanup ` | `boolean` | `No`| `—` | `false`| `nocleanup: ` |
+| All | `--nocleanup` | `boolean` | `No`| `—` | `false`| `nocleanup: ` |
 
 Retain mux input tracks, subtitles, chapters and encrypted download inputs where applicable. Decryption and muxing still run. Internal temporary duplicates and completed-download resume markers may still be removed. Failed muxes retain their inputs even without this flag.
 #### `--skipSubMux`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| All | `--skipSubMux ` | `boolean` | `No`| `—` | `false`| `skipSubMux: ` |
+| All | `--skipSubMux` | `boolean` | `No`| `—` | `false`| `skipSubMux: ` |
 
 Skip muxing the subtitles
 #### `--forceMuxer`
@@ -531,22 +371,16 @@ Set the label appended to closed-caption tracks and filenames; this does not sel
 #### `--nosess`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| All | `--nosess ` | `boolean` | `No`| `—` | `false`| `nosess: ` |
+| All | `--nosess` | `boolean` | `No`| `—` | `false`| `nosess: ` |
 
 Reset session cookie for testing purposes
 #### `--debug`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| All | `--debug ` | `boolean` | `No`| `—` | `false`| `debug: ` |
+| All | `--debug` | `boolean` | `No`| `—` | `false`| `debug: ` |
 
 Show local version and platform details, alone or with --help. Add --debug to a service command for detailed output (which may include tokens).
 ### Utilities
-#### `--check-status`
-| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
-| --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--check-status ` | `boolean` | `No`| `—` | `—` |
-
-CLI-only action: use --service crunchy and optional --debug; configuration cannot activate it. After normal login refresh, one read-only snapshot has a 15-second deadline. It reports capacity and any current status-request HTTP 429/Retry-After separately from the last observed playback wait; it does not start playback.
 #### `--service`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | --- | ---|
@@ -556,25 +390,25 @@ Start with --service followed by crunchy, hidive, or adn. Specify one service pe
 #### `--update`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
-| All | `--update ` | `boolean` | `No`| `—` | `—` |
+| All | `--update` | `boolean` | `No`| `—` | `—` |
 
 Updates disabled on this fork. Download updates: https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork
 #### `--skipUpdate`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| All | `--skipUpdate ` | `boolean` | `No`| `—` | `false`| `skipUpdate: ` |
+| All | `--skipUpdate` | `boolean` | `No`| `—` | `false`| `skipUpdate: ` |
 
 If true, the tool won't check for updates
 #### `--raw`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| All | `--raw ` | `boolean` | `No`| `—` | `false`| `raw: ` |
+| All | `--raw` | `boolean` | `No`| `—` | `false`| `raw: ` |
 
 If true, the tool will output the raw data from the API (Where applicable, the feature is a WIP)
 #### `--rawoutput`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| All | `--rawoutput ` | `string` | `No`| `—` | ``| `rawoutput: ` |
+| All | `--rawoutput` | `string` | `No`| `—` | ``| `rawoutput: ` |
 
 Provide a path to output the raw data from the API into a file (Where applicable, the feature is a WIP)
 #### `--proxy`
@@ -586,13 +420,199 @@ Uses Proxy on geo-restricted or geo-defining endpoints (e.g. `https://127.0.0.1:
 #### `--proxyAll`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| All | `--proxyAll ` | `boolean` | `No`| `—` | `false`| `proxyAll: ` |
+| All | `--proxyAll` | `boolean` | `No`| `—` | `false`| `proxyAll: ` |
 
 Proxies everything, not recommended. Proxy needs to be defined.
 ### Help
 #### `--help`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
-| All | `--help ` | `boolean` | `No`| `-h` | `—` |
+| All | `--help` | `boolean` | `No`| `-h` | `—` |
 
 Show the help output
+
+## Crunchyroll-only commands and options
+
+<details>
+<summary>📺 Show options for <code>--service crunchy</code></summary>
+
+These options apply only to Crunchyroll. Use `--service crunchy` before the option. For the full help on your computer, run `aniDL.exe --service crunchy --help` on Windows or `./aniDL --service crunchy --help` on Linux.
+
+[🔑 Crunchyroll sign-in walkthroughs](AUTHENTICATION.md#crunchyroll)
+
+### Authentication
+#### `--device`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
+| --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --device [type]` | `string` | `No`| `—` | `—` |
+
+Crunchyroll only. After `--service crunchy`, use `--device` on its own for help. Use `--device androidtv` to enter an activation code online or `--device android` to sign in and paste the full browser address into the terminal. With `--dry-run`, phone sign-in shows the link and hidden-paste prompt, and TV sign-in requests a real code and shows its expiry. Both previews cancel automatically before opening a browser, reading a callback or polling for approval. Neither preview exchanges tokens or saves a session. [Android TV steps](AUTHENTICATION.md#android-tv) · [Android phone steps](AUTHENTICATION.md#android-phone-or-tablet).
+#### `--silentAuth`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
+| --- | --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --silentAuth` | `boolean` | `No`| `—` | `false`| `silentAuth: ` |
+
+For Crunchyroll CLI, use --device or --token.
+#### `--token`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
+| --- | --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --token [cookie-or-file]` | `string` | `No`| `—` | `undefined`| `token: ` |
+
+Start with `--service crunchy`. Use `--service crunchy --token` for input examples. Supply the UUID-shaped etp_rt cookie value (optionally prefixed with etp_rt=), or the path to a file containing the raw token or a Netscape cookies export. The file may have any name or extension. The resulting web session is saved alongside any TV and phone sessions. [Browser cookie steps](AUTHENTICATION.md#browser-cookie).
+### Fonts
+#### `--dlFonts`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
+| --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --dlFonts` | `boolean` | `No`| `—` | `—` |
+
+Crunchyroll uses a variaty of fonts for the subtitles.
+Use this command to download all the fonts and add them to the muxed **mkv** file.
+### Search
+#### `--search-type`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **Default** |**cli-default Entry**
+| --- | --- | --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --search-type ${type}` | `string` | `No`| `—` | [`''`, `top_results`, `series`, `movie_listing`, `episode`] | ``| `search-type: ` |
+
+Search only for type of anime listings (e.g. episodes, series)
+### Downloading
+#### `--absolute`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
+| --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --absolute` | `boolean` | `No`| `—` | `—` |
+
+Use absolute numbers for the episode. If not set, it will use the default index numbers
+#### `--movie-listing`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
+| --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --movie-listing ${ID}` | `string` | `No`| `--flm` | `—` |
+
+Get video list by Movie Listing ID
+#### `--show-raw`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
+| --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --show-raw ${ID}` | `string` | `No`| `--sraw` | `—` |
+
+Get Raw Show data
+#### `--season-raw`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
+| --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --season-raw ${ID}` | `string` | `No`| `--seraw` | `—` |
+
+Get Raw Season data
+#### `--show-list-raw`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
+| --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --show-list-raw` | `boolean` | `No`| `--slraw` | `—` |
+
+Get Raw Show list data
+#### `--extid`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
+| --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --extid ${selection}` | `string` | `No`| `--externalid` | `—` |
+
+Look up or download a title by its legacy Crunchyroll ID.
+#### `--qall`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
+| --- | --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --qall` | `boolean` | `No`| `—` | `false`| `qall: ` |
+
+Scan all languages and show every eligible Crunchyroll video quality. Default pacing samples 700–1100 ms before each discovery request; an explicit discovery timer replaces it. Active discovery work is limited to 180 seconds, with an extra-time message on the existing status row after 90 seconds. This sends more requests and may trigger rate limits affecting normal viewing. Quality numbers remain stable within the active catalogue; switching --qall can change them.
+#### `--discovery-timmer`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
+| --- | --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --discovery-timmer ${milliseconds}` | `number` | `No`| `--disctmr` | `automatic`| `discovery-timmer: ` or `disctmr: ` |
+
+Set an exact pause in milliseconds between normal eight-request discovery batches, or before each request for multi-dub or --qall discovery. Unset uses automatic 250–400 ms batch gaps with response-time credit and a six-second added-wait budget, or 700–1100 ms per request for multi-dub or --qall. Zero disables normal pacing. Fixed pauses are not capped at six seconds; discovery and request deadlines and 429 recovery still apply.
+#### `--cstream`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **cli-default Entry**
+| --- | --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --cstream ${device}` | `string` | `No`| `--cs` | [`androidtv`, `android`, `androidtab`, `chrome`, `firefox`, `none`] | `—` |
+
+(Please use --vstream and --astream instead, this will deprecate soon)
+#### `--vstream`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **Default** |**cli-default Entry**
+| --- | --- | --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --vstream ${device}` | `string` | `No`| `--vs` | [`androidtv`, `android`, `androidtab`, `chrome`, `firefox`, `none`] | `androidtv`| `vstream: ` or `vs: ` |
+
+Select the video endpoint. The endpoint uses its matching saved Crunchyroll session. See [stream endpoint sign-in requirements](GET-STARTED.md#crunchyroll-streams-and-quality).
+#### `--astream`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **Default** |**cli-default Entry**
+| --- | --- | --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --astream ${device}` | `string` | `No`| `--as` | [`androidtv`, `android`, `androidtab`, `chrome`, `firefox`, `none`] | `android`| `astream: ` or `as: ` |
+
+Select the audio endpoint independently of the video endpoint. A single Crunchyroll command can use multiple saved sessions from the same account. For example, `--vstream androidtv --astream android` uses the Android TV session for video and the Android phone session for audio. See [stream endpoint sign-in requirements](GET-STARTED.md#crunchyroll-streams-and-quality).
+#### `--tsd`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
+| --- | --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --tsd` | `boolean` | `No`| `—` | `false`| `tsd: ` |
+
+Before each episode, assess account playback capacity and clear the validated session list only when full and the command clear allowance is available. Finish all planned deletions and fresh verification before resuming below the API-derived account limit. Explicit standalone --tsd force-clears listed sessions and requires verified zero. For qualifying playback refusals, actual TSD intervention uses bounded recovery instead of ordinary retry tiers for that unresolved acquisition group; otherwise ordinary recovery remains available. This does not log out and may not clear a rate limit. See [Crunchyroll playback recovery](CRUNCHYROLL-RECOVERY.md).
+#### `--hslang`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **Default** |**cli-default Entry**
+| --- | --- | --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --hslang ${hslang}` | `string` | `No`| `—` | [`none`, `un`, `en`, `en-IN`, `es-419`, `es-ES`, `pt-BR`, `pt-PT`, `fr`, `de`, `ar`, `it`, `ru`, `tr`, `hi`, `zh`, `zh-CN`, `zh-TW`, `zh-HK`, `ko`, `ca-ES`, `pl-PL`, `th-TH`, `ta-IN`, `ms-MY`, `vi-VN`, `id-ID`, `te-IN`, `ja`] | `none`| `hslang: ` |
+
+Download video with specific hardsubs
+#### `--noSubFix`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
+| --- | --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --noSubFix` | `boolean` | `No`| `—` | `false`| `noSubFix: ` |
+
+Disables all subtitle fixes and downloads raw subtitles.
+#### `--srtAssFix`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
+| --- | --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --srtAssFix` | `boolean` | `No`| `—` | `true`| `srtAssFix: ` |
+
+Fixes the recently changed Crunchyroll subtitles provided by Closed Caption Converter.
+#### `--layoutResFix`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
+| --- | --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --layoutResFix` | `boolean` | `No`| `—` | `true`| `layoutResFix: ` |
+
+Applies the LayoutRes Fix to all ASS subtitles.
+#### `--scaledBorderAndShadowFix`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
+| --- | --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --scaledBorderAndShadowFix` | `boolean` | `No`| `—` | `true`| `scaledBorderAndShadowFix: ` |
+
+Applies the ScaledBorderAndShadow Fix to all ASS subtitles.
+#### `--scaledBorderAndShadow`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** | **Choices** | **Default** |**cli-default Entry**
+| --- | --- | --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --scaledBorderAndShadow ${yes/no}` | `string` | `No`| `—` | [`yes`, `no`] | `yes`| `scaledBorderAndShadow: ` |
+
+Select if ScaledBorderAndShadow should be set to "yes" or "no".
+#### `--originalScriptFix`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
+| --- | --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --originalScriptFix` | `boolean` | `No`| `—` | `true`| `originalScriptFix: ` |
+
+Removes the URL in the Original Script line of the ASS subtitles, it prevents from bricking the subs in VLC (Fonts not loading when url not returning 200).
+#### `--subtitleTimestampFix`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
+| --- | --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --subtitleTimestampFix` | `boolean` | `No`| `—` | `false`| `subtitleTimestampFix: ` |
+
+Fixes subtitle dialogues that go over the video length (deletes dialogues where start is over video length and updates the end timestamp when end is over video length).
+#### `--bypasssync`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
+| --- | --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --bypasssync` | `boolean` | `No`| `—` | `false`| `bypasssync: ` |
+
+Bypass video/audio timing checks for selected dubs and all-language --qall discovery. May cause audio/video desync. Not needed with --noaudio; subtitle timings are never used.
+#### `--CC`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
+| --- | --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --CC ${boolean}` | `boolean` | `No`| `—` | `true`| `CC: ` |
+
+Include tracks identified as closed captions by Crunchyroll. Use --CC false or CC: false to skip captions while keeping selected regular subtitles and signs. Use --CC true to include captions for one command. The default is true; ccTag only controls the caption label.
+### Utilities
+#### `--check-status`
+| **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
+| --- | --- | --- | --- | --- | ---|
+| Crunchyroll | `--service crunchy --check-status` | `boolean` | `No`| `—` | `—` |
+
+CLI-only action: use --service crunchy and optional --debug; configuration cannot activate it. After normal login refresh, one read-only snapshot has a 15-second deadline. It reports capacity and any current status-request HTTP 429/Retry-After separately from the last observed playback wait; it does not start playback.
+
+</details>

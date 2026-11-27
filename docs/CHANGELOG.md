@@ -1,6 +1,21 @@
-# Fork changelog
+# 📝 Fork changelog
 
 Changes specific to this fork are grouped below with their implementation commits. See [Fork changes](fork-changes.md) for maintenance requirements and the [README](README.md) for usage.
+
+## 2026-11-28
+
+### Nightly Rev7 — Crunchyroll CLI sign-in
+
+| If you used this on Crunchyroll | Use this in Rev7 |
+| --- | --- |
+| `--service crunchy --device` for Android TV | `--service crunchy --device androidtv` |
+| `--service crunchy --auth` for Android phone | `--service crunchy --device android` |
+| `--service crunchy --token` with a cookie value or file | Keep using the same command and input. |
+
+- Start each service command with one `--service` and its name. Bare `--help` opens general help. On Crunchyroll, bare `--device` or `--token` **after the service** shows examples. HIDIVE and ADN still use `--auth` for username or email and password. [CLI routing](../../../commit/497e32af4bca05a08d919fd74b9199dbe49a9583)
+- Add `--dry-run` to either Crunchyroll device sign-in to see the prompt. AniDL skips the browser and cancels automatically. Android TV requests a real code before cancelling. [Device sign-in previews](../../../commit/ec91cd8ec223e36ffbc4b53af3da99ecb2beb944)
+- Reject a repeated service, an invalid saved Crunchyroll token setting, or a dry-run archive addition before taking action. [Validation changes](../../../commit/1198ac44bce0721c31ed0c5055365fb2659148c5)
+- Follow the Windows or Linux walkthrough from sign-in through a first episode. [Getting started](GET-STARTED.md) · [Service sign-in guide](AUTHENTICATION.md)
 
 ## 2026-11-26
 

@@ -1,6 +1,8 @@
-# Crunchyroll sign-in maintenance notes
+# 🛠️ Crunchyroll sign-in maintenance notes
 
 Rev7 uses three independent account logins. Use this reference when a previously working sign-in starts failing. The checkpoints below describe what AniDL expects and when it will replace a saved session.
+
+For instructions you can follow at the terminal, see the [🔑 Crunchyroll sign-in guide](AUTHENTICATION.md#crunchyroll).
 
 Start Crunchyroll CLI commands with `--service crunchy` and specify the service only once. Run `aniDL --service crunchy --help` to see the Crunchyroll options, or add just `--device` or `--token` after the service to open that method’s short help page.
 
