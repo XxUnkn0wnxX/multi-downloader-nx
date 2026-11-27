@@ -49,6 +49,11 @@ import { cliInvocation, crunchyCliAuthDecision, leadingCliService } from './modu
 		process.exitCode = 1;
 		return;
 	}
+	if (argv.dryRun && argv.addArchive) {
+		console.error('--dry-run cannot be combined with --update or --addArchive.');
+		process.exitCode = 1;
+		return;
+	}
 	if (status !== 'valid') {
 		const authDecision = crunchyCliAuthDecision(argv);
 		if (authDecision.kind !== 'continue') {
@@ -68,11 +73,6 @@ import { cliInvocation, crunchyCliAuthDecision, leadingCliService } from './modu
 	if (status === 'valid') {
 		const service = new Crunchy(false, recoveryBudget, true);
 		if (!(await service.cli())) process.exitCode = 1;
-		return;
-	}
-	if (argv.dryRun && (argv.update || argv.addArchive)) {
-		console.error('--dry-run cannot be combined with --update or --addArchive.');
-		process.exitCode = 1;
 		return;
 	}
 	if (!argv.dryRun && !argv.skipUpdate) await update(argv.update);

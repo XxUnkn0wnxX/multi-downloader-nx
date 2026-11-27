@@ -38,7 +38,8 @@ function compile(file, deps = {}, overrides = {}) {
 			require: (id) => (id in deps ? deps[id] : require(id)),
 			process: overrides.process,
 			__dirname: path.join(root, 'modules'),
-			console: output
+			console: output,
+			...(overrides.global ? { global: overrides.global } : {})
 		},
 		{ filename: file }
 	);
@@ -117,7 +118,7 @@ for (const { name, runtime, expected } of [
 	for (const [argv, example] of [
 		[{ service: 'crunchy', auth: true }, '--device android'],
 		[{ service: 'crunchy', device: true }, '--device androidtv'],
-		[{ service: 'crunchy', token: true }, '--token']
+		[{ service: 'crunchy', token: true, crunchyAuthExplicit: true }, '--token']
 	]) {
 		const decision = auth.crunchyCliAuthDecision(argv);
 		assert.notEqual(decision.kind, 'continue', `${name}: expected a sign-in notice`);
@@ -174,7 +175,7 @@ function parse(argv, config = {}, override, directOverride = false, isGUI = fals
 			'../package.json': { description: 'fixture CLI', version: '1.0.0' },
 			leven: () => 99
 		},
-		{ process: mockProcess }
+		{ process: mockProcess, global: { console: { log() {} } } }
 	);
 	if (directOverride) {
 		appArgs.overrideArguments(config, override, isGUI);
@@ -189,7 +190,11 @@ function parse(argv, config = {}, override, directOverride = false, isGUI = fals
 for (const selectors of [
 	['--service', 'hidive', '--service', 'hidive'],
 	['--service', 'hidive', '--service', 'crunchy'],
-	['--service=hidive', '-service', 'crunchy']
+	['--service=hidive', '-service', 'crunchy'],
+	['--service', 'hidive', '--addArchive', '-s', '42', '--fileName', '--service=crunchy'],
+	['--service', 'hidive', '--fileName', '-service', 'crunchy'],
+	['--service', 'hidive', '--fileName', '--', '--service=crunchy'],
+	['--service', 'hidive', '-hq', '--', '--fileName', '--service=crunchy']
 ]) {
 	const originalExit = process.exit;
 	const originalStderrWrite = process.stderr.write;
@@ -224,6 +229,15 @@ assert.equal(parse(['--token', '-cookies.txt']).token, '-cookies.txt');
 assert.equal(parse(['--token', '--debug']).debug, true);
 assert.equal(parse(['--token=--service=crunchy']).token, '--service=crunchy');
 assert.equal(parse(['--', '--service', 'hidive'], {}, undefined, false, false, 'hidive').service, 'hidive');
+assert.equal(parse(['--search=--service=crunchy'], {}, undefined, false, false, 'hidive').search, '--service=crunchy');
+assert.equal(parse(['--fileName', '--', '--search', 'literal'], {}, undefined, false, false, 'hidive').search, 'literal');
+assert.equal(parse(['--', '--token', '-fixture-private-cookie', '--qall=false'], {}, { e: '1' }).e, '1', 'archive overrides remain options before the delimiter');
+assert.equal(parse(['--', '--token', '-fixture-private-cookie'], {}, undefined, false, false, 'hidive').token, undefined);
+assert.equal(parse(['--', '--qall=false'], { qall: true }).qall, true);
+assert.equal(parse(['-hq', '--', '--', '--token', '-fixture-private-cookie'], {}, { e: '1' }, true, true).e, '1', 'grouped short options locate the archive override boundary');
+assert.equal(parse(['-hq=2', '--', '--token', '-fixture-private-cookie'], {}, { e: '1' }, true, true).e, '1', 'a grouped attached short value leaves the delimiter active');
+assert.equal(parse(['--service', 'hidive'], {}, undefined, false, true, 'crunchy').service, 'hidive', 'GUI parsing retains service overrides');
+assert.throws(() => parse(['--version', '--', '--token', '-fixture-private-cookie']), /exit 0/);
 assert.equal(parse(['--auth'], {}, undefined, false, false, 'hidive').auth, true);
 assert.equal(parse(['--auth'], {}, undefined, false, false, 'adn').auth, true);
 {
@@ -236,6 +250,7 @@ assert.equal(parse(['--auth'], {}, undefined, false, false, 'adn').auth, true);
 		};
 		process.stderr.write = (message) => ((errorOutput += String(message)), true);
 		assert.throws(() => parse(['--token', '-fixture-private-cookie']), /captured process exit 1/);
+		assert.throws(() => parse(['-hq', '--', '--token', '-fixture-private-cookie']), /captured process exit 1/);
 		assert.match(errorOutput, /Invalid --token input or unknown option/);
 		assert(!errorOutput.includes('fixture-private-cookie'));
 	} finally {

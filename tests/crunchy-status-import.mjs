@@ -186,7 +186,16 @@ await run(['--service', 'crunchy', '--auth'], {
 });
 await run(['--auth'], { defaults: 'service: crunchy\n', page: /Choose a service first/ });
 await run(['--service', 'crunchy', '--device'], { defaults: 'token: fixture-cookie\n', exitCode: 0, page: /--device androidtv/ });
+const invalidTokenDefaults = 'token: 1234\n';
+await run(['--service', 'crunchy', '-e', 'FIXTURE01'], { defaults: invalidTokenDefaults, page: /Invalid token in CLI defaults/ });
+await run(['--service', 'crunchy', '--token'], { defaults: invalidTokenDefaults, exitCode: 0, page: /Cookies file/ });
+await run(['--service', 'crunchy', '--device'], { defaults: invalidTokenDefaults, exitCode: 0, page: /--device androidtv/ });
 await run(['--service', 'crunchy', '--auth'], { defaults: 'username: fixture-name\npassword: fixture-password\n', page: /Used --auth/ });
 await run(['--service', 'crunchy', '--device', 'bad-selector'], { page: /androidtv/ });
 await run(['--service', 'crunchy', '--device', 'android', '--token'], { page: /only one/ });
+for (const authFlag of ['--device', '--token']) {
+	await run(['--service', 'crunchy', authFlag, '--dry-run', '--addArchive', '-s', 'FIXTURE01'], {
+		exactMessage: '--dry-run cannot be combined with --update or --addArchive.'
+	});
+}
 output.log('Crunchy status checks and sign-in notices preserve saved sessions and avoid setup and requests');

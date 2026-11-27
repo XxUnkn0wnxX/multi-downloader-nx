@@ -114,13 +114,43 @@ export let argvC: {
 
 export type ArgvType = typeof argvC;
 
-// This functions manages slight mismatches like -srz and returns it as --srz
-const processArgv = (program: Command) => {
-	const argv = [];
+const singleServiceError = 'Choose one service per command. Put --service and its name first.';
+
+// Normalize legacy CLI spellings while preserving positional arguments after the delimiter.
+const processArgv = (program: Command, requireSingleService = false) => {
+	const argv = process.argv.slice(0, 2);
+	let requiredOperand = false;
+	let sawService = false;
+	const push = (arg: string) => {
+		argv.push(arg);
+		if (requiredOperand) {
+			requiredOperand = false;
+			return;
+		}
+		// Match Commander's exact options first, then its grouped short-option grammar.
+		let remaining = arg;
+		while (true) {
+			const option = program.options.find((candidate) => candidate.short === remaining || candidate.long === remaining);
+			if (option) {
+				requiredOperand = option.required;
+				return;
+			}
+			if (remaining.length <= 2 || remaining[0] !== '-' || remaining[1] === '-') return;
+			const short = program.options.find((candidate) => candidate.short === remaining.slice(0, 2));
+			if (!short || short.required || short.optional) return;
+			remaining = `-${remaining.slice(2)}`;
+		}
+	};
 	const arrayFlags = args.filter((a) => a.type === 'array').map((a) => `--${a.name}`);
 
-	for (let i = 0; i < process.argv.length; i++) {
+	for (let i = 2; i < process.argv.length; i++) {
 		const arg = process.argv[i];
+
+		if (arg === '--' && !requiredOperand) return { argv: argv.concat(process.argv.slice(i)), delimiterIndex: argv.length };
+		if (requireSingleService && /^--?service(?:=|$)/.test(arg)) {
+			if (sawService) program.error(singleServiceError);
+			sawService = true;
+		}
 
 		const next = process.argv[i + 1];
 		if ((arg === '--token' || arg === '-token') && next?.startsWith('-') && next !== '--') {
@@ -130,21 +160,21 @@ const processArgv = (program: Command) => {
 			// A dash-prefixed file was valid with the old required token argument. Real flags still take precedence.
 			if (!known) {
 				if (!existsSync(next)) program.error('Invalid --token input or unknown option. With Crunchyroll selected, use --token alone for examples.');
-				argv.push(`--token=${next}`);
+				push(`--token=${next}`);
 				i++;
 				continue;
 			}
 		}
 
 		if (arg === '--qall=false' || arg === '--qall=true') {
-			argv.push(arg === '--qall=false' ? '--no-qall' : '--qall');
+			push(arg === '--qall=false' ? '--no-qall' : '--qall');
 			continue;
 		}
 
 		if (/^-[a-zA-Z]{2,}$/.test(arg)) {
 			const found = args.find((a) => a.name === arg.substring(1) || a.alias === arg.substring(1));
 			if (found) {
-				argv.push(`--${found.name}`);
+				push(`--${found.name}`);
 				continue;
 			}
 		}
@@ -158,16 +188,16 @@ const processArgv = (program: Command) => {
 				n++;
 			}
 
-			argv.push(arg);
-			argv.push(col.join(' '));
+			push(arg);
+			push(col.join(' '));
 			i = n - 1;
 			continue;
 		}
 
-		argv.push(arg);
+		push(arg);
 	}
 
-	return argv;
+	return { argv, delimiterIndex: undefined };
 };
 
 // Preserve explicit empty selectors and positional arguments for standalone actions.
@@ -286,7 +316,7 @@ const appArgv = (
 	if (argvC) return argvC;
 	if (!isGUI && statusInvocation(process.argv.slice(2)) === 'invalid') throw new Error('--check-status requires only --service crunchy and optional --debug');
 	const argv = getCommander(cfg, isGUI, !isGUI);
-	argv.parse(processArgv(argv));
+	argv.parse(processArgv(argv, !isGUI).argv);
 	const parsed = argv.opts() as ArgvType;
 	if (!isGUI && parsed.version) {
 		global.console.log(pj.version);
@@ -309,7 +339,8 @@ const appArgv = (
 
 const overrideArguments = (cfg: { [key: string]: unknown }, override: Partial<typeof argvC>, isGUI = false) => {
 	const argv = getCommander(cfg, isGUI);
-	const baseArgv = processArgv(argv);
+	const { argv: baseArgv, delimiterIndex } = processArgv(argv);
+	const overrides: string[] = [];
 
 	for (const [rawKey, val] of Object.entries(override)) {
 		if (val === undefined) continue;
@@ -322,16 +353,17 @@ const overrideArguments = (cfg: { [key: string]: unknown }, override: Partial<ty
 		const key = item?.name ?? rawKey;
 		if (typeof val === 'boolean') {
 			if (key === 'CC') {
-				baseArgv.push('--CC', String(val));
+				overrides.push('--CC', String(val));
 				continue;
 			}
-			if (!val && key === 'qall') baseArgv.push('--no-qall');
-			if (val) baseArgv.push(key.length > 1 ? `--${key}` : `-${key}`);
+			if (!val && key === 'qall') overrides.push('--no-qall');
+			if (val) overrides.push(key.length > 1 ? `--${key}` : `-${key}`);
 		} else {
-			baseArgv.push(key.length > 1 ? `--${key}` : `-${key}`, String(val));
+			overrides.push(key.length > 1 ? `--${key}` : `-${key}`, String(val));
 		}
 	}
 
+	baseArgv.splice(delimiterIndex ?? baseArgv.length, 0, ...overrides);
 	const data = argv.parse(baseArgv);
 	const parsed = data.opts() as ArgvType;
 
@@ -389,8 +421,7 @@ const getCommander = (cfg: Record<string, unknown>, isGUI: boolean, requireSingl
 		const optionNames = [...args.map((a) => `--${a.name}`), ...args.map((a) => (a.alias ? `-${a.alias}` : null)).filter(Boolean)];
 
 		option.argParser((value) => {
-			if (item.name === 'service' && requireSingleService && program.getOptionValueSource('service') === 'cli')
-				program.error('Choose one service per command. Put --service and its name first.');
+			if (item.name === 'service' && requireSingleService && program.getOptionValueSource('service') === 'cli') program.error(singleServiceError);
 			if (['CC', 'device', 'token'].includes(item.name)) return value;
 			if (item.transformer) return item.transformer(value);
 

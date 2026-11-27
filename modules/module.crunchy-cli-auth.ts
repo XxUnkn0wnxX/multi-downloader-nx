@@ -4,7 +4,7 @@ export type CrunchyCliAuth = {
 	service?: string;
 	auth?: boolean;
 	device?: string | boolean;
-	token?: string | true;
+	token?: unknown;
 	silentAuth?: boolean;
 	username?: string;
 	password?: string;
@@ -37,6 +37,8 @@ export function crunchyCliAuthDecision(argv: CrunchyCliAuth): CrunchyCliAuthDeci
 			return { kind: 'error', message: '--device and --token are only supported for Crunchyroll.' };
 		return { kind: 'continue' };
 	}
+	if (argv.service === 'crunchy' && argv.token !== undefined && typeof argv.token !== 'string' && !(argv.token === true && argv.crunchyAuthExplicit))
+		return { kind: 'error', message: 'Invalid token in CLI defaults. Set token to a cookie value or a cookies file path, or remove the setting.' };
 	const modes = Number(present(argv.device)) + Number(present(argv.token)) + Number(!!argv.auth) + Number(!!argv.silentAuth);
 	if (modes === 0 && argv.username === undefined && argv.password === undefined) return { kind: 'continue' };
 	if (modes > 1) return { kind: 'error', message: 'Choose only one of --device, --token, --auth, or --silentAuth.' };

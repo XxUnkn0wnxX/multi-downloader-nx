@@ -292,8 +292,8 @@ try {
 			[{ service: 'crunchy', device: true }, 'notice', /Android TV[\s\S]*--device androidtv[\s\S]*Android phone or tablet[\s\S]*--device android/],
 			[{ service: 'crunchy', device: '' }, 'error', /Missing --device value/],
 			[{ service: 'crunchy', token: '' }, 'error', /Missing --token value/],
-			[{ service: 'crunchy', device: true, token: true }, 'error', /Choose only one/],
-			[{ service: 'crunchy', auth: true, device: 'androidtv' }, 'error', /Choose only one/],
+			[{ service: 'crunchy', device: true, token: true, crunchyAuthExplicit: true }, 'error', /Choose only one/],
+			[{ service: 'crunchy', auth: true, device: 'androidtv', crunchyAuthExplicit: true }, 'error', /Choose only one/],
 			[{ service: 'hidive', auth: true }, 'continue', undefined],
 			[{ service: 'adn', auth: true }, 'continue', undefined],
 			[{ service: 'hidive', device: true, crunchyAuthExplicit: true }, 'error', /only supported for Crunchyroll/]
@@ -303,6 +303,17 @@ try {
 			assert.equal(decision.kind, kind, JSON.stringify(argv));
 			if (message) assert.match(decision.message, message);
 		}
+	});
+	await test('rejects non-string configured Crunchyroll tokens without treating them as help', () => {
+		for (const token of [1234, null, false, true, [fakeToken], { secret: fakeToken }]) {
+			const decision = cliAuth.crunchyCliAuthDecision({ service: 'crunchy', token });
+			assert.equal(decision.kind, 'error', `token type ${token === null ? 'null' : typeof token}`);
+			assert.match(decision.message, /Invalid token in CLI defaults.*cookie value or a cookies file path, or remove the setting/);
+			assert(!decision.message.includes(fakeToken));
+		}
+		assert.equal(cliAuth.crunchyCliAuthDecision({ service: 'crunchy', token: true, crunchyAuthExplicit: true }).kind, 'notice');
+		assert.equal(cliAuth.crunchyCliAuthDecision({ service: 'crunchy', token: fakeToken }).kind, 'continue');
+		assert.equal(cliAuth.crunchyCliAuthDecision({ service: 'hidive', token: 1234 }).kind, 'continue');
 	});
 	await test('actual Crunchyroll CLI rejects legacy credential options before prompts or side effects', async () => {
 		for (const argv of [{ username: 'legacy-user' }, { password: 'legacy-secret' }, { username: '' }, { password: '' }, { silentAuth: true }]) {
@@ -358,6 +369,27 @@ try {
 			assert.equal(process.exitCode, undefined);
 			assert(!logs.some(([kind]) => kind === 'warn' || kind === 'error'));
 		}
+	});
+	await test('actual Crunchyroll CLI rejects malformed configured tokens before side effects', async () => {
+		for (const token of [1234, null, false, true, [fakeToken], { secret: fakeToken }]) {
+			logs.length = 0;
+			parsedArgv = { token };
+			process.exitCode = undefined;
+			let authCalls = 0;
+			const { service, calls } = makeService({});
+			service.loginWithToken = async () => authCalls++;
+			service.loginWithDevice = async () => authCalls++;
+			const savedBefore = saved.length;
+			const loadBefore = loadBinCalls;
+			assert.equal(await service.cli(), false);
+			assert.equal(process.exitCode, 1);
+			assert(logs.some(([kind, line]) => kind === 'error' && /Invalid token in CLI defaults/.test(line)));
+			assert.equal(authCalls, 0);
+			assert.equal(calls.length, 0);
+			assert.equal(saved.length, savedBefore);
+			assert.equal(loadBinCalls, loadBefore);
+		}
+		process.exitCode = undefined;
 	});
 
 	await test('device helper polls milliseconds and sends Android TV identity', async () => {
