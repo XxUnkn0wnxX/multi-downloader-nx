@@ -140,7 +140,7 @@ for (const { name, runtime, expected } of [
 	assert.equal(unscoped.crunchyLoginInstruction('--device androidtv'), `Run:\n  ${expected} --service crunchy --device androidtv`);
 }
 
-const { args, groups, configuredDefault, getDefault } = compile('modules/module.args.ts', {
+const { args, groups, configuredDefault, getDefault, optionAppliesToService } = compile('modules/module.args.ts', {
 	'./module.langsData': languageData,
 	'../@types/enums': enums,
 	'../package.json': JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')),
@@ -168,7 +168,7 @@ function parse(argv, config = {}, override, directOverride = false, isGUI = fals
 		'modules/module.app-args.ts',
 		{
 			'node:fs': { existsSync: (file) => ['-cookies.txt', '--debug'].includes(file) },
-			'./module.args': { args, groups, configuredDefault },
+			'./module.args': { args, groups, configuredDefault, optionAppliesToService },
 			'./log': { console: { ...output, error: (message) => errors.push(message) } },
 			'./module.langsData': languageData,
 			'../@types/enums': enums,
@@ -266,6 +266,92 @@ for (const [flag, id, episode] of [
 	assert.equal(hidive.srz, id, `${flag} is accepted by the HIDIVE parser`);
 	assert.equal(hidive.e, episode, 'the selected episode is retained');
 }
+for (const flag of ['--series', '--srz', '-series', '-srz']) {
+	for (const service of ['crunchy', 'hidive']) {
+		const parsed = parse([flag, '12345'], {}, undefined, false, false, service);
+		assert.equal(parsed.srz, '12345', `${flag} remains supported for ${service}`);
+	}
+}
+for (const [flag, service] of [
+	['--qall', 'hidive'],
+	['-qall', 'adn'],
+	['--no-qall', 'hidive'],
+	['--tsd', 'adn'],
+	['-tsd', 'hidive'],
+	['--disctmr', 'adn'],
+	['-disctmr', 'hidive'],
+	['--bypasssync', 'adn'],
+	['--combineLines', 'crunchy'],
+	['--combineLines', 'adn'],
+	['--rawoutput', 'hidive'],
+	['--locale', 'hidive'],
+	['--series', 'adn']
+]) {
+	const value = ['--disctmr', '-disctmr'].includes(flag)
+		? '0'
+		: flag === '--rawoutput'
+			? 'fixture.txt'
+			: flag === '--locale'
+				? 'fr'
+				: flag === '--series'
+					? '12345'
+				: undefined;
+	const argv = [flag, ...(value === undefined ? [] : [value])];
+	assert.throws(() => parse(argv, {}, undefined, false, false, service), (error) => {
+		const reportedFlag = ['-qall', '--no-qall'].includes(flag)
+			? '--qall'
+			: ['--disctmr', '-disctmr'].includes(flag)
+				? '--discovery-timmer'
+				: flag;
+		assert.match(error.message, new RegExp(`${reportedFlag} is unavailable with --service ${service}\\.`));
+		assert.match(error.message, /Use --service (crunchy|hidive|adn)/i);
+		return true;
+	});
+}
+assert.equal(parse(['--new'], {}, undefined, false, false, 'hidive').new, true, 'the unimplemented HIDIVE --new option remains accepted for its existing diagnostic');
+assert.equal(parse(['--tsd'], {}, undefined, false, false, 'crunchy').tsd, true, 'a Crunchyroll-only option remains accepted for Crunchyroll');
+assert.equal(parse(['--qall'], {}, undefined, false, false, 'crunchy').qall, true);
+assert.equal(parse(['--no-qall'], {}, undefined, false, false, 'crunchy').qall, false);
+assert.equal(parse(['--', '--tsd'], {}, undefined, false, false, 'hidive').tsd, false, 'an option-looking delimiter operand is not validated as a CLI option');
+assert.equal(parse([], { qall: true }, undefined, false, false, 'hidive').qall, true, 'foreign service config defaults continue to parse');
+assert.equal(parse(['--allDubs'], {}, undefined, false, false, 'adn').allDubs, true, 'shared all-service options remain valid');
+assert(optionAppliesToService, 'module.args exports the applicability contract');
+for (const [name, services] of [
+	['qall', ['crunchy']],
+	['series', ['crunchy', 'hidive']],
+	['dlVideoOnce', ['crunchy', 'adn']],
+	['auth', ['all']],
+	['combineLines', ['hidive']],
+	['rawoutput', ['crunchy']],
+	['waittime', ['crunchy', 'adn']],
+	['fontName', ['all']]
+]) {
+	const option = args.find((item) => item.name === name);
+	assert.deepEqual(Array.from(option.service), services, `${name} declares its service scope`);
+	assert.equal(optionAppliesToService(option), services.includes('all'), `${name} global applicability`);
+	for (const service of ['crunchy', 'hidive', 'adn'])
+		assert.equal(optionAppliesToService(option, service), services.includes('all') || services.includes(service), `${name} applicability for ${service}`);
+}
+for (const [flag, service] of [
+	['--srz', 'hidive'],
+	['--series', 'crunchy'],
+	['-srz', 'crunchy'],
+	['--dlVideoOnce', 'adn'],
+	['--waittime', 'adn'],
+	['--fontName', 'crunchy'],
+	['--page', 'adn']
+]) {
+	const argument = ['--srz', '--series', '-srz'].includes(flag)
+		? '12345'
+		: ['--waittime', '--page'].includes(flag)
+			? '0'
+			: flag === '--fontName'
+				? 'Fixture Font'
+				: undefined;
+	const parsed = parse([flag, ...(argument === undefined ? [] : [argument])], {}, undefined, false, false, service);
+	if (['--srz', '--series', '-srz'].includes(flag)) assert.equal(parsed.srz, '12345');
+	else assert.equal(parsed[flag.slice(2)], flag === '--fontName' ? 'Fixture Font' : flag === '--dlVideoOnce' ? true : 0);
+}
 assert.equal(parse(['--device', 'android'], { token: 'configured-cookie' }).token, undefined);
 assert.equal(parse(['--device=--token']).device, '--token');
 assert.deepEqual(Array.from(parse([], { dubLang: ['eng,jpn', 'hin'] }).dubLang), ['eng', 'jpn', 'hin']);
@@ -284,7 +370,7 @@ assert.deepEqual(Array.from(parse([], { dubLang: ['hindi'] }, { dubLang: ['hindi
 const parser = compile(
 	'modules/module.app-args.ts',
 	{
-		'./module.args': { args, groups, configuredDefault },
+		'./module.args': { args, groups, configuredDefault, optionAppliesToService },
 		'./log': { console: output },
 		'./module.langsData': languageData,
 		'../@types/enums': enums,
@@ -310,6 +396,11 @@ assert.equal(parse([], { CC: false }, { CC: true }).CC, true);
 assert.equal(parse([], { CC: true }, { CC: false }, false, true).CC, false);
 assert.throws(() => parse(['--CC', 'maybe']), /Invalid value for --CC: expected true or false/);
 assert.throws(() => parse([], { CC: 'maybe' }), /Invalid value for --CC: expected true or false/);
+for (const service of ['hidive', 'adn']) {
+	const parsed = parse(['-s', '12345'], { CC: 'invalid' }, undefined, false, false, service);
+	assert.equal(parsed.s, '12345', `${service} keeps parsing a download selector with a foreign CC setting`);
+	assert.equal(parsed.CC, 'invalid', `${service} ignores Crunchyroll-only CC validation`);
+}
 assert.equal(parse([]).qall, false, 'qall is false by default');
 assert.equal(parse([], { qall: true }).qall, true, 'qall can be enabled from the YAML config value');
 assert.equal(parse(['--qall'], { qall: false }).qall, true);
@@ -372,7 +463,7 @@ function help(argv, config = {}) {
 	const appArgs = compile(
 		'modules/module.app-args.ts',
 		{
-			'./module.args': { args, groups, configuredDefault },
+			'./module.args': { args, groups, configuredDefault, optionAppliesToService },
 			'./log': { console: output },
 			'./module.langsData': languageData,
 			'../@types/enums': enums,
@@ -425,18 +516,15 @@ const crunchyServiceHelp = help(['--service', 'crunchy', '--help']);
 const hidiveServiceHelp = help(['--service', 'hidive', '--help']);
 const adnServiceHelp = help(['--service', 'adn', '--help']);
 const helpFlags = (text) => new Set(Array.from(text.matchAll(/(?:^|[^\w-])(--[\w-]+|-[A-Za-z])(?=$|[^\w-])/g), (match) => match[1]));
-const crunchyOnlyOptions = args.filter((option) => option.service.length === 1 && option.service[0] === 'crunchy');
-assert(crunchyOnlyOptions.length > 0, 'the exclusive option metadata should define the Crunchyroll help contract');
-const crunchyOnlyFlags = new Set();
-for (const { name, alias } of crunchyOnlyOptions) {
-	crunchyOnlyFlags.add(`${name.length === 1 ? '-' : '--'}${name}`);
-	if (alias) crunchyOnlyFlags.add(`${alias.length === 1 ? '-' : '--'}${alias}`);
-}
-for (const flag of crunchyOnlyFlags) {
-	assert(helpFlags(crunchyServiceHelp).has(flag), `Crunchyroll help should include ${flag}`);
-	assert(!helpFlags(generalHelp).has(flag), `general help should hide ${flag}`);
-	assert(!helpFlags(hidiveServiceHelp).has(flag), `HIDIVE help should hide ${flag}`);
-	assert(!helpFlags(adnServiceHelp).has(flag), `ADN help should hide ${flag}`);
+const helpsByService = { crunchy: crunchyServiceHelp, hidive: hidiveServiceHelp, adn: adnServiceHelp };
+for (const option of args) {
+	const flags = [`${option.name.length === 1 ? '-' : '--'}${option.name}`];
+	if (option.alias) flags.push(`${option.alias.length === 1 ? '-' : '--'}${option.alias}`);
+	for (const flag of flags) {
+		assert.equal(helpFlags(generalHelp).has(flag), optionAppliesToService(option), `global help applicability for ${flag}`);
+		for (const service of ['crunchy', 'hidive', 'adn'])
+			assert.equal(helpFlags(helpsByService[service]).has(flag), optionAppliesToService(option, service), `${service} help applicability for ${flag}`);
+	}
 }
 assert.match(crunchyServiceHelp, /--auth[\s\S]{0,100}Crunchyroll CLI: use --device or --token/);
 for (const text of [generalHelp, hidiveServiceHelp, adnServiceHelp]) {
@@ -469,31 +557,41 @@ output.log('ok - discovery timer, aliases, config precedence and service-aware h
 
 const referencePath = path.join(root, 'docs/ARGUMENTS.md');
 const docs = fs.readFileSync(referencePath, 'utf8');
-const [mainReference, crunchyReference] = docs.split('## Crunchyroll-only commands and options');
-assert.match(crunchyReference, /<details>[\s\S]*<summary>[^\n]+--service crunchy[\s\S]*<\/details>/);
 const headings = (text) => Array.from(text.matchAll(/^#### `([^`]+)`$/gm), (match) => match[1]);
-const mainFlags = headings(mainReference);
-const crunchyFlags = headings(crunchyReference);
+const providerBlock = (text, service) => {
+	const escaped = service.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	const match = text.match(new RegExp(`<details>[\\s\\S]*?<summary>[^\\n]*--service ${escaped}[\\s\\S]*?<\\/summary>([\\s\\S]*?)<\\/details>`));
+	assert(match, `reference should have an expandable ${service} options section`);
+	return match[1];
+};
+const globalReference = docs.split(/<details>/)[0];
+const providerReferences = Object.fromEntries(['crunchy', 'hidive', 'adn'].map((service) => [service, providerBlock(docs, service)]));
+assert.match(providerReferences.crunchy, /`--service crunchy --device \[type\]`/);
 for (const option of args) {
 	const flag = (option.name.length === 1 ? '-' : '--') + option.name;
-	const expected = crunchyOnlyOptions.includes(option) ? crunchyFlags : mainFlags;
-	assert(expected.includes(flag), `wrong reference section for ${flag}`);
+	assert.equal(headings(globalReference).includes(flag), optionAppliesToService(option), `global reference placement for ${flag}`);
+	for (const service of ['crunchy', 'hidive', 'adn']) {
+		const present = headings(providerReferences[service]).includes(flag);
+		const expected = !optionAppliesToService(option) && optionAppliesToService(option, service);
+		assert.equal(present, expected, `${flag} should ${expected ? '' : 'not '}appear in ${service} reference`);
+	}
 }
-assert.equal(mainFlags.length + crunchyFlags.length, args.length, 'document each option exactly once');
-assert.match(crunchyReference, /`--service crunchy --device \[type\]`/);
-const section = (name) => docs.split(`#### \`${name}\``)[1].split('#### `')[0];
-assert.match(section('--discovery-timmer'), /`automatic`[\s\S]*`discovery-timmer: ` or `disctmr: `/);
-assert.match(section('--dry-run'), /`false`[\s\S]*`—`/);
-for (const name of ['--username', '--password', '--token', '--forceMuxer']) {
-	assert.match(section(name), /`undefined`/);
-	assert(!section(name).includes('`automatic`'));
+const section = (name, service = 'crunchy') => {
+	const scope = service ? providerReferences[service] : globalReference;
+	return scope.split(`#### \`${name}\``)[1]?.split('#### `')[0] ?? '';
+};
+assert.match(section('--discovery-timmer'), /`automatic`[\s\S]*`discovery-timmer or disctmr: `/);
+assert.match(section('--dry-run', null), /`false`[\s\S]*`—`/);
+for (const [name, service] of [['--username', 'hidive'], ['--password', 'hidive'], ['--token', 'crunchy'], ['--forceMuxer', null]]) {
+	assert.match(section(name, service), /`undefined`/);
+	assert(!section(name, service).includes('`automatic`'));
 }
-assert.equal((section('-x').match(/`server: `/g) ?? []).length, 1);
+assert.equal((section('-x', null).match(/`x or server: `/g) ?? []).length, 1);
 assert.match(section('--bypasssync'), /`bypasssync: `/);
 assert(!docs.includes('#### `--forcevideo`'));
 assert.match(section('--check-status'), /`—`/);
-assert.match(section('--vstream'), /`vstream: ` or `vs: `/);
-assert.match(section('--astream'), /`astream: ` or `as: `/);
+assert.match(section('--vstream'), /`vstream or vs: `/);
+assert.match(section('--astream'), /`astream or as: `/);
 
 const serverOption = args.find((argument) => argument.name === 'x');
 serverOption.default.name = 'server';
@@ -501,7 +599,7 @@ let generated = '';
 try {
 	compile('modules/build-docs.ts', {
 		'../package.json': { name: 'fixture', version: '1', fork: { channel: 'Nightly', revision: 12 } },
-		'./module.args': { args, groups },
+		'./module.args': { args, groups, cliServices: ['crunchy', 'hidive', 'adn'], optionAppliesToService },
 		'./module.fork-display': compile('modules/module.fork-display.ts'),
 		fs: {
 			writeFileSync: (outputPath, text) => {

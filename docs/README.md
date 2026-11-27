@@ -24,9 +24,13 @@ Start with **Getting Started** to open a terminal, sign in and preview one Crunc
 
 Use `--service crunchy --device {type}` **(Crunchyroll only)** to sign in. Replace `{type}` with `androidtv` for Android TV or `android` for a phone or tablet. Search for a show and choose episodes from a season. [Crunchyroll sign-in](AUTHENTICATION.md#crunchyroll)
 
+**Does the sign-in method change audio bitrate?** On 25 November 2026 (UTC), we checked one episode using a browser cookie, Android phone and Android TV. All three advertised the same audio bitrate for each dub. English and Japanese differed slightly.
+
+**Can video bitrate differ?** Yes. Video bitrate can vary by dub and endpoint. On that episode, Japanese offered a higher-bitrate video option than English.
+
 ### HIDIVE
 
-Use `--service hidive --auth` and enter your username or email and password when prompted. Search for a show, select episodes from a series or season, or use an episode ID. Use search to find titles on HIDIVE, which does not support the `--new` listing. [HIDIVE sign-in](AUTHENTICATION.md#hidive-and-adn)
+Use `--service hidive --auth` and enter your username or email and password when prompted. Search for a show, select episodes from a series or season, or use an episode ID. [HIDIVE sign-in](AUTHENTICATION.md#hidive-and-adn)
 
 ### AnimationDigitalNetwork (ADN)
 

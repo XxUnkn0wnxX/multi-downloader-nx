@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { Command, Help } from 'commander';
-import { args, AvailableMuxer, configuredDefault, groups } from './module.args';
+import { args, AvailableMuxer, configuredDefault, groups, optionAppliesToService } from './module.args';
 import { LanguageItem } from './module.langsData';
 import { DownloadInfo } from '../@types/messageHandler';
 import { HLSCallback } from './hls-download';
@@ -240,7 +240,7 @@ const markActionSelection = (program: Command, parsed: ArgvType, isGUI: boolean)
 		program.args.length > 0 ||
 		args.some((item) => {
 			if (!actionSelectors.has(item.name)) return false;
-			const option = program.options.find((candidate) => (item.name.length === 1 ? candidate.short === `-${item.name}` : candidate.long === `--${item.name}`));
+			const option = declaredOption(program, item.name);
 			if (!option) return false;
 			const native = option.attributeName();
 			return item.type === 'boolean'
@@ -249,9 +249,24 @@ const markActionSelection = (program: Command, parsed: ArgvType, isGUI: boolean)
 		});
 };
 
+const flagName = (name: string) => (name.length === 1 ? '-' : '--') + name;
+const declaredOption = (program: Command, name: string) => program.options.find((option) => (name.length === 1 ? option.short === `-${name}` : option.long === `--${name}`));
+
+const validateServiceOptions = (program: Command, service: ArgvType['service']) => {
+	if (!service) return;
+	for (const item of args) {
+		if (optionAppliesToService(item, service) || item.compatibilityServices?.includes(service)) continue;
+		const option = declaredOption(program, item.name);
+		if (!option || program.getOptionValueSource(option.attributeName()) !== 'cli') continue;
+		const allowed = item.service.map((name) => `--service ${name}`).join(' or ');
+		console.error(`${flagName(item.name)} is unavailable with --service ${service}.${allowed ? ` Use ${allowed}.` : ' This option has no effect in this CLI version.'}`);
+		process.exit(1);
+	}
+};
+
 const normalizeParsed = (program: Command, parsed: ArgvType) => {
 	for (const item of args) {
-		const native = program.options.find((option) => (item.name.length === 1 ? option.short === `-${item.name}` : option.long === `--${item.name}`))?.attributeName();
+		const native = declaredOption(program, item.name)?.attributeName();
 		if (!native || parsed[native] === undefined) continue;
 		parsed[item.name] = parsed[native];
 		if (item.alias) parsed[item.alias] = parsed[native];
@@ -279,11 +294,11 @@ const normalizeDubLang = (parsed: ArgvType, validate: boolean) => {
 	parsed.dubLang = codes;
 };
 
-const normalizeCC = (parsed: ArgvType) => {
+const normalizeCC = (parsed: ArgvType, isGUI: boolean) => {
 	const value: unknown = parsed.CC;
 	if (value === true || value === 'true') parsed.CC = true;
 	else if (value === false || value === 'false') parsed.CC = false;
-	else {
+	else if (isGUI || !parsed.service || parsed.service === 'crunchy') {
 		console.error('Invalid value for --CC: expected true or false');
 		process.exit(1);
 	}
@@ -318,13 +333,14 @@ const appArgv = (
 	const argv = getCommander(cfg, isGUI, !isGUI);
 	argv.parse(processArgv(argv, !isGUI).argv);
 	const parsed = argv.opts() as ArgvType;
+	if (!isGUI) validateServiceOptions(argv, parsed.service);
 	if (!isGUI && parsed.version) {
 		global.console.log(pj.version);
 		process.exit(0);
 	}
 
 	normalizeDubLang(parsed, !isGUI && !(parsed.downloadArchive && argv.getOptionValueSource('dubLang') !== 'cli'));
-	normalizeCC(parsed);
+	normalizeCC(parsed, isGUI);
 	normalizeParsed(argv, parsed);
 	markActionSelection(argv, parsed, isGUI);
 
@@ -344,12 +360,7 @@ const overrideArguments = (cfg: { [key: string]: unknown }, override: Partial<ty
 
 	for (const [rawKey, val] of Object.entries(override)) {
 		if (val === undefined) continue;
-		const item = args.find(
-			(arg) =>
-				arg.name === rawKey ||
-				arg.alias === rawKey ||
-				argv.options.find((option) => (arg.name.length === 1 ? option.short === `-${arg.name}` : option.long === `--${arg.name}`))?.attributeName() === rawKey
-		);
+		const item = args.find((arg) => arg.name === rawKey || arg.alias === rawKey || declaredOption(argv, arg.name)?.attributeName() === rawKey);
 		const key = item?.name ?? rawKey;
 		if (typeof val === 'boolean') {
 			if (key === 'CC') {
@@ -368,7 +379,7 @@ const overrideArguments = (cfg: { [key: string]: unknown }, override: Partial<ty
 	const parsed = data.opts() as ArgvType;
 
 	normalizeDubLang(parsed, !isGUI);
-	normalizeCC(parsed);
+	normalizeCC(parsed, isGUI);
 	normalizeParsed(data, parsed);
 	markActionSelection(data, parsed, isGUI);
 
@@ -478,7 +489,7 @@ const getCommander = (cfg: Record<string, unknown>, isGUI: boolean, requireSingl
 			const selected = command.opts().service as string | undefined;
 			return Help.prototype.visibleOptions.call(this, command).filter((option) => {
 				const metadata = args.find((item) => option.long === `--${item.name}` || (item.name.length === 1 && option.short === `-${item.name}`));
-				return !metadata || metadata.service.includes('all') || (!!selected && metadata.service.includes(selected as 'crunchy' | 'hidive' | 'adn'));
+				return !metadata || optionAppliesToService(metadata, selected);
 			});
 		},
 		optionDescription(option) {

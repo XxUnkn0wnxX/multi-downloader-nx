@@ -42,6 +42,8 @@ export type TAppArg<T extends boolean | string | number | unknown[], K = any> = 
 				name?: string;
 		  };
 	service: Array<'crunchy' | 'hidive' | 'adn' | 'all'>;
+	// Accepted for an existing redirect or saved command, but hidden from this service’s help.
+	compatibilityServices?: Array<'crunchy' | 'hidive' | 'adn'>;
 	usage: string; // -(-)${name} will be added for each command,
 	demandOption?: true;
 	transformer?: (value: T) => K;
@@ -114,9 +116,9 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		name: 'page',
 		alias: 'p',
 		describe: 'Set the page number for search results',
-		docDescribe: 'The output is organized in pages. Use this command to output the items for the given page',
+		docDescribe: 'Select a page of search results. The first page is 1 on Crunchyroll and HIDIVE, or 0 on ADN.',
 		group: 'search',
-		service: ['crunchy', 'hidive'],
+		service: ['all'],
 		type: 'number',
 		usage: '${page}'
 	},
@@ -138,7 +140,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		name: 'new',
 		describe: 'Get last updated series list',
 		docDescribe: true,
-		service: ['crunchy', 'hidive'],
+		service: ['crunchy'],
+		compatibilityServices: ['hidive'],
 		type: 'boolean',
 		usage: ''
 	},
@@ -197,9 +200,9 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		name: 's',
 		group: 'dl',
 		type: 'string',
-		describe: 'Set the season ID',
+		describe: 'Select a season (Crunchyroll or HIDIVE) or a show (ADN)',
 		docDescribe:
-			'Used to set the season ID to download from. Crunchyroll -s supports multiple --dubLang selections and --allDubs. Combine --srz with -s to limit a series request to one season.',
+			'Select a season ID on Crunchyroll or HIDIVE, or a show ID on ADN. On Crunchyroll, combine -s with --srz to select one season of a series, or use --dubLang or --allDubs to select audio languages.',
 		service: ['all'],
 		usage: '${ID}'
 	},
@@ -300,7 +303,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		describe: 'Remove bumpers from final video',
 		type: 'boolean',
 		group: 'dl',
-		service: ['hidive'],
+		service: [],
+		compatibilityServices: ['hidive'],
 		docDescribe:
 			'If selected, it will remove the bumpers such as the hidive intro from the final file.' +
 			'\nCurrently disabling this sometimes results in bugs such as video/audio desync',
@@ -314,7 +318,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		describe: 'Keep original font size',
 		type: 'boolean',
 		group: 'dl',
-		service: ['hidive'],
+		service: ['crunchy', 'hidive'],
 		docDescribe: 'If selected, it will prefer to keep the original Font Size defined by the service.',
 		usage: '',
 		default: {
@@ -631,7 +635,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		default: {
 			default: 55
 		},
-		docDescribe: 'When converting the subtitles to ass, this will change the font size' + '\nIn most cases, requires "--originaFontSize false" to take effect',
+		docDescribe:
+			'Set the ASS subtitle font size. On Crunchyroll and HIDIVE, set `originalFontSize: false` in the CLI defaults to use your chosen size when converting WebVTT. ADN uses the size directly.',
 		group: 'dl',
 		service: ['all'],
 		type: 'number',
@@ -662,7 +667,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		type: 'number',
 		describe: 'Set the timeout of all download reqests. Set in millisecods',
 		docDescribe: true,
-		service: ['all'],
+		service: [],
+		compatibilityServices: ['crunchy', 'hidive', 'adn'],
 		usage: '${timeout}',
 		default: {
 			default: 15 * 1000
@@ -672,9 +678,9 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		name: 'waittime',
 		group: 'dl',
 		type: 'number',
-		describe: 'Set the time the program waits between downloads. Set in millisecods',
+		describe: 'Set the wait between downloads in milliseconds',
 		docDescribe: true,
-		service: ['crunchy', 'hidive'],
+		service: ['crunchy', 'adn'],
 		usage: '${waittime}',
 		default: {
 			default: 0 * 1000
@@ -685,7 +691,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		group: 'dl',
 		describe: 'Force downloading simulcast version instead of uncut version (if available).',
 		docDescribe: true,
-		service: ['hidive'],
+		service: [],
+		compatibilityServices: ['hidive'],
 		type: 'boolean',
 		usage: '',
 		default: {
@@ -709,7 +716,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		group: 'mux',
 		describe: 'Keeps all videos when merging instead of discarding extras',
 		docDescribe: 'If set to true, it will keep all videos in the merge process, rather than discarding the extra videos.',
-		service: ['crunchy', 'hidive'],
+		service: ['crunchy', 'adn'],
+		compatibilityServices: ['hidive'],
 		type: 'boolean',
 		usage: '',
 		default: {
@@ -724,7 +732,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 			'If enabled attempts to sync timing for multi-dub downloads.' +
 			'\nNOTE: This is currently experimental and syncs audio and subtitles, though subtitles has a lot of guesswork' +
 			'\nIf you find bugs with this, please report it in the discord or github',
-		service: ['crunchy', 'hidive'],
+		service: ['crunchy', 'adn'],
+		compatibilityServices: ['hidive'],
 		type: 'boolean',
 		usage: '',
 		default: {
@@ -777,7 +786,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		group: 'debug',
 		describe: 'Reset session cookie for testing purposes',
 		docDescribe: true,
-		service: ['all'],
+		service: [],
+		compatibilityServices: ['crunchy', 'hidive', 'adn'],
 		type: 'boolean',
 		usage: '',
 		default: {
@@ -857,7 +867,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		group: 'fonts',
 		describe: 'Set the font to use in subtiles',
 		docDescribe: true,
-		service: ['hidive', 'adn'],
+		service: ['all'],
 		type: 'string',
 		usage: '${fontName}'
 	},
@@ -919,7 +929,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		describe: 'Set the username for authentication (Crunchyroll CLI: use --device or --token)',
 		docDescribe: 'Set the username to use for authentication. For Crunchyroll CLI, use --device or --token.',
 		group: 'auth',
-		service: ['all'],
+		service: ['hidive', 'adn'],
+		compatibilityServices: ['crunchy'],
 		type: 'string',
 		usage: '${username}',
 		default: {
@@ -932,7 +943,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		describe: 'Set the password for authentication (Crunchyroll CLI: use --device or --token)',
 		docDescribe: 'Set the password to use for authentication. For Crunchyroll CLI, use --device or --token.',
 		group: 'auth',
-		service: ['all'],
+		service: ['hidive', 'adn'],
+		compatibilityServices: ['crunchy'],
 		type: 'string',
 		usage: '${password}',
 		default: {
@@ -1024,10 +1036,10 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'raw',
-		describe: 'If true, the tool will output the raw data from the API (Where applicable, the feature is a WIP)',
+		describe: 'Print the raw API response for --new',
 		docDescribe: true,
 		group: 'util',
-		service: ['all'],
+		service: ['crunchy'],
 		type: 'boolean',
 		usage: '',
 		default: {
@@ -1036,12 +1048,12 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'rawoutput',
-		describe: 'Provide a path to output the raw data from the API into a file (Where applicable, the feature is a WIP)',
+		describe: 'Save the raw response from --new --raw to this file',
 		docDescribe: true,
 		group: 'util',
-		service: ['all'],
+		service: ['crunchy'],
 		type: 'string',
-		usage: '',
+		usage: '${path}',
 		default: {
 			default: ''
 		}
@@ -1086,7 +1098,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		describe: `Set the default audio language for other providers; Crunchyroll marks all included tracks Default=yes\nPossible Values: ${languages.map((a) => a.code).join(', ')}`,
 		docDescribe: `Set the default audio track by language code for other providers. Crunchyroll accepts this setting but marks all included tracks Default=yes; audio order follows dubLang, or English then Japanese then other languages by English name with allDubs.\nPossible Values: ${languages.map((a) => a.code).join(', ')}`,
 		group: 'mux',
-		service: ['all'],
+		service: ['hidive', 'adn'],
+		compatibilityServices: ['crunchy'],
 		type: 'string',
 		usage: '${args}',
 		default: {
@@ -1106,7 +1119,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		describe: `Set the default subtitle language for other providers; Crunchyroll marks all included tracks Default=yes\nPossible Values: ${languages.map((a) => a.code).join(', ')}`,
 		docDescribe: `Set the default subtitle track by language code for other providers. Crunchyroll accepts this setting but marks all included tracks Default=yes; audio order follows dubLang, or English then Japanese then other languages by English name with allDubs.\nPossible Values: ${languages.map((a) => a.code).join(', ')}`,
 		group: 'mux',
-		service: ['all'],
+		service: ['hidive', 'adn'],
+		compatibilityServices: ['crunchy'],
 		type: 'string',
 		usage: '${args}',
 		default: {
@@ -1125,7 +1139,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		describe: 'Set the label appended to closed-caption tracks and filenames; this does not select signs or control caption downloads.',
 		docDescribe: true,
 		group: 'fileName',
-		service: ['all'],
+		service: ['crunchy'],
 		type: 'string',
 		usage: '${tag}',
 		default: {
@@ -1157,6 +1171,9 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		}
 	}
 ];
+
+export const optionAppliesToService = (option: Pick<(typeof args)[number], 'service'>, service?: string) =>
+	option.service.includes('all') || option.service.some((name) => name === service);
 
 const configuredDefault = (option: TAppArg<boolean | number | string | unknown[]>, cfg: Record<string, unknown>): unknown => {
 	if (typeof option.default !== 'object' || option.default === null || Array.isArray(option.default)) return option.default;

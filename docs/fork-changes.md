@@ -77,7 +77,7 @@ The root and GUI workspace overrides pin transitive `proxy-addr` to `2.0.8` for 
 
 ### Accept Crunchyroll cookies exports for `--token`
 
-The CLI opens global help with no arguments or with `--help` alone. Use `--debug` alone or with global `--help` to show the local version and platform. For service commands, put `--service crunchy`, `--service hidive` or `--service adn` first and specify the service only once. Global help lists shared options. Each service’s help adds its own options. Crunchyroll device and cookie sign-in appear in `--service crunchy --help`. Once Crunchyroll is selected, its sign-in notices show which options to replace in the current command. Complete examples use `anidl` for source runs and from outside the executable’s folder. On HIDIVE and ADN, `--auth` still prompts for a username or email and password.
+The CLI opens global help with no arguments or with `--help` alone. Use `--debug` alone or with global `--help` to show the local version and platform. For service commands, put `--service crunchy`, `--service hidive` or `--service adn` first and specify the service only once. Global help lists options common to all three services. Service help adds the options available on the selected service, including options shared with one other service. Unsupported explicit options fail before dispatch. Shared configuration files and previously accepted compatibility options retain their existing handling. Crunchyroll device and cookie sign-in appear in `--service crunchy --help`. Once Crunchyroll is selected, its sign-in notices show which options to replace in the current command. Complete examples use `anidl` for source runs and from outside the executable’s folder. On HIDIVE and ADN, `--auth` still prompts for a username or email and password.
 
 On Crunchyroll, `--auth` redirects the user to device or cookie sign-in. Bare `--device` and `--token` **(Crunchyroll only)** after the service show their own help. Keep these notices ahead of provider startup and session writes. A second service marker or an invalid token setting must fail before an archive or download action. An explicitly selected login method takes precedence over a saved token default. [User sign-in guide](AUTHENTICATION.md#crunchyroll)
 
@@ -181,7 +181,7 @@ Nightly Fork publishes eight CLI archives with SHA-256 files at the fixed `night
 
 ### CLI documentation
 
-The [documentation generator](../modules/build-docs.ts) writes only the [CLI reference](ARGUMENTS.md). It lists each option once, with shared options in the main list and Crunchyroll-only options in a separate disclosure. The hand-written guides use relative links and package their CLI screenshots under `docs/imgs/cli/` for offline viewing. [Updating the docs](DEVELOPMENT.md#update-the-cli-docs)
+The [documentation generator](../modules/build-docs.ts) writes only the [CLI reference](ARGUMENTS.md). It lists options shared by all three services first. Each service has an expandable section for its other options. An option shared by two services appears in both sections, and each example starts with the matching service. The hand-written guides use relative links and package their CLI screenshots under `docs/imgs/cli/` for offline viewing. [Updating the docs](DEVELOPMENT.md#update-the-cli-docs)
 
 ## Already incorporated upstream
 

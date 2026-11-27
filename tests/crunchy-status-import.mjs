@@ -22,6 +22,10 @@ async function run(args, { exitCode = 1, page, exactMessage, defaults = '' } = {
 	const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'anidl-status-import-'));
 	const originalExitCode = process.exitCode;
 	const originalStdoutWrite = process.stdout.write;
+	let exitFailure;
+	const exitTrap = (error) => {
+		exitFailure = error;
+	};
 	try {
 		fs.mkdirSync(path.join(directory, 'config'));
 		fs.writeFileSync(path.join(directory, 'config', 'dir-path.yml'), 'content: ${wdir}/must-not-create\n');
@@ -31,6 +35,10 @@ async function run(args, { exitCode = 1, page, exactMessage, defaults = '' } = {
 		if (page || exactMessage) fs.writeFileSync(tokenPath, oldSession);
 		const fakeProcess = Object.create(process);
 		Object.defineProperty(fakeProcess, 'exitCode', { value: undefined, writable: true, enumerable: true, configurable: true });
+		fakeProcess.exit = (code) => {
+			fakeProcess.exitCode = code;
+			throw Error(`fixture exit ${code}`);
+		};
 		fakeProcess.env = { ...process.env, contentDirectory: directory, isGUI: 'false' };
 		fakeProcess.argv = ['node', 'aniDL', ...args];
 		const cache = new Map();
@@ -38,6 +46,7 @@ async function run(args, { exitCode = 1, page, exactMessage, defaults = '' } = {
 		const capture = (message) => messages.push(String(message));
 		process.stdout.write = (message) => (capture(message), true);
 		const logger = { ...quiet, info: capture, error: capture, log: capture };
+		process.on('unhandledRejection', exitTrap);
 		let requests = 0;
 		function load(filename) {
 			if (cache.has(filename)) return cache.get(filename).exports;
@@ -101,6 +110,7 @@ async function run(args, { exitCode = 1, page, exactMessage, defaults = '' } = {
 		load(path.join(root, 'index.ts'));
 		await new Promise((resolve) => setImmediate(resolve));
 		assert.equal(fakeProcess.exitCode ?? 0, exitCode);
+		if (exitFailure) assert.equal(exitFailure.message, `fixture exit ${exitCode}`);
 		assert.equal(process.exitCode, originalExitCode, 'the fixture must not mutate the real process exit code');
 		assert.equal(requests, 0);
 		assert.equal(fs.existsSync(path.join(directory, 'must-not-create')), false);
@@ -114,6 +124,7 @@ async function run(args, { exitCode = 1, page, exactMessage, defaults = '' } = {
 			}
 		}
 	} finally {
+		process.off('unhandledRejection', exitTrap);
 		process.stdout.write = originalStdoutWrite;
 		fs.rmSync(directory, { recursive: true, force: true });
 	}
@@ -167,6 +178,16 @@ for (const args of [
 	['--service=unknown', '--dry-run']
 ])
 	await run(args, { page: /Choose a service first[\s\S]*--service crunchy/ });
+
+// Explicit provider-only arguments fail at the real CLI boundary before provider imports, requests or writes.
+for (const [args, error] of [
+	[['--service', 'hidive', '--qall'], /--qall is unavailable with --service hidive[\s\S]*Use --service crunchy/],
+	[['--service', 'adn', '--tsd'], /--tsd is unavailable with --service adn[\s\S]*Use --service crunchy/],
+	[['--service', 'crunchy', '--combineLines'], /--combineLines is unavailable with --service crunchy[\s\S]*Use --service hidive/],
+	[['--service', 'adn', '--series', '12345'], /--series is unavailable with --service adn[\s\S]*Use --service crunchy or --service hidive/]
+]) {
+	await run(args, { page: error });
+}
 
 await run(['--service', 'crunchy', '--check-status', '--help']);
 for (const args of [
