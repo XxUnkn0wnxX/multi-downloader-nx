@@ -56,24 +56,21 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'auth',
-		describe: 'Sign in (Crunchyroll CLI: Android phone browser sign-in)',
+		describe: 'Sign in (Crunchyroll CLI: use --device or --token)',
 		type: 'boolean',
 		group: 'auth',
 		service: ['all'],
-		docDescribe:
-			'For Crunchyroll CLI, open the Android phone sign-in page and print the same URL for manual use. After signing in, paste the full callback URL into the hidden prompt and press Enter. ' +
-			'The phone session is saved separately from device-code and browser-cookie sessions. See [Crunchyroll CLI sign-in](GET-STARTED.md#crunchyroll-cli) for client configuration. Other services keep their existing sign-in prompts.',
+		docDescribe: 'Sign in to HIDIVE or ADN. For Crunchyroll CLI, use --device or --token.',
 		usage: ''
 	},
 	{
 		name: 'device',
-		describe: 'Log in to Crunchyroll using a device activation code',
-		type: 'boolean',
+		describe: 'Crunchyroll Android TV or phone sign-in; omit value for options',
+		type: 'string',
 		group: 'auth',
 		service: ['crunchy'],
-		docDescribe:
-			'Log in to Crunchyroll with an activation code. The CLI opens the activation page in your browser and prints the same link for manual use. Enter the printed code and approve the request. The Android TV session is saved for automatic refresh alongside any other saved sessions.',
-		usage: ''
+		docDescribe: 'Choose androidtv for device activation or android for phone browser sign-in. Omit the value to show the available choices.',
+		usage: '[type]'
 	},
 	{
 		name: 'dlFonts',
@@ -909,8 +906,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'username',
-		describe: 'Set the username for authentication (Crunchyroll CLI: use --auth or --device)',
-		docDescribe: 'Set the username to use for authentication. For Crunchyroll CLI, use browser --auth or --device.',
+		describe: 'Set the username for authentication (Crunchyroll CLI: use --device or --token)',
+		docDescribe: 'Set the username to use for authentication. For Crunchyroll CLI, use --device or --token.',
 		group: 'auth',
 		service: ['all'],
 		type: 'string',
@@ -921,8 +918,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'password',
-		describe: 'Set the password for authentication (Crunchyroll CLI: use --auth or --device)',
-		docDescribe: 'Set the password to use for authentication. For Crunchyroll CLI, use browser --auth or --device.',
+		describe: 'Set the password for authentication (Crunchyroll CLI: use --device or --token)',
+		docDescribe: 'Set the password to use for authentication. For Crunchyroll CLI, use --device or --token.',
 		group: 'auth',
 		service: ['all'],
 		type: 'string',
@@ -933,8 +930,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'silentAuth',
-		describe: 'Crunchyroll CLI sign-in uses --auth or --device.',
-		docDescribe: 'For Crunchyroll CLI, use browser --auth or --device.',
+		describe: 'Crunchyroll CLI sign-in uses --device or --token.',
+		docDescribe: 'For Crunchyroll CLI, use --device or --token.',
 		group: 'auth',
 		service: ['crunchy'],
 		type: 'boolean',
@@ -945,13 +942,13 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'token',
-		describe: 'Login with a Crunchyroll UUID-shaped etp_rt cookie directly or a file containing the raw token or a Netscape cookies export',
+		describe: 'Crunchyroll browser-cookie sign-in; omit value for instructions',
 		docDescribe:
 			'Log in to Crunchyroll with the UUID-shaped etp_rt cookie value (optionally prefixed with etp_rt=), or the path to a file containing the raw token or a Netscape cookies export. The file may have any name or extension. The resulting web session is saved alongside any TV and phone sessions.',
 		group: 'auth',
 		service: ['crunchy'],
 		type: 'string',
-		usage: '${token}',
+		usage: '[cookie-or-file]',
 		default: {
 			default: undefined
 		}

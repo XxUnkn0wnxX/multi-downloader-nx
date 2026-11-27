@@ -1264,7 +1264,8 @@ const mediaDeps = {
 			return cliArgs;
 		}
 	},
-	'./modules/module.crunchy-device-auth': { validateCrunchyAuthModes: () => undefined },
+	'./modules/module.crunchy-device-auth': {},
+	'./modules/module.crunchy-cli-auth': { cliInvocation: () => 'aniDL', crunchyCliAuthDecision: () => ({ kind: 'continue' }) },
 	'./modules/module.crunchy-phone-auth': {},
 	'./modules/module.crunchy-session-store': compile('modules/module.crunchy-session-store.ts'),
 	'./package.json': packageMetadata,
@@ -3917,7 +3918,10 @@ assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/
 		reject = 'audio';
 		observed.length = mediaLogs.length = 0;
 		assert.equal(await service.downloadMediaList(mediaData, opts), undefined);
-		assert.deepEqual(roleErrors(), ['Audio endpoint "android" has no valid Android phone session. Sign in with --auth.']);
+		assert.equal(roleErrors().length, 1);
+		assert.match(roleErrors()[0], /Audio endpoint "android" has no valid Android phone session\. Sign in first:/);
+		assert.match(roleErrors()[0], /--service crunchy --device android/);
+		assert.match(roleErrors()[0], /run your download command again\./i);
 		assert.deepEqual(
 			observed.filter((item) => item.method === 'DELETE').map((item) => item.bearer),
 			['Bearer fake-tv-bearer']
@@ -3925,7 +3929,10 @@ assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/
 		reject = 'video';
 		observed.length = mediaLogs.length = 0;
 		assert.equal(await service.downloadEpisode(mediaData, opts), false);
-		assert.deepEqual(roleErrors(), ['Video endpoint "androidtv" has no valid Android TV session. Sign in with --device.']);
+		assert.equal(roleErrors().length, 1);
+		assert.match(roleErrors()[0], /Video endpoint "androidtv" has no valid Android TV session\. Sign in first:/);
+		assert.match(roleErrors()[0], /--service crunchy --device androidtv/);
+		assert.match(roleErrors()[0], /run your download command again\./i);
 		assert.equal(observed.filter((item) => item.url.includes('/play?')).length, 1);
 		reject = undefined;
 		phone.account_id = 'different-account';

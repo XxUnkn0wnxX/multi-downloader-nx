@@ -79,14 +79,13 @@ import { CrunchyVideoPlayStreams, CrunchyAudioPlayStreams } from './@types/enums
 import { randomUUID } from 'node:crypto';
 import { FetchParams } from './modules/module.fetch';
 import { CrunchyTokenInputError, parseCrunchyTokenInput } from './modules/module.crunchy-token';
-import { loginWithPhone, PHONE_CLIENT_REQUIRED, refreshPhoneToken } from './modules/module.crunchy-phone-auth';
+import { loginWithPhone, PHONE_CALLBACK_INVALID, PHONE_CLIENT_REQUIRED, refreshPhoneToken } from './modules/module.crunchy-phone-auth';
+import { cliInvocation, crunchyCliAuthDecision } from './modules/module.crunchy-cli-auth';
 import { CrunchySession, CrunchySessionSlot, crunchySessionSlot } from './modules/module.crunchy-session-store';
 import {
 	requestDeviceToken,
 	validDeviceToken,
 	refreshCredentialsRejected,
-	CRUNCHY_CLI_AUTH_WARNING,
-	validateCrunchyAuthModes,
 	getDeviceName,
 	DEVICE_TYPE,
 	DEVICE_USER_AGENT,
@@ -101,9 +100,9 @@ type PlaybackRole = 'Video' | 'Audio' | 'Subtitle metadata';
 type PlaybackAuthFailure = 'invalid' | 'unavailable' | 'account';
 type PlaybackSessionCheck = { session: CrunchySession } | { failure: PlaybackAuthFailure };
 const playbackSignIns = {
-	androidtv: { session: 'Android TV', command: '--device' },
-	android: { session: 'Android phone', command: '--auth' },
-	web: { session: 'web', command: '--token <cookie-or-file>' }
+	androidtv: { session: 'Android TV', command: '--device androidtv' },
+	android: { session: 'Android phone', command: '--device android' },
+	web: { session: 'web', command: '--token' }
 } as const;
 type PlaybackSlot = keyof typeof playbackSignIns;
 
@@ -117,9 +116,13 @@ function playbackAuthError(role: PlaybackRole, endpoint: VideoEndpoint, failure:
 	if (failure === 'unavailable') {
 		console.error(`${prefix} could not refresh the saved session. Retry later.`);
 	} else if (failure === 'account') {
-		console.error(`${prefix} requires a session for the active Crunchyroll account. Sign in with ${command} using that account.`);
+		console.error(
+			`${prefix} requires a session for the active Crunchyroll account. Sign in using the same account:\n  ${cliInvocation()} --service crunchy ${command}\nWhen AniDL confirms you’re signed in, run your download command again.`
+		);
 	} else {
-		console.error(`${prefix} has no valid ${session} session. Sign in with ${command}.`);
+		console.error(
+			`${prefix} has no valid ${session} session. Sign in first:\n  ${cliInvocation()} --service crunchy ${command}\nWhen AniDL confirms you’re signed in, run your download command again.`
+		);
 	}
 }
 
@@ -549,12 +552,11 @@ export default class Crunchy implements ServiceClass {
 		console.info(`\n=== Multi Downloader NX ${displayVersion(packageJson)} ===\n`);
 		const argv = yargs.appArgv(this.cfg.cli);
 		if (argv.checkStatus) return this.playbackStatus(!!argv.debug);
-		const authError = validateCrunchyAuthModes({ ...argv, service: 'crunchy' });
-		if (authError) {
-			if (authError === CRUNCHY_CLI_AUTH_WARNING) console.warn(authError);
-			else console.error(authError);
-			process.exitCode = 1;
-			return false;
+		const authDecision = crunchyCliAuthDecision({ ...argv, service: 'crunchy' });
+		if (authDecision.kind !== 'continue') {
+			(authDecision.kind === 'notice' ? console.info : console.error)(authDecision.message);
+			if (authDecision.kind === 'error') process.exitCode = 1;
+			return authDecision.kind === 'notice';
 		}
 		this.locale = argv.locale;
 		if (argv.debug) this.debug = true;
@@ -565,19 +567,13 @@ export default class Crunchy implements ServiceClass {
 			argv.dubLang = langsData.dubLanguageCodes;
 		}
 		// select mode
-		if (argv.silentAuth && !argv.auth) {
-			await this.doAuth({
-				username: argv.username ?? (await Helper.question('[Q] LOGIN/EMAIL: ')),
-				password: argv.password ?? (await Helper.question('[Q] PASSWORD: '))
-			});
-		}
-		if (argv.device) {
+		if (argv.device === 'androidtv') {
 			if (!(await this.loginWithDevice())) process.exitCode = 1;
-		} else if (argv.auth) {
+		} else if (argv.device === 'android') {
 			if (!(await this.loginWithAndroidPhone())) process.exitCode = 1;
 		} else if (argv.dlFonts) {
 			await this.getFonts(argv.dryRun);
-		} else if (argv.token !== undefined) {
+		} else if (typeof argv.token === 'string') {
 			if (!(await this.loginWithToken(argv.token))) {
 				process.exitCode = 1;
 			}
@@ -927,7 +923,7 @@ export default class Crunchy implements ServiceClass {
 			console.error('Authentication failed!');
 			if (authReq.res?.status === 400) {
 				console.warn(
-					'Crunchyroll may no longer accept username/password login. Log in with --token and the etp_rt cookie from your browser instead (GUI: paste it as the username).'
+					'Crunchyroll may no longer accept username/password login. Log in with --service crunchy --token and the etp_rt cookie from your browser instead (GUI: paste it as the username).'
 				);
 			}
 			return { isOk: false, reason: new Error('Authentication failed') };
@@ -1217,7 +1213,7 @@ export default class Crunchy implements ServiceClass {
 			}
 			if (!yamlCfg.saveCRTokenAtomic(token)) return false;
 			committed = true;
-			console.info(`Token authentication succeeded (${source}); token refreshed.`);
+			console.info(`Signed in with a Crunchyroll browser cookie (${source}). Session saved.`);
 			return true;
 		} catch {
 			console.error(`Token authentication failed (${source}).`);
@@ -1243,7 +1239,7 @@ export default class Crunchy implements ServiceClass {
 			console.info('Signed in with Android phone. Session saved.');
 			return true;
 		} catch (error) {
-			console.error(error instanceof Error && error.message === PHONE_CLIENT_REQUIRED ? PHONE_CLIENT_REQUIRED : 'Android phone sign-in failed.');
+			console.error(error instanceof Error && [PHONE_CLIENT_REQUIRED, PHONE_CALLBACK_INVALID].includes(error.message) ? error.message : 'Android phone sign-in failed.');
 			return false;
 		}
 	}
@@ -1322,7 +1318,7 @@ export default class Crunchy implements ServiceClass {
 				return failValidation('session could not be saved');
 			}
 			committed = true;
-			console.info('Device authentication succeeded.');
+			console.info('Signed in with Android TV. Session saved.');
 			return true;
 		} catch {
 			return failValidation(`${validationStage} failed${validationError ? ` (${validationError})` : ''}`);
@@ -1405,8 +1401,8 @@ export default class Crunchy implements ServiceClass {
 				console.error(
 					rejected && previous.auth_type === 'device'
 						? primaryTimedOut && origin === 'api'
-							? 'Device refresh credentials are unusable; use --device to log in again.'
-							: 'Device refresh rejected; use --device to log in again.'
+							? `Device refresh credentials are unusable. Sign in again:\n  ${cliInvocation()} --service crunchy --device androidtv`
+							: `Device refresh rejected. Sign in again:\n  ${cliInvocation()} --service crunchy --device androidtv`
 						: 'Token refresh failed; retry later. Saved login was retained.'
 				);
 			}
@@ -1466,7 +1462,7 @@ export default class Crunchy implements ServiceClass {
 			if (['device', 'android', 'web'].includes(this.token.auth_type) && !this.token.refresh_token) {
 				console.error(
 					this.token.auth_type === 'device'
-						? 'Device login is missing its refresh token; use --device to log in again.'
+						? `Device login is missing its refresh token. Sign in again:\n  ${cliInvocation()} --service crunchy --device androidtv`
 						: 'The saved login is missing its refresh token. Sign in again.'
 				);
 				return false;

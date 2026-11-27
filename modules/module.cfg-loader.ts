@@ -96,6 +96,8 @@ export type ConfigObject = {
 	gui: GUIConfig;
 };
 
+export const loadCliCfg = (): ConfigObject['cli'] => loadYamlCfgFile<ConfigObject['cli']>(cliCfgFile) ?? {};
+
 const loadCfg = (readOnly = false): ConfigObject => {
 	// load cfgs
 	const defaultCfg: ConfigObject = {
@@ -106,9 +108,7 @@ const loadCfg = (readOnly = false): ConfigObject => {
 			fonts: string;
 			config: string;
 		}>(dirCfgFile),
-		cli: loadYamlCfgFile<{
-			[key: string]: any;
-		}>(cliCfgFile),
+		cli: loadCliCfg(),
 		gui: loadYamlCfgFile<GUIConfig>(guiCfgFile)
 	};
 	const defaultDirs = {

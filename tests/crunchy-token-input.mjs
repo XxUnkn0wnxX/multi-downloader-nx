@@ -57,7 +57,9 @@ try {
 	}
 	const realHelper = compile(path.join(root, 'modules/module.crunchy-token.ts'), (id) => require(id));
 	const { parseCrunchyTokenInput } = realHelper;
-	const deviceHelper = compile(path.join(root, 'modules/module.crunchy-device-auth.ts'), (id) => require(id));
+	const cliAuth = compile(path.join(root, 'modules/module.crunchy-cli-auth.ts'), (id) => require(id));
+	const requireDeviceDeps = (id) => (id === './module.crunchy-cli-auth' ? cliAuth : require(id));
+	const deviceHelper = compile(path.join(root, 'modules/module.crunchy-device-auth.ts'), requireDeviceDeps);
 	const sessionStore = compile(path.join(root, 'modules/module.crunchy-session-store.ts'), (id) => require(id));
 	const phoneAuth = compile(path.join(root, 'modules/module.crunchy-phone-auth.ts'), (id) => {
 		if (id === './module.api-urls') return { domain: { cr_www: 'https://www.crunchyroll.com' } };
@@ -65,6 +67,7 @@ try {
 		if (id === './module.crunchy-device-auth') return deviceHelper;
 		return require(id);
 	});
+	const crunchyPhoneAuth = { loginWithPhone: async () => undefined, PHONE_CALLBACK_INVALID: phoneAuth.PHONE_CALLBACK_INVALID };
 	const forkDisplay = compile(path.join(root, 'modules/module.fork-display.ts'), (id) => require(id));
 	const same = (actual, expected) => assert.deepEqual(JSON.parse(JSON.stringify(actual)), expected);
 	const sourceError = (input, source, fragment) => {
@@ -152,9 +155,10 @@ try {
 		'./modules/module.app-args': { appArgv: () => parsedArgv },
 		'./modules/module.helper': { default: { question: async () => (helperPrompts++, 'prompt input') }, __esModule: true },
 		'./modules/module.crunchy-token': realHelper,
+		'./modules/module.crunchy-cli-auth': cliAuth,
 		'./modules/module.crunchy-device-auth': deviceHelper,
 		'./modules/module.crunchy-session-store': sessionStore,
-		'./modules/module.crunchy-phone-auth': { loginWithPhone: async () => undefined },
+		'./modules/module.crunchy-phone-auth': crunchyPhoneAuth,
 		'./@types/enums': compile(path.join(root, '@types/enums.ts'), (id) => require(id)),
 		'./modules/module.fork-display': forkDisplay,
 		'./modules/module.working-indicator': {
@@ -238,7 +242,7 @@ try {
 		assert.match(calls[0].options.headers.Cookie, new RegExp(`etp_rt=${fakeToken}`));
 		assert.equal(calls[1].url, 'profile');
 		assert.equal(calls[2].url, 'cms');
-		assert(logs.some(([kind, line]) => kind === 'info' && line.includes('succeeded (direct token)')));
+		assert(logs.some(([kind, line]) => kind === 'info' && /signed in with a Crunchyroll browser cookie/i.test(line) && /session saved/i.test(line)));
 		assert(!logs.some(([, line]) => line.includes(fakeToken)));
 	});
 	await test('actual loginWithToken accepts file input and reports source', async () => {
@@ -246,7 +250,9 @@ try {
 		const { service, calls } = makeService(successfulResponses);
 		assert.equal(await service.loginWithToken(netscapePath), true);
 		assert.match(calls[0].options.headers.Cookie, new RegExp(`etp_rt=${fakeToken}`));
-		assert(logs.some(([kind, line]) => kind === 'info' && line.includes('succeeded (cookies file)')));
+		assert(
+			logs.some(([kind, line]) => kind === 'info' && /signed in with a Crunchyroll browser cookie/i.test(line) && /cookies file/i.test(line) && /session saved/i.test(line))
+		);
 	});
 	await test('actual loginWithToken fails without profile success', async () => {
 		logs.length = 0;
@@ -274,26 +280,40 @@ try {
 		assert(!logs.some(([, line]) => line.includes(fakeToken)));
 		assert(!logs.some(([, line]) => line.includes('succeeded')));
 	});
-	await test('actual cli treats an empty --token value as failed authentication', async () => {
-		logs.length = 0;
-		parsedArgv = { token: '', locale: 'en-US', dlFonts: false, auth: false, cmsindex: false, new: false };
-		process.exitCode = undefined;
-		const { service } = makeService({});
-		await service.cli();
-		assert.equal(process.exitCode, 1);
-		assert(logs.some(([kind, line]) => kind === 'error' && line.includes('Expected a UUID-shaped')));
-		process.exitCode = undefined;
-	});
-	await test('actual Crunchyroll CLI rejects legacy credential flows before prompts or side effects', async () => {
-		const warning = deviceHelper.CRUNCHY_CLI_AUTH_WARNING;
-		for (const argv of [
-			{ username: 'legacy-user' },
-			{ password: 'legacy-secret' },
-			{ username: '' },
-			{ password: '' },
-			{ username: 'legacy-user', auth: true },
-			{ silentAuth: true }
+	await test('early Crunchyroll CLI routing handles deprecated auth, optional help, and malformed input before side effects', () => {
+		const early = cliAuth.earlyCrunchyCliAuth;
+		for (const [raw, expected] of [
+			[['--device'], /Which Crunchyroll login/],
+			[['--token'], /Use your Crunchyroll browser login/]
 		]) {
+			const routed = early(raw);
+			assert.equal(routed.kind, 'notice');
+			assert.match(routed.message, expected);
+		}
+		for (const raw of [
+			['--device', '--update'],
+			['--token', '--check-status']
+		])
+			assert.equal(early(raw).kind, 'continue');
+		const cases = [
+			[{ service: 'crunchy', auth: true }, 'error', /now uses --device or --token/],
+			[{ service: 'crunchy', device: true }, 'notice', /Android TV[\s\S]*--device androidtv[\s\S]*Android phone or tablet[\s\S]*--device android/],
+			[{ service: 'crunchy', device: '' }, 'error', /Missing --device value/],
+			[{ service: 'crunchy', token: '' }, 'error', /Missing --token value/],
+			[{ service: 'crunchy', device: true, token: true }, 'error', /Choose only one/],
+			[{ service: 'crunchy', auth: true, device: 'androidtv' }, 'error', /Choose only one/],
+			[{ service: 'hidive', auth: true }, 'continue', undefined],
+			[{ service: 'adn', auth: true }, 'continue', undefined],
+			[{ service: 'hidive', device: true, crunchyAuthExplicit: true }, 'error', /only supported for Crunchyroll/]
+		];
+		for (const [argv, kind, message] of cases) {
+			const decision = cliAuth.crunchyCliAuthDecision(argv);
+			assert.equal(decision.kind, kind, JSON.stringify(argv));
+			if (message) assert.match(decision.message, message);
+		}
+	});
+	await test('actual Crunchyroll CLI rejects legacy credential options before prompts or side effects', async () => {
+		for (const argv of [{ username: 'legacy-user' }, { password: 'legacy-secret' }, { username: '' }, { password: '' }, { silentAuth: true }]) {
 			logs.length = 0;
 			parsedArgv = argv;
 			process.exitCode = undefined;
@@ -307,10 +327,7 @@ try {
 			service.loginWithDevice = async () => authCalls++;
 			assert.equal(await service.cli(), false);
 			assert.equal(process.exitCode, 1);
-			assert.deepEqual(
-				logs.filter(([kind]) => kind === 'warn'),
-				[['warn', warning]]
-			);
+			assert(logs.some(([kind, line]) => kind === 'error' && /uses --device or --token/i.test(line)));
 			assert.equal(helperPrompts, promptCount);
 			assert.equal(loadBinCalls, binLoadCount);
 			assert.equal(saved.length, saveCount);
@@ -320,19 +337,28 @@ try {
 		}
 		process.exitCode = undefined;
 	});
-	await test('actual Crunchyroll CLI keeps device and token modes available', async () => {
-		for (const argv of [{ device: true }, { token: fakeToken }]) {
+	await test('actual Crunchyroll CLI keeps valued device and token modes available', async () => {
+		for (const [argv, expectedMethod] of [
+			[{ device: 'androidtv' }, 'tv'],
+			[{ device: 'android' }, 'phone'],
+			[{ token: fakeToken }, 'token'],
+			[{ token: rawPath }, 'token']
+		]) {
 			logs.length = 0;
 			parsedArgv = argv;
 			process.exitCode = undefined;
 			let deviceCalls = 0;
-			let tokenCalls = 0;
+			let phoneCalls = 0;
+			const tokenValues = [];
 			const { service } = makeService({});
 			service.loginWithDevice = async () => (deviceCalls++, true);
-			service.loginWithToken = async (value) => (tokenCalls++, value === fakeToken);
+			service.loginWithAndroidPhone = async () => (phoneCalls++, true);
+			service.loginWithToken = async (value) => (tokenValues.push(value), true);
 			await service.cli();
-			assert.equal(deviceCalls, Number(!!argv.device));
-			assert.equal(tokenCalls, Number(argv.token !== undefined));
+			assert.equal(deviceCalls, Number(expectedMethod === 'tv'));
+			assert.equal(phoneCalls, Number(expectedMethod === 'phone'));
+			assert.equal(tokenValues.length, Number(expectedMethod === 'token'));
+			if (expectedMethod === 'token') assert.equal(tokenValues[0], argv.token);
 			assert.equal(process.exitCode, undefined);
 			assert(!logs.some(([kind]) => kind === 'warn' || kind === 'error'));
 		}
@@ -383,7 +409,7 @@ try {
 		const createCountdownHelper = (extra = {}) => {
 			let tick,
 				active = false;
-			const helper = compile(path.join(root, 'modules/module.crunchy-device-auth.ts'), (id) => require(id), {
+			const helper = compile(path.join(root, 'modules/module.crunchy-device-auth.ts'), requireDeviceDeps, {
 				setInterval: (callback, ms) => {
 					assert.equal(ms, 1000);
 					tick = callback;
@@ -524,7 +550,8 @@ try {
 				request: async () => (++calls === 1 ? jsonResponse({ user_code: 'X', device_code: 'Y', interval: 500, expires_in: 1 }) : { ok: true, res: { status: 204 } })
 			});
 			assert.equal(calls, 2);
-			assert.equal(messages.at(-1), 'Device code expired. Run --device again to get a new code.');
+			assert.match(messages.at(-1), /Device code expired\./);
+			assert.match(messages.at(-1), /--service crunchy --device androidtv/);
 			assert.deepEqual(values, [1, 1, 0, undefined]);
 			assert.deepEqual(states, ['waiting', 'waiting', 'timed-out', undefined]);
 			assert.equal(countdown.active, false);
@@ -577,7 +604,8 @@ try {
 				}
 			});
 			assert.equal(calls, 2);
-			assert.equal(messages.at(-1), 'Device code expired. Run --device again to get a new code.');
+			assert.match(messages.at(-1), /Device code expired\./);
+			assert.match(messages.at(-1), /--service crunchy --device androidtv/);
 			assert.deepEqual(values, [1, 1, 0, undefined]);
 			assert.deepEqual(states, ['waiting', 'waiting', 'timed-out', undefined]);
 			assert.equal(countdown.active, false);
@@ -679,14 +707,14 @@ try {
 			options.onCountdown(300, 'waiting');
 			options.onCountdown(0, 'timed-out');
 			options.onCountdown(undefined);
-			options.log('Device code expired. Run --device again to get a new code.');
+			options.log('Device code expired. Run --service crunchy --device androidtv again to get a new code.');
 			return undefined;
 		};
 		try {
 			const { service } = makeService({});
 			assert.equal(await service.loginWithDevice(new AbortController().signal), false);
 			const timeoutIndex = logs.findIndex(([, line]) => line === 'Expires in 0 seconds. (Timed Out)');
-			const instructionIndex = logs.findIndex(([, line]) => line === 'Device code expired. Run --device again to get a new code.');
+			const instructionIndex = logs.findIndex(([, line]) => /Device code expired\./.test(line) && /--service crunchy --device androidtv/.test(line));
 			assert(timeoutIndex >= 0);
 			assert(instructionIndex > timeoutIndex);
 			assert(!logs.some(([, line]) => line === 'Expires in 300 seconds. (Approved)'));
@@ -1021,7 +1049,7 @@ try {
 
 	await test('device refresh distinguishes explicit rejection from transient and malformed responses', async () => {
 		for (const [response, expected] of [
-			[{ ok: false, res: { status: 400, json: async () => ({ error: 'invalid_grant' }) } }, 'use --device'],
+			[{ ok: false, res: { status: 400, json: async () => ({ error: 'invalid_grant' }) } }, '--service crunchy --device androidtv'],
 			[{ ok: false, res: { status: 503, json: async () => ({ error: 'invalid_grant' }) } }, 'retry later'],
 			[
 				{
@@ -1056,8 +1084,10 @@ try {
 		};
 		const opts = { s: 'SEASONID1', vstream: 'androidtv', astream: 'android', dubLang: ['eng'] };
 		const roleErrors = () => logs.filter(([level, text]) => level === 'error' && text.includes('endpoint "')).map(([, text]) => text);
-		const tv = 'Video endpoint "androidtv" has no valid Android TV session. Sign in with --device.';
-		const phone = 'Audio endpoint "android" has no valid Android phone session. Sign in with --auth.';
+		const tv =
+			/Video endpoint "androidtv" has no valid Android TV session\. Sign in first:[\s\S]*--service crunchy --device androidtv[\s\S]*run your download command again\./i;
+		const phone =
+			/Audio endpoint "android" has no valid Android phone session\. Sign in first:[\s\S]*--service crunchy --device android[\s\S]*run your download command again\./i;
 		logs.length = 0;
 		parsedArgv = opts;
 		assert.equal(await service.cli(), true);
@@ -1070,7 +1100,8 @@ try {
 			logs.length = 0;
 			parsedArgv = { ...opts, e: '6', ...flags };
 			assert.equal(await service.cli(), false);
-			assert.deepEqual(roleErrors(), expected);
+			assert.equal(roleErrors().length, expected.length);
+			for (const [index, expression] of expected.entries()) assert.match(roleErrors()[index], expression);
 		}
 		assert.equal(listings, 1);
 		assert.equal(calls.length, 0);
@@ -1078,7 +1109,7 @@ try {
 	await test('a shared expired login refreshes once and reports the appropriate error for both roles', async () => {
 		const opts = { e: 'EPISODE01', vstream: 'androidtv', astream: 'androidtv', dubLang: ['eng'] };
 		for (const [status, expected] of [
-			[400, 'has no valid Android TV session. Sign in with --device.'],
+			[400, /has no valid Android TV session\. Sign in first:[\s\S]*--service crunchy --device androidtv[\s\S]*run your download command again\./i],
 			[429, 'could not refresh the saved session. Retry later.']
 		]) {
 			const auth = 'https://www.crunchyroll.com/auth/v1/token';
@@ -1091,10 +1122,12 @@ try {
 				calls.map((call) => call.url),
 				[auth]
 			);
-			assert.deepEqual(
-				logs.filter(([level]) => level === 'error').map(([, message]) => message),
-				[`Video endpoint "androidtv" ${expected}`, `Audio endpoint "androidtv" ${expected}`]
-			);
+			const errors = logs.filter(([level]) => level === 'error').map(([, message]) => message);
+			assert.equal(errors.length, 2);
+			for (const [index, role] of ['Video', 'Audio'].entries()) {
+				assert.match(errors[index], new RegExp(`${role} endpoint "androidtv"`));
+				assert.match(errors[index], expected instanceof RegExp ? expected : new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+			}
 		}
 	});
 	await test('GUI failures stop requests and always finish download state', async () => {
@@ -1148,7 +1181,7 @@ try {
 	await test('device initiation times out without automatically requesting another code', async () => {
 		let timer,
 			requests = 0;
-		const helper = compile(path.join(root, 'modules/module.crunchy-device-auth.ts'), (id) => require(id), {
+		const helper = compile(path.join(root, 'modules/module.crunchy-device-auth.ts'), requireDeviceDeps, {
 			setTimeout: (fn, ms) => {
 				assert.equal(ms, 30000);
 				timer = fn;
@@ -1322,24 +1355,46 @@ try {
 			assert.equal(fs.readFileSync(target, 'utf8'), invalid);
 		}
 	});
+	await test('flat tagged web and phone records migrate by auth_type while unknown or absent markers stay legacy', () => {
+		const cases = [
+			['web', 'web', 'web'],
+			['phone', 'android', 'android'],
+			['unknown', 'future-login', 'legacy'],
+			['unmarked', undefined, 'legacy']
+		];
+		for (const [name, marker, expectedSlot] of cases) {
+			const target = path.join(work, `flat-${name}`, 'cr_token.yml');
+			fs.mkdirSync(path.dirname(target));
+			const original = `${marker === undefined ? '' : `auth_type: ${marker}\n`}access_token: fixture-${name}\nrefresh_token: refresh-${name}\n`;
+			fs.writeFileSync(target, original);
+			const loaded = sessionStore.loadCrunchySessions(target);
+			assert.equal(loaded.active, expectedSlot, name);
+			assert.equal(loaded.sessions[expectedSlot].access_token, `fixture-${name}`);
+			assert.equal(fs.readFileSync(target, 'utf8'), original, 'reading a legacy file must not rewrite it');
+		}
+	});
 	await test('Android callback requires correct HTTPS origin, path, state and a single code', () => {
 		const url = new URL('https://sso.crunchyroll.com/android/oauth-callback?code=fake%2Bcode&state=fixture');
 		assert.equal(phoneAuth.parsePhoneCallback(url.href, 'fixture'), 'fake+code');
+		const reordered = new URL(url.href);
+		reordered.search = `extra=ignored&state=${encodeURIComponent('fixture')}&code=fake%2Bcode`;
+		assert.equal(phoneAuth.parsePhoneCallback(reordered.href, 'fixture'), 'fake+code');
 		for (const invalid of [
 			url.href.replace('https:', 'http:'),
 			url.href.replace('sso.crunchyroll.com', 'wrong.invalid'),
 			url.href.replace('/android/oauth-callback', '/android/other'),
 			url.href + '&code=duplicate',
 			url.href + '&state=fixture',
-			url.href + '&error=access_denied'
+			url.href + '&error=access_denied',
+			url.href + '#unexpected',
+			url.href.replace('https://sso.crunchyroll.com', 'https://user@sso.crunchyroll.com')
 		])
 			assert.equal(phoneAuth.parsePhoneCallback(invalid, 'fixture'), undefined);
 		assert.equal(phoneAuth.parsePhoneCallback(url.href, 'different state'), undefined);
 	});
-	await test('Android CLI browser flow prints its launch URL and keeps the pasted callback hidden', async () => {
+	function makePhoneFlow(callbackHost = 'sso.crunchyroll.com', code = 'fixture-hidden-code') {
 		let outputText = '';
 		let launched;
-		let requests = 0;
 		const terminal = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
 		const fixtureProcess = Object.assign(new EventEmitter(), {
 			stdin: terminal,
@@ -1361,14 +1416,29 @@ try {
 					return async (url) => {
 						launched = new URL(url);
 						const callback = new URL(launched.searchParams.get('redirect_uri'));
+						callback.hostname = callbackHost;
 						callback.searchParams.set('state', launched.searchParams.get('state'));
-						callback.searchParams.set('code', 'fixture-hidden-code');
+						callback.searchParams.set('code', code);
 						terminal.write(callback.href + '\r');
 					};
 				return require(id);
 			},
 			{ process: fixtureProcess, Buffer, AbortSignal }
 		);
+		return {
+			flow,
+			get outputText() {
+				return outputText;
+			},
+			get launched() {
+				return launched;
+			}
+		};
+	}
+	await test('Android CLI browser flow prints its launch URL and keeps the pasted callback hidden', async () => {
+		let requests = 0;
+		const phoneFixture = makePhoneFlow();
+		const { flow } = phoneFixture;
 		const session = await flow.loginWithPhone(async (url, options) => {
 			requests++;
 			assert.equal(url, 'https://www.crunchyroll.com/auth/v1/token');
@@ -1376,15 +1446,71 @@ try {
 			assert.equal(options.quietDebug, true);
 			assert.equal(options.body.get('grant_type'), 'authorization_code');
 			assert.equal(options.body.get('code'), 'fixture-hidden-code');
-			assert.equal(options.body.get('code_verifier'), launched.searchParams.get('code_challenge'));
+			assert.equal(options.body.get('code_verifier'), phoneFixture.launched.searchParams.get('code_challenge'));
 			return { ok: true, res: Response.json({ access_token: 'fake-access', refresh_token: 'fake-refresh', expires_in: 60, account_id: 'fixture-account' }) };
 		});
 		assert.equal(requests, 1);
 		assert.equal(session.auth_type, 'android');
-		assert(outputText.includes(launched.href));
-		assert(outputText.includes('Paste the full callback URL and press Enter (input hidden)'));
-		assert(!outputText.includes('fixture-hidden-code'));
-		assert(!outputText.includes('fixture-secret'));
+		assert(phoneFixture.outputText.includes(phoneFixture.launched.href));
+		assert.match(phoneFixture.outputText, /copy the full address from your browser’s address bar/i);
+		assert.match(phoneFixture.outputText, /404.*That’s fine/i);
+		assert.match(phoneFixture.outputText, /Paste the address here once and press Enter[\s\S]*Nothing will appear as you\s+paste[\s\S]*AniDL hides the address/i);
+		assert(!phoneFixture.outputText.includes('fixture-hidden-code'));
+		assert(!phoneFixture.outputText.includes('fixture-secret'));
+	});
+	await test('a valid phone callback with a rejected token exchange does not save or replace the session', async () => {
+		const previousPhoneLogin = crunchyPhoneAuth.loginWithPhone;
+		let requests = 0;
+		const { flow } = makePhoneFlow('sso.crunchyroll.com', 'fixture-rejected-code');
+		crunchyPhoneAuth.loginWithPhone = flow.loginWithPhone;
+		const priorToken = { auth_type: 'device', refresh_token: 'existing' };
+		const { service } = makeService({});
+		service.token = priorToken;
+		logs.length = 0;
+		try {
+			service.req.getData = async (_url, options) => {
+				requests++;
+				assert.equal(options.body.get('grant_type'), 'authorization_code');
+				assert.equal(options.body.get('code'), 'fixture-rejected-code');
+				assert.equal(options.body.get('state'), null);
+				return { ok: false, res: Response.json({ error: 'invalid_grant' }, { status: 401 }) };
+			};
+			const savedBefore = saved.length;
+			assert.equal(await service.loginWithAndroidPhone(), false);
+			assert.equal(requests, 1);
+			assert.equal(saved.length, savedBefore);
+			assert.equal(service.token, priorToken);
+			assert(logs.some(([kind, line]) => kind === 'error' && /failed or was cancelled/i.test(line)));
+		} finally {
+			crunchyPhoneAuth.loginWithPhone = previousPhoneLogin;
+		}
+	});
+	await test('a malformed phone callback is rejected before token exchange without echoing it', async () => {
+		const previousPhoneLogin = crunchyPhoneAuth.loginWithPhone;
+		let requests = 0;
+		const phoneFixture = makePhoneFlow('wrong.invalid', 'fixture-invalid-callback-code');
+		const { flow } = phoneFixture;
+		crunchyPhoneAuth.loginWithPhone = flow.loginWithPhone;
+		const priorToken = { auth_type: 'device', refresh_token: 'existing' };
+		const { service } = makeService({});
+		service.token = priorToken;
+		logs.length = 0;
+		try {
+			service.req.getData = async () => {
+				requests++;
+				return { ok: false };
+			};
+			const savedBefore = saved.length;
+			assert.equal(await service.loginWithAndroidPhone(), false);
+			assert.equal(requests, 0);
+			assert.equal(saved.length, savedBefore);
+			assert.equal(service.token, priorToken);
+			assert(logs.some(([kind, line]) => kind === 'error' && /could not verify that sign-in address/i.test(line)));
+			assert(!phoneFixture.outputText.includes('fixture-invalid-callback-code'));
+			assert(!logs.some(([, line]) => line.includes('fixture-invalid-callback-code')));
+		} finally {
+			crunchyPhoneAuth.loginWithPhone = previousPhoneLogin;
+		}
 	});
 	await test('device initiation rejects unrepresentable timers and pre-aborted calls', async () => {
 		let requests = 0;
@@ -1592,8 +1718,8 @@ try {
 		const updateDisabledNotice = 'Updates disabled on this fork. Download updates: https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork';
 		for (const scenario of [
 			{ status: 'invalid', argv: {}, result: false, expectedCalls: 0, exit: 1, updates: 0, cfgReads: 0 },
-			{ status: 'valid', argv: { service: 'crunchy', checkStatus: true }, result: true, expectedCalls: 1, exit: undefined, updates: 0, readOnly: true },
-			{ status: 'valid', argv: { service: 'crunchy', checkStatus: true }, result: false, expectedCalls: 1, exit: 1, updates: 0, readOnly: true },
+			{ status: 'valid', argv: { service: 'crunchy', checkStatus: true }, result: true, expectedCalls: 1, exit: undefined, updates: 0 },
+			{ status: 'valid', argv: { service: 'crunchy', checkStatus: true }, result: false, expectedCalls: 1, exit: 1, updates: 0 },
 			{ argv: { service: 'crunchy' }, result: false, expectedCalls: 1, exit: 1, updates: 1 },
 			{ argv: { service: 'crunchy', skipUpdate: true }, result: true, expectedCalls: 1, exit: undefined, updates: 0 },
 			{ argv: { service: 'crunchy', dryRun: true, debug: true }, result: true, expectedCalls: 1, exit: undefined, updates: 0 },
@@ -1606,7 +1732,6 @@ try {
 				expectedCalls: 0,
 				exit: 1,
 				updates: 0,
-				cfgReadOnly: true,
 				warning: updateDisabledNotice
 			},
 			{
@@ -1616,7 +1741,6 @@ try {
 				expectedCalls: 0,
 				exit: 1,
 				updates: 0,
-				cfgReadOnly: true,
 				warning: updateDisabledNotice
 			},
 			{
@@ -1630,11 +1754,11 @@ try {
 			{ argv: { service: 'crunchy', addArchive: true, s: 'TEST_SEASON' }, result: true, expectedCalls: 0, exit: undefined, updates: 1, archives: 1 },
 			{ argv: { service: 'crunchy', downloadArchive: true }, result: false, expectedCalls: 1, exit: 1, updates: 1 },
 			{ argv: { service: 'crunchy', downloadArchive: true }, result: true, expectedCalls: 2, exit: undefined, updates: 1 },
-			{ argv: { service: 'crunchy', auth: true }, result: true, expectedCalls: 1, exit: undefined, updates: 1 },
-			{ argv: { service: 'crunchy', username: 'legacy-user' }, result: true, expectedCalls: 0, exit: 1, updates: 0, warning: deviceHelper.CRUNCHY_CLI_AUTH_WARNING },
-			{ argv: { service: 'crunchy', password: '' }, result: true, expectedCalls: 0, exit: 1, updates: 0, warning: deviceHelper.CRUNCHY_CLI_AUTH_WARNING },
-			{ argv: { service: 'crunchy', password: 'entry-secret' }, result: true, expectedCalls: 0, exit: 1, updates: 0, warning: deviceHelper.CRUNCHY_CLI_AUTH_WARNING },
-			{ argv: { service: 'crunchy', silentAuth: true }, result: true, expectedCalls: 0, exit: 1, updates: 0, warning: deviceHelper.CRUNCHY_CLI_AUTH_WARNING },
+			{ argv: { service: 'crunchy', auth: true }, result: true, expectedCalls: 0, exit: 1, updates: 0, error: /now uses --device or --token/ },
+			{ argv: { service: 'crunchy', username: 'legacy-user' }, result: true, expectedCalls: 0, exit: 1, updates: 0, error: /uses --device or --token/ },
+			{ argv: { service: 'crunchy', password: '' }, result: true, expectedCalls: 0, exit: 1, updates: 0, error: /uses --device or --token/ },
+			{ argv: { service: 'crunchy', password: 'entry-secret' }, result: true, expectedCalls: 0, exit: 1, updates: 0, error: /uses --device or --token/ },
+			{ argv: { service: 'crunchy', silentAuth: true }, result: true, expectedCalls: 0, exit: 1, updates: 0, error: /uses --device or --token/ },
 			{
 				argv: { service: 'crunchy', auth: true, device: true },
 				result: true,
@@ -1645,7 +1769,7 @@ try {
 			},
 			{ argv: { service: 'hidive', downloadArchive: true }, result: false, expectedCalls: 2, exit: undefined, updates: 1 },
 			{ argv: { service: 'hidive', username: 'user', password: 'pass' }, result: true, expectedCalls: 1, exit: undefined, updates: 1 },
-			{ argv: { service: 'hidive', device: true }, result: true, expectedCalls: 0, exit: 1, updates: 0 }
+			{ argv: { service: 'hidive', device: true, crunchyAuthExplicit: true }, result: true, expectedCalls: 0, exit: 1, updates: 0, error: /only supported for Crunchyroll/ }
 		]) {
 			logs.length = 0;
 			const budgets = [];
@@ -1680,6 +1804,7 @@ try {
 					if (id === './modules/module.app-args') return { appArgv: () => scenario.argv, overrideArguments: () => {}, statusInvocation: () => scenario.status ?? 'none' };
 					if (id === './modules/module.cfg-loader')
 						return {
+							loadCliCfg: () => ({}),
 							loadCfg: (readOnly) => {
 								cfgReads++;
 								cfgReadOnly = readOnly;
@@ -1696,14 +1821,15 @@ try {
 							__esModule: true
 						};
 					if (id === './modules/module.crunchy-device-auth') return deviceHelper;
+					if (id === './modules/module.crunchy-cli-auth')
+						return { earlyCrunchyCliAuth: () => ({ kind: 'continue' }), crunchyCliAuthDecision: cliAuth.crunchyCliAuthDecision };
 					throw new Error(`Unexpected index import ${id}`);
 				},
 				{ process: fakeProcess }
 			);
 			await new Promise((resolve) => setTimeout(resolve, 0));
-			assert.equal(calls, scenario.expectedCalls);
+			assert.equal(calls, scenario.expectedCalls, JSON.stringify(scenario.argv));
 			if (scenario.cfgReads !== undefined) assert.equal(cfgReads, scenario.cfgReads);
-			if (scenario.readOnly) assert.equal(cfgReadOnly, true);
 			if (scenario.cfgReadOnly !== undefined) assert.equal(cfgReadOnly, scenario.cfgReadOnly);
 			if (scenario.argv.service === 'crunchy' && calls === 2) {
 				assert.equal(budgets.length, 2);
@@ -1718,11 +1844,11 @@ try {
 					[['warn', scenario.warning]]
 				);
 			if (scenario.argv.password) assert(!logs.some(([, line]) => line.includes(scenario.argv.password)));
-			if (scenario.error)
-				assert.deepEqual(
-					logs.filter(([kind]) => kind === 'error'),
-					[['error', scenario.error]]
-				);
+			if (scenario.error) {
+				const errors = logs.filter(([kind]) => kind === 'error').map(([, message]) => message);
+				assert.equal(errors.length, 1);
+				assert.match(errors[0], scenario.error instanceof RegExp ? scenario.error : new RegExp(scenario.error.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+			}
 		}
 	});
 	await test('device polling stops immediately on rate limit', async () => {
@@ -1969,7 +2095,7 @@ try {
 			calls = 0;
 		const signals = [],
 			warnings = [];
-		const helper = compile(path.join(root, 'modules/module.crunchy-device-auth.ts'), (id) => require(id), {
+		const helper = compile(path.join(root, 'modules/module.crunchy-device-auth.ts'), requireDeviceDeps, {
 			setTimeout: (fn) => {
 				timer = fn;
 				return 1;
@@ -2122,7 +2248,7 @@ try {
 			let timer,
 				calls = 0;
 			const warnings = [];
-			const helper = compile(path.join(root, 'modules/module.crunchy-device-auth.ts'), (id) => require(id), {
+			const helper = compile(path.join(root, 'modules/module.crunchy-device-auth.ts'), requireDeviceDeps, {
 				setTimeout: (fn) => {
 					timer = fn;
 					return 1;

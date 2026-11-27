@@ -1,3 +1,4 @@
+import { cliInvocation } from './module.crunchy-cli-auth';
 import { FetchParams } from './module.fetch';
 
 export const getDeviceName = (deviceId: string): string => `ANDROIDTV (${deviceId.slice(-4)})`;
@@ -113,24 +114,6 @@ export async function refreshCredentialsRejected(response?: Response): Promise<b
 	} catch {
 		return false;
 	}
-}
-
-export const CRUNCHY_CLI_AUTH_WARNING = 'Use --auth for Android phone sign-in or --device for Android TV sign-in.';
-
-export function validateCrunchyAuthModes(argv: {
-	service?: string;
-	device?: boolean;
-	auth?: boolean;
-	token?: string;
-	silentAuth?: boolean;
-	username?: string;
-	password?: string;
-}): string | undefined {
-	if (argv.device && argv.service !== 'crunchy') return '--device is only supported for Crunchyroll.';
-	if (argv.service !== 'crunchy') return;
-	const modes = Number(!!argv.device) + Number(!!argv.auth) + Number(argv.token !== undefined) + Number(!!argv.silentAuth);
-	if (modes > 1) return 'Choose only one of --device, --token, --auth, or --silentAuth.';
-	if (argv.silentAuth || argv.username !== undefined || argv.password !== undefined) return CRUNCHY_CLI_AUTH_WARNING;
 }
 
 const sleep = (ms: number, signal: AbortSignal) =>
@@ -307,12 +290,14 @@ export async function requestDeviceToken(options: DeviceOptions): Promise<Record
 			expired = true;
 			reportTimeout();
 		}
-		throw new Error(signal.aborted && !expired ? 'Device login cancelled.' : 'Device code expired. Run --device again to get a new code.');
+		throw new Error(
+			signal.aborted && !expired ? 'Device login cancelled.' : `Device code expired. Run ${cliInvocation()} --service crunchy --device androidtv again to get a new code.`
+		);
 	} catch (error) {
 		const message = initiationTimedOut
 			? 'Device code request timed out. Retry the command.'
 			: expired
-				? 'Device code expired. Run --device again to get a new code.'
+				? `Device code expired. Run ${cliInvocation()} --service crunchy --device androidtv again to get a new code.`
 				: signal.aborted
 					? 'Device login cancelled.'
 					: error instanceof Error

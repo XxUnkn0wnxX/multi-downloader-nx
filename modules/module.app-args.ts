@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { Command, Help } from 'commander';
 import { args, AvailableMuxer, configuredDefault, groups } from './module.args';
 import { LanguageItem } from './module.langsData';
@@ -26,10 +27,11 @@ export let argvC: {
 	forceMuxer: AvailableMuxer | undefined;
 	username: string | undefined;
 	password: string | undefined;
-	token: string | undefined;
-	device: boolean | undefined;
+	token: string | true | undefined;
+	device: string | boolean | undefined;
 	silentAuth: boolean;
 	requestedActionOrSelector?: boolean;
+	crunchyAuthExplicit?: boolean;
 	tsdExplicit?: boolean;
 	skipSubMux: boolean;
 	downloadArchive: boolean;
@@ -113,12 +115,25 @@ export let argvC: {
 export type ArgvType = typeof argvC;
 
 // This functions manages slight mismatches like -srz and returns it as --srz
-const processArgv = () => {
+const processArgv = (program: Command) => {
 	const argv = [];
 	const arrayFlags = args.filter((a) => a.type === 'array').map((a) => `--${a.name}`);
 
 	for (let i = 0; i < process.argv.length; i++) {
 		const arg = process.argv[i];
+
+		const next = process.argv[i + 1];
+		if ((arg === '--token' || arg === '-token') && next?.startsWith('-') && next !== '--') {
+			const flag = next.split('=', 1)[0];
+			const long = flag.replace(/^-(?=[a-zA-Z]{2,}$)/, '--');
+			const known = program.options.some((option) => option.short === flag || option.long === flag || option.long === long);
+			// A dash-prefixed file was valid with the old required token argument. Real flags still take precedence.
+			if (!known && existsSync(next)) {
+				argv.push(`--token=${next}`);
+				i++;
+				continue;
+			}
+		}
 
 		if (arg === '--qall=false' || arg === '--qall=true') {
 			argv.push(arg === '--qall=false' ? '--no-qall' : '--qall');
@@ -180,7 +195,15 @@ const actionSelectors = new Set([
 	'downloadArchive',
 	'addArchive'
 ]);
-const markActionSelection = (program: Command, parsed: ArgvType) => {
+const markActionSelection = (program: Command, parsed: ArgvType, isGUI: boolean) => {
+	const explicit = (name: string) => program.getOptionValueSource(name) === 'cli';
+	parsed.crunchyAuthExplicit = explicit('device') || explicit('token');
+	if (!isGUI && parsed.service === 'crunchy' && (parsed.crunchyAuthExplicit || explicit('auth') || explicit('silentAuth'))) {
+		// Saved CLI defaults must not turn an explicit login or help request into two competing methods.
+		for (const name of ['token', 'username', 'password', 'silentAuth']) {
+			if (!explicit(name)) delete parsed[name];
+		}
+	}
 	parsed.tsdExplicit = program.getOptionValueSource('tsd') === 'cli' && parsed.tsd === true;
 	parsed.requestedActionOrSelector =
 		program.args.length > 0 ||
@@ -261,13 +284,14 @@ const appArgv = (
 ) => {
 	if (argvC) return argvC;
 	if (!isGUI && statusInvocation(process.argv.slice(2)) === 'invalid') throw new Error('--check-status requires only --service crunchy and optional --debug');
-	const argv = getCommander(cfg, isGUI).parse(processArgv());
+	const argv = getCommander(cfg, isGUI);
+	argv.parse(processArgv(argv));
 	const parsed = argv.opts() as ArgvType;
 
 	normalizeDubLang(parsed, !isGUI && !(parsed.downloadArchive && argv.getOptionValueSource('dubLang') !== 'cli'));
 	normalizeCC(parsed);
 	normalizeParsed(argv, parsed);
-	markActionSelection(argv, parsed);
+	markActionSelection(argv, parsed, isGUI);
 
 	if (!isGUI && (process.argv.length <= 2 || parsed.help)) {
 		argv.outputHelp();
@@ -280,7 +304,7 @@ const appArgv = (
 
 const overrideArguments = (cfg: { [key: string]: unknown }, override: Partial<typeof argvC>, isGUI = false) => {
 	const argv = getCommander(cfg, isGUI);
-	const baseArgv = [...processArgv()];
+	const baseArgv = processArgv(argv);
 
 	for (const [rawKey, val] of Object.entries(override)) {
 		if (val === undefined) continue;
@@ -309,7 +333,7 @@ const overrideArguments = (cfg: { [key: string]: unknown }, override: Partial<ty
 	normalizeDubLang(parsed, !isGUI);
 	normalizeCC(parsed);
 	normalizeParsed(data, parsed);
-	markActionSelection(data, parsed);
+	markActionSelection(data, parsed, isGUI);
 
 	if (!isGUI && (process.argv.length <= 2 || parsed.help)) {
 		argv.outputHelp();
@@ -345,15 +369,18 @@ const getCommander = (cfg: Record<string, unknown>, isGUI: boolean) => {
 				? `${item.alias.length === 1 ? `-${item.alias}` : `--${item.alias}`}, ${item.name.length === 1 ? `-${item.name}` : `--${item.name}`}`
 				: item.name.length === 1
 					? `-${item.name}`
-					: `--${item.name}`) + (item.name === 'CC' ? ' [value]' : item.type === 'boolean' ? '' : ` <value>`),
+					: `--${item.name}`) + (['CC', 'device', 'token'].includes(item.name) ? ' [value]' : item.type === 'boolean' ? '' : ` <value>`),
 			item.describe ?? ''
 		);
-		if (item.default !== undefined) option.default(item.transformer ? item.transformer(item.default as any) : item.default);
+		if (item.default !== undefined) {
+			const value = item.transformer ? item.transformer(item.default as any) : item.default;
+			option.default(value, ['token', 'password', 'username'].includes(item.name) ? 'configured' : undefined);
+		}
 
 		const optionNames = [...args.map((a) => `--${a.name}`), ...args.map((a) => (a.alias ? `-${a.alias}` : null)).filter(Boolean)];
 
 		option.argParser((value) => {
-			if (item.name === 'CC') return value;
+			if (['CC', 'device', 'token'].includes(item.name)) return value;
 			if (item.transformer) return item.transformer(value);
 
 			// Prevent from passing other options als value for option

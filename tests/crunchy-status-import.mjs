@@ -18,17 +18,24 @@ const nativeRequire = createRequire(import.meta.url);
 const transformed = new Map();
 const quiet = { info() {}, warn() {}, error() {}, debug() {}, log() {} };
 
-async function run(args) {
+async function run(args, { exitCode = 1, page, defaults = '' } = {}) {
 	const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'anidl-status-import-'));
 	const originalExitCode = process.exitCode;
 	try {
 		fs.mkdirSync(path.join(directory, 'config'));
 		fs.writeFileSync(path.join(directory, 'config', 'dir-path.yml'), 'content: ${wdir}/must-not-create\n');
+		fs.writeFileSync(path.join(directory, 'config', 'cli-defaults.yml'), defaults);
+		const tokenPath = path.join(directory, 'config', 'cr_token.yml');
+		const oldSession = 'auth_type: web\nrefresh_token: dummy-old-session\n';
+		if (page) fs.writeFileSync(tokenPath, oldSession);
 		const fakeProcess = Object.create(process);
 		Object.defineProperty(fakeProcess, 'exitCode', { value: undefined, writable: true, enumerable: true, configurable: true });
 		fakeProcess.env = { ...process.env, contentDirectory: directory, isGUI: 'false' };
 		fakeProcess.argv = ['node', 'aniDL', ...args];
 		const cache = new Map();
+		const messages = [];
+		const capture = (message) => messages.push(String(message));
+		const logger = { ...quiet, info: capture, error: capture };
 		let requests = 0;
 		function load(filename) {
 			if (cache.has(filename)) return cache.get(filename).exports;
@@ -42,7 +49,7 @@ async function run(args) {
 					}).outputText
 				);
 			const localRequire = (id) => {
-				if (id === './log' || id === './modules/log') return { console: quiet };
+				if (id === './log' || id === './modules/log') return { console: logger };
 				if (id === 'undici')
 					return {
 						Agent: class {},
@@ -69,7 +76,7 @@ async function run(args) {
 					process: fakeProcess,
 					__dirname: path.dirname(filename),
 					__filename: filename,
-					console: quiet,
+					console: logger,
 					Buffer,
 					URL,
 					URLSearchParams,
@@ -81,7 +88,7 @@ async function run(args) {
 					setInterval,
 					clearInterval,
 					performance,
-					global: globalThis,
+					global: { ...globalThis, console: logger },
 					TextEncoder,
 					TextDecoder
 				},
@@ -91,11 +98,18 @@ async function run(args) {
 		}
 		load(path.join(root, 'index.ts'));
 		await new Promise((resolve) => setImmediate(resolve));
-		assert.equal(fakeProcess.exitCode, 1);
+		assert.equal(fakeProcess.exitCode ?? 0, exitCode);
 		assert.equal(process.exitCode, originalExitCode, 'the fixture must not mutate the real process exit code');
 		assert.equal(requests, 0);
 		assert.equal(fs.existsSync(path.join(directory, 'must-not-create')), false);
 		assert.equal(fs.existsSync(path.join(directory, 'config', 'updates.json')), false);
+		if (page) {
+			assert.equal(fs.readFileSync(tokenPath, 'utf8'), oldSession);
+			assert.match(messages.join('\n'), page);
+			for (const file of ['crunchy.ts', 'adn.ts', 'hidive.ts', 'modules/module.updater.ts', 'modules/module.downloadArchive.ts']) {
+				assert.equal(cache.has(path.join(root, file)), false, `unexpected import on a notice: ${file}`);
+			}
+		}
 	} finally {
 		fs.rmSync(directory, { recursive: true, force: true });
 	}
@@ -103,4 +117,16 @@ async function run(args) {
 
 await run(['--service', 'crunchy', '--check-status']);
 await run(['--service', 'crunchy', '--check-status', '--help']);
-output.log('Crunchy status import path has no setup or requests');
+for (const args of [['--device'], ['--device', '--service=crunchy'], ['--service', 'crunchy', '--device']]) {
+	await run(args, { exitCode: 0, page: /--service crunchy --device androidtv/ });
+}
+for (const args of [['--token'], ['--service=crunchy', '--token', '--debug']]) {
+	await run(args, { exitCode: 0, page: /cookies\.txt/ });
+}
+await run(['--auth', '--service', 'crunchy'], { page: /--service crunchy --device android/ });
+await run(['--auth'], { defaults: 'service: crunchy\n', page: /--service crunchy --device android/ });
+await run(['--service', 'crunchy', '--device'], { defaults: 'token: fixture-cookie\n', exitCode: 0, page: /--device androidtv/ });
+await run(['--service', 'crunchy', '--auth'], { defaults: 'username: fixture-name\npassword: fixture-password\n', page: /Used --auth/ });
+await run(['--service', 'crunchy', '--device', 'bad-selector'], { page: /androidtv/ });
+await run(['--service', 'crunchy', '--device', 'android', '--token'], { page: /only one/ });
+output.log('Crunchy status checks and sign-in notices preserve saved sessions and avoid setup and requests');

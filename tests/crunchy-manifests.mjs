@@ -431,6 +431,7 @@ const deps = {
 	'./modules/module.filename': { default: () => ['test'], __esModule: true },
 	'./modules/module.helper': { default: {}, __esModule: true }
 };
+deps['./modules/module.crunchy-cli-auth'] = compile('modules/module.crunchy-cli-auth.ts', {});
 const other = new Set([
 	'./modules/module.fontsData',
 	'./modules/module.app-args',

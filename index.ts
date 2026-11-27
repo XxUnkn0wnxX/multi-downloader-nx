@@ -1,49 +1,52 @@
 import packageJson from './package.json';
 import { forkReleaseUrl } from './modules/module.fork-display';
-import { console } from './modules/log';
-import { appArgv, overrideArguments, statusInvocation } from './modules/module.app-args';
-import * as yamlCfg from './modules/module.cfg-loader';
-import { makeCommand, addToArchive } from './modules/module.downloadArchive';
-import Crunchy from './crunchy';
-import { PlaybackRecoveryBudget } from './modules/module.crunchy-playback-recovery';
-import Hidive from './hidive';
-import ADN from './adn';
-
-import update from './modules/module.updater';
-import { CRUNCHY_CLI_AUTH_WARNING, validateCrunchyAuthModes } from './modules/module.crunchy-device-auth';
-
-const SERVICES: Record<string, any> = {
-	crunchy: Crunchy,
-	hidive: Hidive,
-	adn: ADN
-};
+import { earlyCrunchyCliAuth, crunchyCliAuthDecision } from './modules/module.crunchy-cli-auth';
 
 (async () => {
-	const recoveryBudget: PlaybackRecoveryBudget = { used: false };
+	const early = earlyCrunchyCliAuth(process.argv.slice(2));
+	if (early.kind !== 'continue') {
+		(early.kind === 'notice' ? global.console.info : global.console.error)(early.message);
+		if (early.kind === 'error') process.exitCode = 1;
+		return;
+	}
+	const [{ console }, { appArgv, overrideArguments, statusInvocation }, yamlCfg] = await Promise.all([
+		import('./modules/log'),
+		import('./modules/module.app-args'),
+		import('./modules/module.cfg-loader')
+	]);
+	const recoveryBudget = { used: false };
 	const status = statusInvocation(process.argv.slice(2));
 	if (status === 'invalid') {
 		console.error('--check-status requires only --service crunchy and optional --debug');
 		process.exitCode = 1;
 		return;
 	}
-	const manualUpdateRequested = process.argv.slice(2).some((arg) => arg === '--update' || arg === '-update');
-	const cfg = yamlCfg.loadCfg(status === 'valid' || manualUpdateRequested);
-	const argv = appArgv(cfg.cli);
+	const cliDefaults = yamlCfg.loadCliCfg();
+	const argv = appArgv(cliDefaults);
 	if (argv.update) {
 		console.warn(`Updates disabled on this fork. Download updates: ${forkReleaseUrl(packageJson.fork)}`);
 		process.exitCode = 1;
 		return;
 	}
+	if (status !== 'valid') {
+		const authDecision = crunchyCliAuthDecision(argv);
+		if (authDecision.kind !== 'continue') {
+			(authDecision.kind === 'notice' ? console.info : console.error)(authDecision.message);
+			if (authDecision.kind === 'error') process.exitCode = 1;
+			return;
+		}
+	}
+	const [{ makeCommand, addToArchive }, { default: Crunchy }, { default: Hidive }, { default: ADN }, { default: update }] = await Promise.all([
+		import('./modules/module.downloadArchive'),
+		import('./crunchy'),
+		import('./hidive'),
+		import('./adn'),
+		import('./modules/module.updater')
+	]);
+	const SERVICES: Record<string, any> = { crunchy: Crunchy, hidive: Hidive, adn: ADN };
 	if (status === 'valid') {
 		const service = new Crunchy(false, recoveryBudget, true);
 		if (!(await service.cli())) process.exitCode = 1;
-		return;
-	}
-	const authError = validateCrunchyAuthModes(argv);
-	if (authError) {
-		if (authError === CRUNCHY_CLI_AUTH_WARNING) console.warn(authError);
-		else console.error(authError);
-		process.exitCode = 1;
 		return;
 	}
 	if (argv.dryRun && (argv.update || argv.addArchive)) {
@@ -85,7 +88,7 @@ const SERVICES: Record<string, any> = {
 	} else if (argv.downloadArchive && argv.service) {
 		const ids = makeCommand(argv.service);
 		for (const id of ids) {
-			overrideArguments(cfg.cli, id);
+			overrideArguments(cliDefaults, id);
 			const Service = SERVICES[argv.service];
 			if (!Service) {
 				console.error('Unknown service:', argv.service);

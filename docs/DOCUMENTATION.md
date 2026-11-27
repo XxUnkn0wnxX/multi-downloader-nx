@@ -1,4 +1,4 @@
-# multi-downloader-nx v5.8.8 (Nightly) [Rev6]
+# multi-downloader-nx v5.8.8 (Nightly) [Rev7]
 
 If you find any bugs in this documentation or in the program itself, please report them on [GitHub issues](../../../issues).
 
@@ -22,35 +22,35 @@ Quality-list rates use decimal `kb/s` (1 kb/s = 1,000 bits/s). `KiB/s` measures 
 | --- | --- | --- | --- | --- | ---|
 | All | `--auth ` | `boolean` | `No`| `—` | `—` |
 
-For Crunchyroll CLI, open the Android phone sign-in page and print the same URL for manual use. After signing in, paste the full callback URL into the hidden prompt and press Enter. The phone session is saved separately from device-code and browser-cookie sessions. See [Crunchyroll CLI sign-in](GET-STARTED.md#crunchyroll-cli) for client configuration. Other services keep their existing sign-in prompts.
+Sign in to HIDIVE or ADN. For Crunchyroll CLI, use --device or --token.
 #### `--device`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--device ` | `boolean` | `No`| `—` | `—` |
+| Crunchyroll | `--device [type]` | `string` | `No`| `—` | `—` |
 
-Log in to Crunchyroll with an activation code. The CLI opens the activation page in your browser and prints the same link for manual use. Enter the printed code and approve the request. The Android TV session is saved for automatic refresh alongside any other saved sessions.
+Choose androidtv for device activation or android for phone browser sign-in. Omit the value to show the available choices.
 #### `--username`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
 | All | `--username ${username}` | `string` | `No`| `—` | `undefined`| `username: ` |
 
-Set the username to use for authentication. For Crunchyroll CLI, use browser --auth or --device.
+Set the username to use for authentication. For Crunchyroll CLI, use --device or --token.
 #### `--password`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
 | All | `--password ${password}` | `string` | `No`| `—` | `undefined`| `password: ` |
 
-Set the password to use for authentication. For Crunchyroll CLI, use browser --auth or --device.
+Set the password to use for authentication. For Crunchyroll CLI, use --device or --token.
 #### `--silentAuth`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
 | Crunchyroll | `--silentAuth ` | `boolean` | `No`| `—` | `false`| `silentAuth: ` |
 
-For Crunchyroll CLI, use browser --auth or --device.
+For Crunchyroll CLI, use --device or --token.
 #### `--token`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
-| Crunchyroll | `--token ${token}` | `string` | `No`| `—` | `undefined`| `token: ` |
+| Crunchyroll | `--token [cookie-or-file]` | `string` | `No`| `—` | `undefined`| `token: ` |
 
 Log in to Crunchyroll with the UUID-shaped etp_rt cookie value (optionally prefixed with etp_rt=), or the path to a file containing the raw token or a Netscape cookies export. The file may have any name or extension. The resulting web session is saved alongside any TV and phone sessions.
 ### Fonts

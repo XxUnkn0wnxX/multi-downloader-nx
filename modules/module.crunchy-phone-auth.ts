@@ -19,6 +19,9 @@ const idKey = 'CRUNCHYROLL_PHONE_CLIENT_ID';
 const secretKey = 'CRUNCHYROLL_PHONE_CLIENT_SECRET';
 export const PHONE_CLIENT_REQUIRED = 'Configure CRUNCHYROLL_PHONE_CLIENT_ID and CRUNCHYROLL_PHONE_CLIENT_SECRET for Android phone sign-in.';
 
+export const PHONE_CALLBACK_INVALID =
+	'AniDL could not verify that sign-in address. Start Android phone sign-in again and paste the full address from the browser tab opened for that attempt.';
+
 function phoneClient() {
 	let id = process.env[idKey];
 	let secret = process.env[secretKey];
@@ -68,7 +71,9 @@ async function readCallback(): Promise<string | undefined> {
 	process.once('SIGTERM', close);
 	const timer = setTimeout(close, inputTimeoutMs);
 	try {
-		process.stdout.write('Paste the full callback URL and press Enter (input hidden): ');
+		process.stdout.write(
+			'After you sign in, copy the full address from your browser’s address bar.\nThe page may say “404 – Page Not Found.” That’s fine.\n\nPaste the address here once and press Enter. Nothing will appear as you\npaste. AniDL hides the address because it contains your private sign-in code.\n'
+		);
 		for await (const line of input) return line;
 	} finally {
 		clearTimeout(timer);
@@ -146,8 +151,9 @@ export async function loginWithPhone(request: Req['getData']): Promise<CrunchySe
 	process.stdout.write(`Opening Crunchyroll sign-in in your browser…\nIf your browser didn’t open, open this link manually:\n${authorize.href}\n\n`);
 	void import('open').then(({ default: open }) => open(authorize.href)).catch(() => {});
 	const input = await readCallback();
-	const code = input && parsePhoneCallback(input, state);
-	if (!code) return;
+	if (!input) return;
+	const code = parsePhoneCallback(input, state);
+	if (!code) throw new Error(PHONE_CALLBACK_INVALID);
 	const deviceId = randomUUID();
 	return exchangePhoneToken(
 		request,

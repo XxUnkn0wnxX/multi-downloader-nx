@@ -44,6 +44,15 @@ function compile(file, deps = {}, overrides = {}) {
 	return module.exports;
 }
 
+for (const [entry, isGUI, expected] of [
+	['index.ts', false, 'pnpm exec tsx index.ts'],
+	['lib/index.js', false, 'node lib/index.js'],
+	['lib/gui.js', true, 'node lib/index.js']
+]) {
+	const runtime = { argv: ['node', path.join(root, entry)], cwd: () => root, platform: 'linux', env: { isGUI: String(isGUI) } };
+	assert.equal(compile('modules/module.crunchy-cli-auth.ts', {}, { process: runtime }).cliInvocation(), expected);
+}
+
 const { args, groups, configuredDefault, getDefault } = compile('modules/module.args.ts', {
 	'./module.langsData': languageData,
 	'../@types/enums': enums,
@@ -71,6 +80,7 @@ function parse(argv, config = {}, override, directOverride = false, isGUI = fals
 	const appArgs = compile(
 		'modules/module.app-args.ts',
 		{
+			'node:fs': { existsSync: (file) => ['-cookies.txt', '--debug'].includes(file) },
 			'./module.args': { args, groups, configuredDefault },
 			'./log': { console: { ...output, error: (message) => errors.push(message) } },
 			'./module.langsData': languageData,
@@ -93,6 +103,20 @@ function parse(argv, config = {}, override, directOverride = false, isGUI = fals
 for (const input of [['eng', 'jpn', 'hin'], ['eng,jpn,hin'], ['eng,', 'jpn,', 'hin'], ['eng,jpn', 'hin']]) {
 	assert.deepEqual(Array.from(parse(['--dubLang', ...input]).dubLang), ['eng', 'jpn', 'hin']);
 }
+for (const option of ['device', 'token']) {
+	assert.equal(parse([])[option], undefined);
+	assert.equal(parse([`--${option}`, '--debug'])[option], true);
+	assert.equal(parse([`--${option}=`])[option], '');
+}
+for (const type of ['android', 'androidtv']) {
+	assert.equal(parse(['--device', type]).device, type);
+	assert.equal(parse([`--device=${type}`]).device, type);
+}
+assert.equal(parse(['--token', 'my cookies.txt']).token, 'my cookies.txt');
+assert.equal(parse(['--token', '-cookies.txt']).token, '-cookies.txt');
+assert.equal(parse(['--token', '--debug']).debug, true);
+assert.equal(parse(['--device', 'android'], { token: 'configured-cookie' }).token, undefined);
+assert.equal(parse(['--device=--token']).device, '--token');
 assert.deepEqual(Array.from(parse([], { dubLang: ['eng,jpn', 'hin'] }).dubLang), ['eng', 'jpn', 'hin']);
 assert.deepEqual(Array.from(parse(['--dubLang', 'zho,chi'], { dubLang: ['hindi'] }).dubLang), ['zho', 'chi']);
 assert.deepEqual(Array.from(parse([], { dubLang: ['hindi'] }, { dubLang: ['eng', 'jpn'] }, true).dubLang), ['eng', 'jpn']);
@@ -245,6 +269,8 @@ for (const [argv, cfg, crunchy] of [
 	assert(!text.includes('--no-qall'));
 	if (!crunchy) assert(!text.includes('Crunchyroll CLI:'));
 }
+const configuredHelp = help(['--help', '--service', 'crunchy'], { token: 'private-cookie', username: 'private-user', password: 'private-password' });
+for (const value of ['private-cookie', 'private-user', 'private-password']) assert(!configuredHelp.includes(value));
 output.log('ok - discovery timer, aliases, config precedence and service-aware help');
 
 const docs = fs.readFileSync(path.join(root, 'docs/DOCUMENTATION.md'), 'utf8');
