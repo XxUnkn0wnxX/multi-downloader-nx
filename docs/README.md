@@ -24,9 +24,14 @@ Start with **Getting Started** to open a terminal, sign in and preview one Crunc
 
 Use `--service crunchy --device {type}` **(Crunchyroll only)** to sign in. Replace `{type}` with `androidtv` for Android TV or `android` for a phone or tablet. Search for a show and choose episodes from a season. [Crunchyroll sign-in](AUTHENTICATION.md#crunchyroll)
 
-**Does the sign-in method change audio bitrate?** On 25 November 2026 (UTC), we checked one episode using a browser cookie, Android phone and Android TV. All three advertised the same audio bitrate for each dub. English and Japanese differed slightly.
+<details>
+<summary><strong>Bitrate Q&amp;A</strong></summary>
+
+**Does the sign-in method change audio bitrate?** On 25 November 2026 (UTC), one episode was checked using a browser cookie, Android phone and Android TV. All three advertised the same audio bitrate for each dub. English and Japanese differed slightly.
 
 **Can video bitrate differ?** Yes. Video bitrate can vary by dub and endpoint. On that episode, Japanese offered a higher-bitrate video option than English.
+
+</details>
 
 ### HIDIVE
 

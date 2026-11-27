@@ -885,7 +885,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		describe: 'Replay saved archive entries for the selected service',
 		group: 'dl',
 		docDescribe:
-			'Replay an archive that already has entries for this service. HIDIVE expects season IDs and ADN expects show IDs. Entries saved with episode IDs can select the wrong collection or fail to replay.',
+			'Check saved collections for the selected service and skip episodes already marked complete. If there are no entries for this service, AniDL tells you and exits. Older HIDIVE or ADN entries saved under an episode ID may still need correction.',
 		service: ['all'],
 		type: 'boolean',
 		usage: ''

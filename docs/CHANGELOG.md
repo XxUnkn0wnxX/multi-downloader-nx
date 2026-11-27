@@ -17,6 +17,10 @@ Changes specific to this fork are grouped below with their implementation commit
 - Reject a repeated service, an invalid saved Crunchyroll token setting, or a dry-run archive addition before taking action. [Validation changes](../../../commit/1198ac44bce0721c31ed0c5055365fb2659148c5)
 - Follow the Windows or Linux walkthrough from sign-in through a first episode. [Getting started](GET-STARTED.md) · [Service sign-in guide](AUTHENTICATION.md)
 
+### Download archive
+
+HIDIVE now records completed episodes under their season and ADN under their show. Archive replay skips those episodes on the next run and prints a notice if the selected service has no entries. [Archive behavior](fork-changes.md#download-archive) · [Archive fix](../../../commit/590e954e45218603b2e2ce0c4b3e3455a906399c)
+
 ## 2026-11-26
 
 ### Nightly Rev6 — Crunchyroll phone sign-in and stream routing

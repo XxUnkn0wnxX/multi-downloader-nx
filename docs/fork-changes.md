@@ -163,6 +163,10 @@ Use the actual selected episode languages, including GUI selections, for explici
 
 Build the final output map after existing timing analysis, independently of acquisition/input order: retained video(s), all ordered audio, then subtitle language groups in audio order, each Signs → full → CC. Put additional subtitle-only languages afterward in deterministic language/locale order. Preserve selected video, calculated delays, `keepAllVideos`, `skipSubMux` sidecars and chapter/font handling. Carry split-versus-combined input layout so a DASH video-only download does not require a nonexistent audio stream. Combined HLS inputs use the same final mux policy; their download/decryption/resume and timing stages remain unchanged.
 
+### Download archive
+
+Archive replay checks only the selected service and exits with a short notice if it has no entries. Completed episodes are stored under the Crunchyroll season or series, the HIDIVE season, or the ADN show. Replaying the collection skips its recorded episodes. Older HIDIVE or ADN entries can contain an episode ID in place of a collection ID. AniDL leaves those entries available for manual review. [CLI reference](ARGUMENTS.md#--downloadarchive)
+
 ### Preserve inputs when muxing fails
 
 The shared merger reports whether its command succeeded and produced a new or updated nonempty output; MKVToolNix exit 1 remains success with warnings when that output exists. Crunchyroll, HIDIVE and ADN must propagate hard failure before cleaning mux inputs or recording completed downloads. A missing muxer, interrupted execution, fatal exit, missing/empty output or unchanged stale output must retain those inputs. Keep intentional `skipmux`, no-video/subtitle-only and `skipMuxOnSubFail` outcomes separate from hard failures, and retain unmuxed `skipSubMux` subtitle sidecars.

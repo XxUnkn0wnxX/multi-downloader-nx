@@ -175,7 +175,7 @@ Download everything but the -e selection
 | --- | --- | --- | --- | --- | --- |
 | All services | `--downloadArchive` | `boolean` | `No` | `—` | `—` |
 
-Replay an archive that already has entries for this service. HIDIVE expects season IDs and ADN expects show IDs. Entries saved with episode IDs can select the wrong collection or fail to replay.
+Check saved collections for the selected service and skip episodes already marked complete. If there are no entries for this service, AniDL tells you and exits. Older HIDIVE or ADN entries saved under an episode ID may still need correction.
 #### `--partsize`
 
 | **Service** | **Usage** | **Type** | **Required** | **Alias** | **Default** | **cli-default Entry** |
