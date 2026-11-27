@@ -210,6 +210,8 @@ The Node 24 gate checks TypeScript without emitting files, all tracked `tests/*.
 
 ### Package the tested stable CLI
 
+To publish a Nightly release from a fork you maintain, open **Actions → Nightly Fork → Run workflow** in that repository, choose `main`, then select **Run workflow**. The workflow checks the test results before it builds and publishes the CLI archives.
+
 The [Nightly Fork workflow](../.github/workflows/release-matrix.yml) listens for completed Tests runs on `main` and supports manual dispatch on `main`. Automatic releases retain their triggering Tests revision. A manual release may reuse the latest applicable successful main Tests result when its tested commit is an ancestor of the current target and the complete comparison contains only documentation, the release controller `.github/scripts/fork-release.mjs`, or its focused fixture `tests/fork-release.mjs`. Validate release-controller changes locally before this exception. Application source, dependencies, other tests, build tooling, and workflows require fresh passing Tests. An applicable newer failed or unfinished attempt blocks an older success.
 
 Only this repository's expected Tests workflow, started by a main push or manual dispatch, qualifies. Preserve both the built target SHA and tested source SHA, Tests run ID and attempt, and current-main checks before preparation and publication. Check out the immutable target SHA, including its current docs; `workflow_run` uses the default branch for its controller. Reject ambiguous ancestry, incomplete comparison metadata, and history limits that prevent proof. Recheck applicable Tests before final publication. Only the gate and publisher need the additional `actions: read` permission for these metadata lookups.

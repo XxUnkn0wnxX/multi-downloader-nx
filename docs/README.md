@@ -53,15 +53,9 @@ To compile the CLI, run `pnpm run prebuild-cli`. From the checkout, use `node li
 
 ## Fork builds and releases
 
-`main` is the stable default branch, `develop` is the working branch, and `master-upstream` mirrors upstream. [Tests](../../../actions/workflows/test.yml) checks Node 22 and 24. After a successful Tests run on `main`, [Nightly Fork](../../../actions/workflows/release-matrix.yml) builds that exact revision and checks that it is still current before publishing.
+On the release page, open **Assets** and download the file ending in `-cli.7z` for your platform. Its matching `.sha256` file lets you verify the download. [Nightly Fork downloads](../../../releases/tag/nightly-fork)
 
-For a manual build of the current `main` commit, open **Actions → Nightly Fork → Run workflow** and select `main`. Documentation-only revisions can reuse the latest applicable passing Tests run on `main` when application, build, workflow, test, and dependency inputs are unchanged. Changed inputs require fresh passing Tests; a newer applicable failed or pending run blocks the manual build. This manual path can release documentation-only revisions without repeating unchanged source tests.
-
-Automatic Tests skips changes limited to Markdown, `docs/` and/or `tools/`. Changes to downloader source, dependencies, build configuration or workflows still run the normal checks. The separate maintenance tools stay outside the application’s TypeScript, ESLint, Prettier and packaging scans; their tests run locally only.
-
-The workflow replaces eight `.7z` CLI archives and their checksums on the same release page under the fixed `nightly-fork` tag. Its title includes the manually maintained fork revision, for example **Nightly Fork (Rev7)**, and it remains a normal release marked **Latest**. Release notes identify the released commit and the source revision validated by Tests separately, with links to the [fork changelog](CHANGELOG.md), Tests, and build run. GitHub also provides source ZIP and tar.gz downloads for the release tag.
-
-Provider banners display the base version, channel and revision, for example `5.8.8 (Nightly) [Rev7]`. A service command with `--version` prints the base version for compatibility. Maintainers update the shared metadata in [package.json](../package.json). See [fork revision maintenance](fork-changes.md#nightly-revision-metadata).
+The release title shows the fork revision. To check your installed revision, look for the number in the AniDL startup banner, such as `[Rev7]`. [Fork changelog](CHANGELOG.md)
 
 ## Fork update notices
 
