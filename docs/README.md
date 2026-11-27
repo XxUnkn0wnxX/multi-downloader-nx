@@ -27,7 +27,11 @@ Use `--service crunchy --device {type}` **(Crunchyroll only)** to sign in. Repla
 <details>
 <summary><strong>Bitrate Q&amp;A</strong></summary>
 
-**Does the sign-in method change audio bitrate?** On 25 November 2026 (UTC), one episode was checked using a browser cookie, Android phone and Android TV. All three advertised the same audio bitrate for each dub. English and Japanese differed slightly.
+| Series | Episode tested | Date checked (UTC) |
+| --- | --- | --- |
+| Sasaki and Peeps | [Season 2, episode 6 — Feast and Bonds](https://www.crunchyroll.com/watch/GE00328103ENUS/feast-and-bonds) | 25 November 2026 |
+
+**Does the sign-in method change audio bitrate?** On this episode’s current stream, the browser cookie, Android phone and Android TV sign-ins all advertised the same audio bitrate for each dub. English and Japanese differed slightly.
 
 **Can video bitrate differ?** Yes. Video bitrate can vary by dub and endpoint. On that episode, the Japanese dub offered a higher-bitrate video option than the tested English dub.
 
