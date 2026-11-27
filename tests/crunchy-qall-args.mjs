@@ -122,7 +122,15 @@ for (const { name, runtime, expected } of [
 		const decision = auth.crunchyCliAuthDecision(argv);
 		assert.notEqual(decision.kind, 'continue', `${name}: expected a sign-in notice`);
 		assert(decision.message.includes(example), `${name}: missing compact example ${example}`);
-		assert.match(decision.message, /Run the same command again, replacing/, `${name}: explain how to use the option suffixes`);
+		if (argv.auth) assert.match(decision.message, /Run the same command again, replacing/);
+		else {
+			const lines = decision.message.split('\n');
+			assert.equal(lines.length, 5, 'show just two labeled examples');
+			assert.equal(lines[2], '');
+			assert.deepEqual([lines[1], lines[4]], argv.device ? ['  --device androidtv', '  --device android'] : ['  --token "cookies.txt"', '  --token "YOUR_COOKIE_VALUE"']);
+			if (argv.device) assert.match(lines[3], /input is hidden/);
+			else assert.match(lines[3], /etp_rt/);
+		}
 		assert.doesNotMatch(decision.message, /--service|(?:^|\n)\s*(?:anidl|aniDL\.exe|node|pnpm exec tsx)\s+--|\/synthetic\/|\/unrelated\/|node_modules|\.\.\/|C:\/synthetic/i);
 	}
 	const unscopedRuntime = { ...runtime, argv: runtime.argv.slice(0, 2) };

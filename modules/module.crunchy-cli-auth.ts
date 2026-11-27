@@ -74,33 +74,19 @@ Show how to sign in with a browser cookie or cookies file
 	if (argv.device === true)
 		return {
 			kind: 'notice',
-			message: `Which Crunchyroll login do you need?
-Run the same command again, replacing --device with your choice below.
-
-Android TV — enter a code on the Crunchyroll page that opens.
+			message: `Android TV — enter the activation code online
   --device androidtv
 
-Android phone or tablet — sign in on the Crunchyroll website, then paste
-the final address into this terminal. AniDL hides it for your privacy.
-AniDL needs the Android phone client settings for this method.
-  --device android
-
-With the default settings, Android TV supplies video and Android phone
-supplies audio. Sign in once for each device using the same account.`
+Android phone or tablet — paste the final browser address (input is hidden)
+  --device android`
 		};
 	if (argv.token === true)
 		return {
 			kind: 'notice',
-			message: `Use your Crunchyroll browser login for Chrome or Firefox streams.
-Run the same command again, replacing --token with one of the examples below.
-
-Have a cookies file? If cookies.txt is in this folder, use
+			message: `Cookies file
   --token "cookies.txt"
-If the file is elsewhere, put its full path inside the quotes. Using a
-file keeps the cookie value out of your command history.
 
-Have the cookie value instead? Replace YOUR_COOKIE_VALUE with the value
-of the Crunchyroll cookie named etp_rt. Keep this value private.
+etp_rt cookie value
   --token "YOUR_COOKIE_VALUE"`
 		};
 	return { kind: 'continue' };
