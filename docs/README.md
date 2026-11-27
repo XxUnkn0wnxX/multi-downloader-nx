@@ -35,6 +35,14 @@ Use `--service crunchy --device {type}` **(Crunchyroll only)** to sign in. Repla
 
 **Can video bitrate differ?** Yes. Video bitrate can vary by dub and endpoint. On that episode, the Japanese dub offered a higher-bitrate video option than the tested English dub.
 
+**Can I keep English audio and look for better video?** **(Crunchyroll only)** Yes. `--dubLang eng` keeps English audio, `--qall` checks video across all available dubs, and `-q 0` picks the best compatible stream it finds. Use `--qall` sparingly. The extra requests can trigger rate limits that interrupt normal viewing.
+
+Replace `SEASON_ID` with your season ID to try this on episode 6.
+
+```sh
+anidl --service crunchy -s SEASON_ID -e 6 --dubLang eng --qall -q 0
+```
+
 </details>
 
 ### HIDIVE
