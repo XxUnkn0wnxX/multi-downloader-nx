@@ -383,6 +383,8 @@ const overrideArguments = (cfg: { [key: string]: unknown }, override: Partial<ty
 	baseArgv.splice(delimiterIndex ?? baseArgv.length, 0, ...overrides);
 	const data = argv.parse(baseArgv);
 	const parsed = data.opts() as ArgvType;
+	// Archive replay must honor its exclusions even when --all is set on the CLI or in the defaults.
+	if (override.all === false) parsed.all = false;
 
 	normalizeDubLang(parsed, !isGUI);
 	normalizeCC(parsed, isGUI);

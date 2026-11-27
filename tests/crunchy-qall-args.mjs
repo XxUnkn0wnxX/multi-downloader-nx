@@ -188,6 +188,21 @@ function parse(argv, config = {}, override, directOverride = false, isGUI = fals
 	return appArgs.argvC;
 }
 
+const archivedSeason = { but: true, all: false, service: 'hidive', e: '4', s: '120' };
+for (const [argv, config, label] of [
+	[['--downloadArchive'], {}, 'default selection'],
+	[['--downloadArchive'], { all: true }, 'config all:true'],
+	[['--downloadArchive', '--all'], {}, 'CLI --all']
+]) {
+	const replay = parse(argv, config, archivedSeason, false, false, 'hidive');
+	assert.equal(replay.all, false, `archive replay clears all for ${label}`);
+	assert.equal(replay.but, true, `archive replay preserves but for ${label}`);
+	assert.equal(replay.e, '4', `archive replay retains completed-episode exclusions for ${label}`);
+	assert.equal(replay.s, '120', `archive replay retains the season selector for ${label}`);
+}
+const ordinaryAll = parse(['--all', '-s', '120'], {}, undefined, false, false, 'hidive');
+assert.equal(ordinaryAll.all, true, 'ordinary CLI --all remains enabled outside archive replay');
+
 for (const selectors of [
 	['--service', 'hidive', '--service', 'hidive'],
 	['--service', 'hidive', '--service', 'crunchy'],
