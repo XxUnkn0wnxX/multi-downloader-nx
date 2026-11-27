@@ -6,7 +6,7 @@ Changes specific to this fork are grouped below with their implementation commit
 
 ### Nightly Rev7 — Crunchyroll CLI sign-in
 
-| If you used this on Crunchyroll | Use this in Rev7 |
+| Previous Crunchyroll command | Command from Rev7 onward |
 | --- | --- |
 | `--service crunchy --device` for Android TV | `--service crunchy --device androidtv` |
 | `--service crunchy --auth` for Android phone | `--service crunchy --device android` |

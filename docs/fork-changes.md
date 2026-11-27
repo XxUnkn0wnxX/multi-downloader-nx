@@ -6,21 +6,9 @@ This page records the differences this fork maintains on `develop` and `main`, a
 
 ### Nightly revision metadata
 
-Keep the base semver in `version` and the fork display metadata in the root [package.json](../package.json):
+The root manifest stores the base version in `version`, the release channel in `fork.channel` and the revision number in `fork.revision`. The `fork.repository` and `fork.releaseTag` fields identify the release used for update checks. [package.json](../package.json)
 
-```json
-{
-  "version": "5.8.8",
-  "fork": {
-    "channel": "Nightly",
-    "revision": 7,
-    "repository": "XxUnkn0wnxX/multi-downloader-nx",
-    "releaseTag": "nightly-fork"
-  }
-}
-```
-
-The [shared formatter](../modules/module.fork-display.ts) supplies provider banners, GUI startup/version responses and the generated CLI reference. Displays use `5.8.8 (Nightly) [Rev7]`. A service-qualified `--version` retains the raw base semver. Fork update notices compare semantic base versions first and revisions only at equal version precedence. Existing build copies carry this metadata into `lib` and archives.
+The shared formatter combines those values as `<version> (<channel>) [Rev<number>]` for provider banners, GUI startup/version responses and the generated CLI reference. A service-qualified `--version` prints the base version. Fork update notices compare base versions first and use the revision number when those versions are equal. The build copies this metadata into `lib` and the release archives. [Shared formatter](../modules/module.fork-display.ts)
 
 The fork revision is set manually. CI reads it from the target manifest. The publisher reads the manifest at the immutable target source SHA, validates it before any release mutation, and uses one `Nightly Fork (RevN)` title for draft creation and final publication. Never use the workflow-controller checkout’s metadata for a different target. Preserve the fixed `nightly-fork` tag/URL and asset names. A package metadata change requires fresh Tests and is outside the documentation/controller-only proof-reuse exception.
 

@@ -2,7 +2,7 @@
 
 [🏠 README](README.md) · [🔑 Sign in to a service](AUTHENTICATION.md) · [CLI reference](ARGUMENTS.md)
 
-Use this guide with **Nightly Rev7**. You’ll open AniDL, sign in to Crunchyroll and preview one episode before downloading it.
+You’ll open AniDL, sign in to Crunchyroll and preview one episode before downloading it.
 
 [💻 Open AniDL](#open-anidl) · [🔑 Choose your sign-in](#choose-your-sign-in) · [📥 Find and download an episode](#find-and-download-one-episode) · [🛠️ Troubleshooting](#troubleshooting)
 
@@ -31,7 +31,7 @@ aniDL.exe --service crunchy --help
 
 </details>
 
-To check the installed revision, look for `[Rev7]` in the startup banner, or run `aniDL.exe --debug` on Windows or `./aniDL --debug` on Linux. If you have an older revision, open the guide in the `docs/` folder that came with that archive.
+The Crunchyroll sign-in commands in this guide work from Rev7 onward. To check your installed revision, look for the number after `Rev` in the startup banner, or run `aniDL.exe --debug` on Windows or `./aniDL --debug` on Linux. For earlier revisions, use the guide in the `docs/` folder that came with your archive.
 
 Keep this terminal open for the commands below. If Windows cannot find `aniDL.exe` or Linux cannot find `./aniDL`, check that your terminal is open in the extracted folder. Linux may require making the executable runnable first with `chmod +x ./aniDL`.
 

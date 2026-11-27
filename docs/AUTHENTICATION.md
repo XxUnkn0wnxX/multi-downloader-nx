@@ -6,7 +6,7 @@ Open a terminal in your extracted AniDL folder. Choose your service, then open t
 
 ## Crunchyroll
 
-🔄 **Used `--auth` for Crunchyroll on an older version?** Use `--device android` for phone sign-in. In Rev7, `--service crunchy --auth` shows a reminder. HIDIVE and ADN still sign in with `--auth`.
+🔄 **Previously used `--auth` for Crunchyroll?** Starting with Rev7, use `--service crunchy --device android` for phone sign-in. The old Crunchyroll command shows the sign-in options. HIDIVE and ADN still use `--auth`.
 
 With the default settings, complete [Android TV sign-in](#android-tv) for video and [Android phone sign-in](#android-phone-or-tablet) for audio. Use the **same Crunchyroll account** both times. Both commands run on your computer.
 

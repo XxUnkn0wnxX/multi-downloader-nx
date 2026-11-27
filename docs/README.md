@@ -44,7 +44,7 @@ For developers and advanced users, the [developer guide](DEVELOPMENT.md#build-fr
 
 On the release page, open **Assets** and download the file ending in `-cli.7z` for your platform. Its matching `.sha256` file lets you verify the download. [Nightly Fork downloads](../../../releases/tag/nightly-fork)
 
-The release title shows the fork revision. To check your installed revision, look for the number in the AniDL startup banner, such as `[Rev7]`. [Fork changelog](CHANGELOG.md)
+The release title shows the fork revision. To check your installed revision, look for the number after `Rev` in the AniDL startup banner. [Fork changelog](CHANGELOG.md)
 
 ## Fork update notices
 
