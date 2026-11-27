@@ -58,6 +58,8 @@ export function parsePhoneCallback(input: string, state: string): string | undef
 	return codes[0];
 }
 
+const callbackInstructions = 'After sign-in, copy the full browser address, even on a 404 page.\nPaste it here and press Enter. Input is hidden to protect your sign-in code.\n';
+
 async function readCallback(): Promise<string | undefined> {
 	const hidden = new Writable({
 		write(_chunk, _encoding, done) {
@@ -71,7 +73,7 @@ async function readCallback(): Promise<string | undefined> {
 	process.once('SIGTERM', close);
 	const timer = setTimeout(close, inputTimeoutMs);
 	try {
-		process.stdout.write('After sign-in, copy the full browser address, even on a 404 page.\nPaste it here and press Enter. Input is hidden to protect your sign-in code.\n');
+		process.stdout.write(callbackInstructions);
 		for await (const line of input) return line;
 	} finally {
 		clearTimeout(timer);
@@ -131,8 +133,8 @@ async function exchangePhoneToken(request: Req['getData'], fields: Record<string
 	}
 }
 
-export async function loginWithPhone(request: Req['getData']): Promise<CrunchySession | undefined> {
-	if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error('Android phone sign-in requires an interactive terminal.');
+export async function loginWithPhone(request: Req['getData'], dryRun = false): Promise<CrunchySession | 'dry-run' | undefined> {
+	if (!dryRun && (!process.stdin.isTTY || !process.stdout.isTTY)) throw new Error('Android phone sign-in requires an interactive terminal.');
 	const client = phoneClient();
 	const verifier = randomBytes(32).toString('base64url');
 	const state = JSON.stringify({ flow: 'SIGN_IN', flowRoot: randomUUID() });
@@ -146,7 +148,11 @@ export async function loginWithPhone(request: Req['getData']): Promise<CrunchySe
 		response_type: 'code',
 		state
 	}).toString();
-	process.stdout.write(`Opening Crunchyroll sign-in… If needed, open the link below.\n\n\t${authorize.href}\n\n`);
+	process.stdout.write(`If your browser doesn’t open, use this sign-in link.\n\n  ${authorize.href}\n\n`);
+	if (dryRun) {
+		process.stdout.write(callbackInstructions);
+		return 'dry-run';
+	}
 	void import('open').then(({ default: open }) => open(authorize.href)).catch(() => {});
 	const input = await readCallback();
 	if (!input) return;

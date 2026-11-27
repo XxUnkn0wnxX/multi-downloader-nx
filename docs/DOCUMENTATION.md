@@ -28,7 +28,7 @@ HIDIVE and ADN use --auth for username or email and password sign-in. On Crunchy
 | --- | --- | --- | --- | --- | ---|
 | Crunchyroll | `--device [type]` | `string` | `No`| `—` | `—` |
 
-Start with `--service crunchy`. Use `--device androidtv` for TV activation or `--device android` for phone browser sign-in. Use `--service crunchy --device` to see both choices.
+Start with `--service crunchy`. Choose `--device androidtv` or `--device android`; bare `--device` shows both choices. With `--dry-run`, phone sign-in prints the URL and paste instructions, then cancels before opening a browser or reading input. TV sign-in requests a code and reports its expiry, then cancels before opening the activation page or polling for approval. Neither flow exchanges tokens or saves a session.
 #### `--username`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **Default** |**cli-default Entry**
 | --- | --- | --- | --- | --- | --- | ---|
@@ -307,7 +307,7 @@ Bypass video/audio timing checks for selected dubs and all-language --qall disco
 | --- | --- | --- | --- | --- | --- | ---|
 | All | `--dry-run ` | `boolean` | `No`| `--dryRun` | `false`| `—` |
 
-Preview available qualities and stream URLs without downloading files. Authentication and token refresh still run. This option is CLI or programmatic only and cannot be enabled through cli-defaults.
+Preview available qualities and stream URLs without downloading files. During download previews, authentication and token refresh still run. This option is CLI or programmatic only and cannot be enabled through cli-defaults.
 #### `--novids`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**
 | --- | --- | --- | --- | --- | ---|

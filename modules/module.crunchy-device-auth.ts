@@ -16,6 +16,7 @@ type DeviceOptions = {
 	signal: AbortSignal;
 	debug: boolean;
 	log: (message: string) => void;
+	dryRun?: boolean;
 	openActivation?: (url: string) => void;
 	onCountdown?: (remainingSeconds: number | undefined, status?: 'waiting' | 'approved' | 'timed-out' | 'error') => void;
 	now?: () => number;
@@ -130,7 +131,7 @@ const sleep = (ms: number, signal: AbortSignal) =>
 		signal.addEventListener('abort', abort, { once: true });
 	});
 
-export async function requestDeviceToken(options: DeviceOptions): Promise<Record<string, any> | undefined> {
+export async function requestDeviceToken(options: DeviceOptions): Promise<Record<string, any> | 'dry-run' | undefined> {
 	const { request, headers, deviceId, log, debug } = options;
 	const controller = new AbortController();
 	const signal = controller.signal;
@@ -218,9 +219,14 @@ export async function requestDeviceToken(options: DeviceOptions): Promise<Record
 		)
 			throw new Error('Invalid device code response.');
 		const activationUrl = 'https://crunchyroll.com/activate';
-		if (options.openActivation) log('If your browser doesn’t open, open this link manually.');
-		log(`\t${activationUrl}\n`);
+		if (options.openActivation || options.dryRun) log('If your browser doesn’t open, open this link manually.');
+		log(`${activationUrl}\n`);
 		log(`Enter Code: ${data.user_code.toUpperCase()}`);
+		const initialCountdown = `Expires in ${data.expires_in} seconds. (Waiting for approval)`;
+		if (options.dryRun) {
+			log(initialCountdown);
+			return 'dry-run';
+		}
 		options.openActivation?.(activationUrl);
 		deadline = now() + data.expires_in * 1000;
 		if (options.onCountdown) {
@@ -231,7 +237,7 @@ export async function requestDeviceToken(options: DeviceOptions): Promise<Record
 			};
 			updateCountdown();
 			countdownTimer = setInterval(updateCountdown, 1000);
-		} else log(`Expires in ${data.expires_in} seconds. (Waiting for approval)`);
+		} else log(initialCountdown);
 		expiryTimer = setTimeout(() => {
 			expired = true;
 			reportTimeout();

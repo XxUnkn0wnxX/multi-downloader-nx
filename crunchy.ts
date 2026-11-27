@@ -567,10 +567,10 @@ export default class Crunchy implements ServiceClass {
 			argv.dubLang = langsData.dubLanguageCodes;
 		}
 		// select mode
-		if (argv.device === 'androidtv') {
-			if (!(await this.loginWithDevice())) process.exitCode = 1;
-		} else if (argv.device === 'android') {
-			if (!(await this.loginWithAndroidPhone())) process.exitCode = 1;
+		if (argv.device === 'androidtv' || argv.device === 'android') {
+			const completed = argv.device === 'androidtv' ? await this.loginWithDevice(undefined, argv.dryRun) : await this.loginWithAndroidPhone(argv.dryRun);
+			if (!completed) process.exitCode = 1;
+			else if (argv.dryRun) console.info('Dry run: sign-in cancelled.');
 		} else if (argv.dlFonts) {
 			await this.getFonts(argv.dryRun);
 		} else if (typeof argv.token === 'string') {
@@ -1226,9 +1226,10 @@ export default class Crunchy implements ServiceClass {
 		}
 	}
 
-	public async loginWithAndroidPhone(): Promise<boolean> {
+	public async loginWithAndroidPhone(dryRun = false): Promise<boolean> {
 		try {
-			const token = await loginWithPhone(this.req.getData.bind(this.req));
+			const token = await loginWithPhone(this.req.getData.bind(this.req), dryRun);
+			if (token === 'dry-run') return true;
 			if (!token) {
 				console.error('Android phone sign-in failed or was cancelled.');
 				return false;
@@ -1244,7 +1245,7 @@ export default class Crunchy implements ServiceClass {
 		}
 	}
 
-	public async loginWithDevice(signal?: AbortSignal): Promise<boolean> {
+	public async loginWithDevice(signal?: AbortSignal, dryRun = false): Promise<boolean> {
 		const controller = new AbortController();
 		const cancel = () => controller.abort();
 		if (signal) {
@@ -1266,6 +1267,7 @@ export default class Crunchy implements ServiceClass {
 		try {
 			const deviceId = randomUUID();
 			const token = await requestDeviceToken({
+				dryRun,
 				request: this.req.getData.bind(this.req),
 				authUrl: `${domain.cr_www}/auth/v1/token`,
 				fallbackAuthUrl: `${domain.cr_api}/auth/v1/token`,
@@ -1293,6 +1295,7 @@ export default class Crunchy implements ServiceClass {
 					else console.info(message);
 				}
 			});
+			if (token === 'dry-run') return true;
 			if (!token) return false;
 			this.token = {
 				...token,

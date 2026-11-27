@@ -398,7 +398,7 @@ try {
 				.slice(presentationStart, presentationStart + 4)
 				.join('\n')
 				.split('\n'),
-			[firstPrompt, '\thttps://crunchyroll.com/activate', '', 'Enter Code: ABCD', 'Expires in 300 seconds. (Waiting for approval)']
+			[firstPrompt, 'https://crunchyroll.com/activate', '', 'Enter Code: ABCD', 'Expires in 300 seconds. (Waiting for approval)']
 		);
 		assert.deepEqual(activationUrls, ['https://crunchyroll.com/activate']);
 		assert(messages.some((s) => s.includes('response: 204')));
@@ -638,6 +638,65 @@ try {
 		assert.equal(await deviceHelper.requestDeviceToken({ ...common, sleep: async () => controller.abort() }), undefined);
 		assert.equal(calls, 1);
 	});
+	await test('Android TV CLI dry-run previews only initiation and keeps initiation failures fatal', async () => {
+		for (const scenario of [
+			{
+				name: 'accepted initiation',
+				response: () => jsonResponse({ user_code: 'aBc123', device_code: 'fixture-device-code', interval: 500, expires_in: 300 }),
+				success: true
+			},
+			{
+				name: 'rejected initiation',
+				response: () => ({ ok: false, res: Response.json({ error: 'invalid_client' }, { status: 401 }) }),
+				success: false
+			}
+		]) {
+			const previousArgv = parsedArgv;
+			const previousExitCode = process.exitCode;
+			parsedArgv = { service: 'crunchy', device: 'androidtv', dryRun: true };
+			process.exitCode = undefined;
+			logs.length = 0;
+			openedActivationUrls.length = 0;
+			const priorToken = { auth_type: 'web', refresh_token: 'existing-tv-preview-session' };
+			const priorCMS = { cms: 'existing-tv-preview-cms' };
+			const { service, calls } = makeService({});
+			service.token = priorToken;
+			service.cmsToken = priorCMS;
+			let profileCalls = 0;
+			let cmsCalls = 0;
+			service.getProfile = async () => (profileCalls++, true);
+			service.getCMStoken = async () => (cmsCalls++, true);
+			service.req.getData = async (url, options) => {
+				calls.push({ url, options });
+				return scenario.response();
+			};
+			const savedBefore = saved.length;
+			try {
+				await service.cli();
+				assert.deepEqual(
+					calls.map(({ url }) => url),
+					['https://www.crunchyroll.com/auth/v1/device/code']
+				);
+				assert.equal(profileCalls, 0);
+				assert.equal(cmsCalls, 0);
+				assert.equal(saved.length, savedBefore);
+				assert.equal(service.token, priorToken);
+				assert.equal(service.cmsToken, priorCMS);
+				assert.equal(process.exitCode, scenario.success ? undefined : 1, scenario.name);
+				assert.equal(openedActivationUrls.length, 0);
+				assert.equal(logs.filter(([kind, message]) => kind === 'info' && message === 'Dry run: sign-in cancelled.').length, scenario.success ? 1 : 0);
+				if (scenario.success) {
+					assert(logs.some(([kind, message]) => kind === 'info' && message === 'If your browser doesn’t open, open this link manually.'));
+					assert(logs.some(([kind, message]) => kind === 'info' && message.includes('https://crunchyroll.com/activate')));
+					assert(logs.some(([kind, message]) => kind === 'info' && message.includes('Enter Code: ABC123')));
+					assert(logs.some(([kind, message]) => kind === 'info' && message.includes('Expires in 300 seconds. (Waiting for approval)')));
+				} else assert(logs.some(([kind, message]) => kind === 'info' && /Device code request failed/.test(message)));
+			} finally {
+				parsedArgv = previousArgv;
+				process.exitCode = previousExitCode;
+			}
+		}
+	});
 	await test('device login stages profile, CMS and disk writes before replacing the previous session', async () => {
 		const original = deviceHelper.requestDeviceToken;
 		deviceHelper.requestDeviceToken = async (options) => {
@@ -781,7 +840,7 @@ try {
 			};
 			assert.equal(await service.loginWithDevice(new AbortController().signal), true);
 			assert.deepEqual(openedActivationUrls, ['https://crunchyroll.com/activate']);
-			assert(logs.some(([kind, line]) => kind === 'info' && line === `\t${openedActivationUrls[0]}\n`));
+			assert(logs.some(([kind, line]) => kind === 'info' && line === `${openedActivationUrls[0]}\n`));
 			assert.equal(requests.length, 2);
 			assert.equal(requests[0].url, 'https://www.crunchyroll.com/auth/v1/device/code');
 			assert.equal(requests[1].url, 'https://www.crunchyroll.com/auth/v1/device/token');
@@ -1404,6 +1463,8 @@ try {
 	function makePhoneFlow(callbackHost = 'sso.crunchyroll.com', code = 'fixture-hidden-code') {
 		let outputText = '';
 		let launched;
+		let openAttempts = 0;
+		let inputReads = 0;
 		const terminal = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
 		const fixtureProcess = Object.assign(new EventEmitter(), {
 			stdin: terminal,
@@ -1421,8 +1482,19 @@ try {
 				if (id === './module.api-urls') return { domain: { cr_www: 'https://www.crunchyroll.com' } };
 				if (id === './module.cfg-loader') return { workingDir: work };
 				if (id === './module.crunchy-device-auth') return deviceHelper;
+				if (id === 'node:readline') {
+					const readline = require(id);
+					return {
+						...readline,
+						createInterface(...args) {
+							inputReads++;
+							return readline.createInterface(...args);
+						}
+					};
+				}
 				if (id === 'open')
 					return async (url) => {
+						openAttempts++;
 						launched = new URL(url);
 						const callback = new URL(launched.searchParams.get('redirect_uri'));
 						callback.hostname = callbackHost;
@@ -1441,6 +1513,12 @@ try {
 			},
 			get launched() {
 				return launched;
+			},
+			get openAttempts() {
+				return openAttempts;
+			},
+			get inputReads() {
+				return inputReads;
 			}
 		};
 	}
@@ -1461,15 +1539,63 @@ try {
 		assert.equal(requests, 1);
 		assert.equal(session.auth_type, 'android');
 		assert.deepEqual(phoneFixture.outputText.trimEnd().split('\n'), [
-			'Opening Crunchyroll sign-in… If needed, open the link below.',
+			'If your browser doesn’t open, use this sign-in link.',
 			'',
-			`\t${phoneFixture.launched.href}`,
+			`  ${phoneFixture.launched.href}`,
 			'',
 			'After sign-in, copy the full browser address, even on a 404 page.',
 			'Paste it here and press Enter. Input is hidden to protect your sign-in code.'
 		]);
 		assert(!phoneFixture.outputText.includes('fixture-hidden-code'));
 		assert(!phoneFixture.outputText.includes('fixture-secret'));
+	});
+	await test('Android phone CLI dry-run prepares hidden callback instructions without opening or reading input', async () => {
+		const previousPhoneLogin = crunchyPhoneAuth.loginWithPhone;
+		const previousArgv = parsedArgv;
+		const previousExitCode = process.exitCode;
+		const phoneFixture = makePhoneFlow();
+		crunchyPhoneAuth.loginWithPhone = phoneFixture.flow.loginWithPhone;
+		parsedArgv = { service: 'crunchy', device: 'android', dryRun: true };
+		process.exitCode = undefined;
+		logs.length = 0;
+		const priorToken = { auth_type: 'device', refresh_token: 'existing-phone-preview-session' };
+		const priorCMS = { cms: 'existing-phone-preview-cms' };
+		const { service, calls } = makeService({});
+		service.token = priorToken;
+		service.cmsToken = priorCMS;
+		let profileCalls = 0;
+		let cmsCalls = 0;
+		service.getProfile = async () => (profileCalls++, true);
+		service.getCMStoken = async () => (cmsCalls++, true);
+		service.req.getData = async (...args) => {
+			calls.push(args);
+			return { ok: false };
+		};
+		const savedBefore = saved.length;
+		try {
+			await service.cli();
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			assert.equal(phoneFixture.outputText.trimStart().split('\n', 1)[0], 'If your browser doesn’t open, use this sign-in link.');
+			assert.match(phoneFixture.outputText, /https:\/\/sso\.crunchyroll\.com\/en\/authorize\?/);
+			assert.match(phoneFixture.outputText, /full browser address, even on a 404 page/i);
+			assert.match(phoneFixture.outputText, /Input is hidden to protect your sign-in code/i);
+			assert.equal(phoneFixture.openAttempts, 0);
+			assert.equal(phoneFixture.inputReads, 0);
+			assert.equal(phoneFixture.launched, undefined);
+			assert.equal(calls.length, 0);
+			assert.equal(profileCalls, 0);
+			assert.equal(cmsCalls, 0);
+			assert.equal(saved.length, savedBefore);
+			assert.equal(service.token, priorToken);
+			assert.equal(service.cmsToken, priorCMS);
+			assert.equal(process.exitCode, undefined);
+			assert.equal(logs.filter(([kind, message]) => kind === 'info' && message === 'Dry run: sign-in cancelled.').length, 1);
+			assert(!phoneFixture.outputText.includes('fixture-secret'));
+		} finally {
+			crunchyPhoneAuth.loginWithPhone = previousPhoneLogin;
+			parsedArgv = previousArgv;
+			process.exitCode = previousExitCode;
+		}
 	});
 	await test('a valid phone callback with a rejected token exchange does not save or replace the session', async () => {
 		const previousPhoneLogin = crunchyPhoneAuth.loginWithPhone;

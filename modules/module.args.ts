@@ -69,12 +69,12 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'device',
-		describe: 'Crunchyroll Android TV or phone sign-in; omit value for options',
+		describe: 'Crunchyroll Android TV or phone sign-in; --dry-run previews and cancels.',
 		type: 'string',
 		group: 'auth',
 		service: ['crunchy'],
 		docDescribe:
-			'Start with `--service crunchy`. Use `--device androidtv` for TV activation or `--device android` for phone browser sign-in. Use `--service crunchy --device` to see both choices.',
+			'Start with `--service crunchy`. Choose `--device androidtv` or `--device android`; bare `--device` shows both choices. With `--dry-run`, phone sign-in prints the URL and paste instructions, then cancels before opening a browser or reading input. TV sign-in requests a code and reports its expiry, then cancels before opening the activation page or polling for approval. Neither flow exchanges tokens or saves a session.',
 		usage: '[type]'
 	},
 	{
@@ -549,7 +549,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		type: 'boolean',
 		describe: 'Print available qualities and stream URLs without downloading files.',
 		docDescribe:
-			'Preview available qualities and stream URLs without downloading files. Authentication and token refresh still run. This option is CLI or programmatic only and cannot be enabled through cli-defaults.',
+			'Preview available qualities and stream URLs without downloading files. During download previews, authentication and token refresh still run. This option is CLI or programmatic only and cannot be enabled through cli-defaults.',
 		default: false,
 		usage: ''
 	},

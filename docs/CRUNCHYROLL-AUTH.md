@@ -10,6 +10,15 @@ Start Crunchyroll CLI commands with `--service crunchy` and specify the service 
 | `--device androidtv` | User code entered on the TV activation page | Provider approval, usable tokens, profile lookup and fresh CMS authorization |
 | `--token` | Browser cookie value or cookies file | Successful web-cookie exchange, profile lookup and fresh CMS authorization |
 
+Run either command to preview sign-in.
+
+```sh
+aniDL --service crunchy --device android --dry-run
+aniDL --service crunchy --device androidtv --dry-run
+```
+
+Phone sign-in builds the authorization link and displays the hidden-paste instructions, then cancels automatically before opening a browser or accepting input. TV sign-in requests a real device code and reports its initial expiry, then cancels automatically before opening the activation page or polling for approval. Neither flow exchanges a token or changes a saved session.
+
 ## Android phone callback
 
 The following example shows the URL shape. Both values are placeholders.
