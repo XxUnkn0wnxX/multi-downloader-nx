@@ -35,7 +35,7 @@ To check the installed revision, look for `[Rev7]` in the startup banner, or run
 
 Keep this terminal open for the commands below. If Windows cannot find `aniDL.exe` or Linux cannot find `./aniDL`, check that your terminal is open in the extracted folder. Linux may require making the executable runnable first with `chmod +x ./aniDL`.
 
-These examples use the standalone CLI. If you built from source, use `node lib/index.js` from your checkout in place of `aniDL.exe` or `./aniDL`. See [Build from source](README.md#build-from-source).
+These examples use the standalone CLI. If you built from source, use `node lib/index.js` from your checkout in place of `aniDL.exe` or `./aniDL`. See [Build from source](DEVELOPMENT.md#build-from-source).
 
 ## Choose your sign-in
 

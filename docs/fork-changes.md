@@ -1,22 +1,6 @@
-# Fork changes to preserve
+# Fork changes
 
-This fork follows [anidl/multi-downloader-nx](https://github.com/anidl/multi-downloader-nx). Keep the changes below on `develop` until upstream supplies equivalent behavior. An upstream version bump alone does not replace a workaround: compare the actual implementation and dependency resolutions before removing it.
-
-**Browse:** [🏠 README](README.md) · [🚀 Getting started](GET-STARTED.md) · [🔑 Service sign-in](AUTHENTICATION.md) · [📖 CLI reference](DOCUMENTATION.md) · [Issues](../../../issues)
-
-## Branch boundaries
-
-| Branch | Pull source | Push destination | Purpose |
-| --- | --- | --- | --- |
-| `master-upstream` | `upstream/master` | `origin/master-upstream` | Exact upstream mirror; no fork commits. |
-| `develop` | `origin/develop` | `origin/develop` | Working fork changes and merges from `master-upstream`. |
-| `main` | `origin/main` | `origin/main` | Stable fork and default branch; tested CLI releases. |
-
-These are the expected local tracking settings. Keep these three maintenance branches on the fork's `origin`; fetching upstream branches does not require publishing them to the fork. Sync `master-upstream` from `upstream/master` and push it to `origin/master-upstream` as an independent mirror operation. This requires no adaptation or fork-integration plan. Never merge fork changes into `master-upstream`.
-
-Promote reviewed `develop` revisions to `main` by fast-forward after Tests passes. The release workflow packages the current `main` revision with passing Tests for its source inputs. A manual release can reuse that proof across documentation-only descendants or changes limited to the release controller and its focused fixture, after local validation. Keep the upstream mirror free of fork changes.
-
-This guide is tracked on the fork’s `develop` and `main` branches and stays out of the upstream mirror.
+This page records the differences this fork maintains on `develop` and `main`, and the changes already incorporated upstream. [Upstream project](https://github.com/anidl/multi-downloader-nx) · [🛠️ Developer guide](DEVELOPMENT.md) · [Changelog](CHANGELOG.md)
 
 ## Active changes
 
@@ -38,7 +22,7 @@ Keep the base semver in `version` and the fork display metadata in the root [pac
 
 The [shared formatter](../modules/module.fork-display.ts) supplies provider banners, GUI startup/version responses and the generated CLI reference. Displays use `5.8.8 (Nightly) [Rev7]`. A service-qualified `--version` retains the raw base semver. Fork update notices compare semantic base versions first and revisions only at equal version precedence. Existing build copies carry this metadata into `lib` and archives.
 
-Increment `fork.revision` manually when releasing a new fork revision, then regenerate the reference with `pnpm run docs`. CI never increments it. The publisher reads the manifest at the immutable target source SHA, validates it before any release mutation, and uses one `Nightly Fork (RevN)` title for draft creation and final publication. Never use the workflow-controller checkout’s metadata for a different target. Preserve the fixed `nightly-fork` tag/URL and asset names. A package metadata change requires fresh Tests and is outside the documentation/controller-only proof-reuse exception.
+The fork revision is set manually. CI reads it from the target manifest. The publisher reads the manifest at the immutable target source SHA, validates it before any release mutation, and uses one `Nightly Fork (RevN)` title for draft creation and final publication. Never use the workflow-controller checkout’s metadata for a different target. Preserve the fixed `nightly-fork` tag/URL and asset names. A package metadata change requires fresh Tests and is outside the documentation/controller-only proof-reuse exception.
 
 ### Disable manual update requests on the fork
 
@@ -200,42 +184,16 @@ Preserve `nocleanup` for successful operations too, including existing retention
 
 Both MKVToolNix and FFmpeg set video-track language metadata to `und`. Preserve descriptive video titles, including source-language names and `[Simulcast]` / `[Uncut]` labels. Audio and subtitle tracks retain their own language tags.
 
-### Run development checks
+### Fork CI and Nightly builds
 
-The **Tests** workflow in [.github/workflows/test.yml](../.github/workflows/test.yml) runs on pushes and pull requests targeting `develop` and `main`, with manual dispatch available. Push/PR workflows skip changes limited to Markdown, `docs/` and/or `tools/`; mixed changes outside those areas still run. Keep the root maintenance `tools/` area excluded from TypeScript input discovery, ESLint and Prettier scans, and the application build-copy traversal. Tool-specific dependencies, setup and tests remain local to `tools/` and are not run by the downloader pipeline. Changes to CI/build configuration still require normal checks. Preserve the release proof rules below.
+The fork uses two workflows. Tests checks the CLI on Node 22 and 24, validates the generated CLI reference and skips pushes or pull requests limited to Markdown, `docs/` or `tools/`. The upstream Docker and automatic documentation publishing workflows were removed. [Tests workflow](../.github/workflows/test.yml)
 
-Keep only Tests and the main-only Nightly Fork build/publish workflow. The inherited Docker and automatic documentation publishing workflows are removed. Regenerate the CLI reference locally with `pnpm run docs` and commit its output; Tests checks that the committed reference matches the generator without publishing documentation changes.
+Nightly Fork publishes eight CLI archives with SHA-256 files at the fixed `nightly-fork` tag. Publication requires a current `main` target and passing Tests for its source inputs. Release notes distinguish the built commit from the tested commit when an eligible manual run reuses a passing ancestor. The macOS CLI packages use Node 22 for Big Sur. [Nightly Fork workflow](../.github/workflows/release-matrix.yml) · [Release and verification steps](DEVELOPMENT.md#publish-a-nightly-release)
 
-The Node 24 gate checks TypeScript without emitting files, all tracked `tests/*.mjs` suites, and generated-reference parity. A separate Node 22 job checks the same source suites for the macOS CLI runtime; ESLint and Prettier remain required. Tests run serially within each runtime job. Keep cookie/device/GUI, catalog, global-video, manifest, provider-preview, and release-contract coverage. Packaging belongs only in the release workflow.
+### CLI documentation
 
-### Package the tested stable CLI
-
-To publish a Nightly release from a fork you maintain, open **Actions → Nightly Fork → Run workflow** in that repository, choose `main`, then select **Run workflow**. The workflow checks the test results before it builds and publishes the CLI archives.
-
-The [Nightly Fork workflow](../.github/workflows/release-matrix.yml) listens for completed Tests runs on `main` and supports manual dispatch on `main`. Automatic releases retain their triggering Tests revision. A manual release may reuse the latest applicable successful main Tests result when its tested commit is an ancestor of the current target and the complete comparison contains only documentation, the release controller `.github/scripts/fork-release.mjs`, or its focused fixture `tests/fork-release.mjs`. Validate release-controller changes locally before this exception. Application source, dependencies, other tests, build tooling, and workflows require fresh passing Tests. An applicable newer failed or unfinished attempt blocks an older success.
-
-Only this repository's expected Tests workflow, started by a main push or manual dispatch, qualifies. Preserve both the built target SHA and tested source SHA, Tests run ID and attempt, and current-main checks before preparation and publication. Check out the immutable target SHA, including its current docs; `workflow_run` uses the default branch for its controller. Reject ambiguous ancestry, incomplete comparison metadata, and history limits that prevent proof. Recheck applicable Tests before final publication. Only the gate and publisher need the additional `actions: read` permission for these metadata lookups.
-
-Two hosts package CLI archives: Ubuntu x64 and macOS arm64. Each installs the frozen root lockfile and prepares CLI JavaScript once, then packages Windows, macOS, Linux static, and Alpine sequentially. Retain the existing eight archive names and their SHA-256 files, with no GUI preparation, duplicate source tests, or Docker publishing in this workflow. macOS CLI targets use Node 22 for Big Sur compatibility; other targets and existing GUI packaging retain Node 24. Local macOS x64 startup/help was verified on Big Sur with a clean environment; other target execution remains a platform check.
-
-Keep lockfile-based pnpm download caches and normal installs. Cache only verified `pkg` `fetched-*` runtimes, scoped to host OS, architecture, target set, lockfile and build configuration; exclude applications and `node_modules`. The CLI runtime cache uses a new namespace so old single-target caches cannot mask the larger target set. Cache reuse also depends on GitHub branch scope.
-
-The publisher validates all eight archives, eight checksums, target/source/Tests/build provenance and the target’s fork revision metadata before removing the previous **Nightly Fork (RevN)** release page. Keep the fixed `nightly-fork` tag name, serialized publication and stale-main checks. Delete the old release page, create a fresh draft with a new release ID, upload the sixteen assets, then recheck proof and current main before advancing the tag and publishing it as a normal Latest release. If upload fails, the new draft remains unpublished for diagnosis and a retry replaces that draft. Link concise notes to the [changelog](CHANGELOG.md) at the built target SHA and distinguish any reused tested source; do not generate a Full Changelog or commit source from the publisher. Host receipts retain their own build attempts so partial reruns can reuse a successful host's bundle. GitHub supplies the tag's source ZIP and tar archives separately from the sixteen uploaded asset files.
-
-Release recreation is not atomic. A failed upload must fail the workflow visibly; the old page is already gone and the new draft stays unpublished. Retained build artifacts allow a complete rerun while that source is still current. GitHub can require workflow-write authority when the target commit's workflow files differ from the default branch; keep those definitions aligned during initial promotion and resolve any provider rejection explicitly, without adding credentials automatically.
-
-### Keep documentation links relative
-
-Use relative links for repository files and supported GitHub project navigation, and named Markdown links for external resources. Keep upstream issue/commit provenance links pointed at upstream. The generator in [modules/build-docs.ts](../modules/build-docs.ts) must preserve this behavior and the reference text sourced from CLI option definitions; it writes only [DOCUMENTATION.md](DOCUMENTATION.md). Generate each option once. Keep shared options in the main list and group options exclusive to Crunchyroll in its own disclosure, using the service metadata.
-
-Maintain the [README](README.md), [getting-started guide](GET-STARTED.md) and [sign-in guide](AUTHENTICATION.md) separately. Link the CLI screenshots relative to the guide from `imgs/cli/` so the packaged documentation can display them offline.
+The [documentation generator](../modules/build-docs.ts) writes only the [CLI reference](DOCUMENTATION.md). It lists each option once, with shared options in the main list and Crunchyroll-only options in a separate disclosure. The hand-written guides use relative links and package their CLI screenshots under `docs/imgs/cli/` for offline viewing. [Updating the docs](DEVELOPMENT.md#update-the-cli-docs)
 
 ## Already incorporated upstream
 
 The Android TV client credentials and User-Agent update from fork commit 78ea053 match upstream commit [8599faa](https://github.com/anidl/multi-downloader-nx/commit/8599faab539a878bcfb57a6fc07eac27dab1f873). The auth module has no remaining fork difference after that upstream merge. Follow upstream for subsequent auth changes; do not preserve the old credential values as a permanent fork requirement.
-
-## Maintaining this guide
-
-Prepare a detailed plan before every review to integrate upstream changes into the custom fork branches and before merging or adapting those changes. The exact `master-upstream` mirror is exempt. Pin the fork baseline and upstream target, inventory the incoming changes, and map each to the active contracts above. Classify compatible changes for adoption, overlapping changes for careful adaptation, and unresolved conflicts for exclusion. Include dependency/shared-file ordering, affected providers and CLI/GUI behavior, Big Sur compatibility, validation, documentation, rollback, and required decisions.
-
-Keep that plan and its acceptance evidence current through integration, then compare the final diff with these active changes. Preserve behavior even when upstream reorganizes files. When upstream replaces a change, remove only redundant fork code after equivalent behavior and the relevant checks are verified, then record the upstream commit and evidence here. Document what was adopted, adapted, excluded, or retired; keep unresolved compatibility work listed as active.

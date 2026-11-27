@@ -1,6 +1,6 @@
 # 📝 Fork changelog
 
-Changes specific to this fork are grouped below with their implementation commits. See [Fork changes](fork-changes.md) for maintenance requirements and the [README](README.md) for usage.
+Changes specific to this fork are grouped below with their implementation commits. See [Fork changes](fork-changes.md) for current differences, the [developer guide](DEVELOPMENT.md) for maintenance, or the [README](README.md) for usage.
 
 ## 2026-11-28
 

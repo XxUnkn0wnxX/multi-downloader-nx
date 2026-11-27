@@ -2,9 +2,11 @@
 
 **AniDL** is a command-line downloader for Crunchyroll, HIDIVE and Animation Digital Network (ADN). You can search for a show, choose episodes, audio and subtitles, and save the result as MKV or MP4. Available titles and tracks depend on the service, region and account.
 
-**[🚀 Get started with the CLI](GET-STARTED.md)** · [🔑 Sign in to a service](AUTHENTICATION.md) · [📖 CLI options](DOCUMENTATION.md) · [📝 Changelog](CHANGELOG.md)
+**[🚀 Get started with the CLI](GET-STARTED.md)** · [🔑 Sign in to a service](AUTHENTICATION.md)
 
-This fork follows [anidl/multi-downloader-nx](https://github.com/anidl/multi-downloader-nx). `main` is the stable branch. Changes on `develop` are available for testing before release. [Fork changes](fork-changes.md)
+**Browse** · [Setup](#setup) · [Services](#services) · [CLI options](DOCUMENTATION.md) · [Changelog](CHANGELOG.md) · [Releases](../../../releases) · [Issues](../../../issues)
+
+This fork follows [anidl/multi-downloader-nx](https://github.com/anidl/multi-downloader-nx). `main` is the stable branch. Changes on `develop` are available for testing before release. [Fork changes](fork-changes.md) · [🛠️ Developer guide](DEVELOPMENT.md)
 
 [![Tests](../../../actions/workflows/test.yml/badge.svg?branch=main)](../../../actions/workflows/test.yml) [![Discord](https://img.shields.io/discord/884479461997805568?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/qEpbWen5vq)
 
@@ -40,16 +42,7 @@ A download preview (`--dry-run`) works on all three services. It contacts the se
 
 ## Build from source
 
-Install [Node.js](https://nodejs.org/) 22 or newer and [pnpm](https://pnpm.io/) 10 or newer. Run these commands to open CLI help from a checkout.
-
-```sh
-git clone https://github.com/XxUnkn0wnxX/multi-downloader-nx.git
-cd multi-downloader-nx
-pnpm install --frozen-lockfile
-pnpm exec tsx index.ts --help
-```
-
-To compile the CLI, run `pnpm run prebuild-cli`. From the checkout, use `node lib/index.js` in place of `aniDL.exe` or `./aniDL` in the guides and keep the same options. Standalone packaging scripts are listed in [package.json](../package.json).
+For developers and advanced users, the [developer guide](DEVELOPMENT.md#build-from-source) explains how to run AniDL from a checkout and build the CLI locally.
 
 ## Fork builds and releases
 
@@ -70,20 +63,7 @@ Fork update available: 5.8.8 (Nightly) [Rev3] -> 5.8.8 (Nightly) [Rev4]
 	Download updates: https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork
 ```
 
-A newer base version takes precedence; Rev is compared only when the base version is equal. The check follows the completed release built from `main`, so an in-progress build does not create an early notice. See [fork update maintenance](fork-changes.md#fork-update-notices) for lookup and cache behavior.
-
-<details>
-<summary>⭐ TODO: Maintenance tools</summary>
-
-Planned utilities in [`tools/`](../tools/) will help maintain Crunchyroll’s `basic_auth_token` and HIDIVE’s `hd_new_apiKey` / `hd_apikey` by:
-
-- Downloading the latest suitable Crunchyroll or HIDIVE Android APK with `--dl`, or reusing one cached APK per service, then decompiling and extracting current app authentication tokens.
-- Keeping ignored work folders and append-only token histories by app version/build, skipping identical entries.
-- Providing `--help`, a shared Python environment, dedicated docs and local-only tests.
-
-The folder, ignore rules and separation from application checks/builds are prepared; the scripts are not implemented yet.
-
-</details>
+A newer base version takes precedence; Rev is compared only when the base version is equal. The check follows the completed release built from `main`, so an in-progress build does not create an early notice. [Fork update behavior](fork-changes.md#fork-update-notices)
 
 ## Legal warning
 

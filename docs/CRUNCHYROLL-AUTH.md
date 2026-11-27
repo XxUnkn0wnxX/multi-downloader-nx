@@ -71,4 +71,4 @@ node tests/crunchy-status-import.mjs
 
 The offline fixtures cover callback parsing, provider rejection, TV approval and expiry, cookie imports, and preservation of saved sessions. A fresh sign-in with the affected client confirms current provider behavior. [Auth fixtures](../tests/crunchy-token-input.mjs) · [CLI parser tests](../tests/crunchy-qall-args.mjs) · [Entry-point tests](../tests/crunchy-status-import.mjs) · [Saved session format](../modules/module.crunchy-session-store.ts)
 
-[Back to fork maintenance](fork-changes.md)
+[🛠️ Developer guide](DEVELOPMENT.md) · [Fork changes](fork-changes.md)
