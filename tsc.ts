@@ -106,6 +106,9 @@ export { ignore };
 		}
 	});
 
+	// Copy the public guide explicitly. The directory filter excludes device files.
+	fs.copyFileSync(path.join(__dirname, 'widevine', 'README.md'), path.join(__dirname, 'lib', 'widevine', 'README.md'));
+
 	process.stdout.write('✓\nInstalling dependencies... ');
 	if (!isTest) {
 		const dependencies = exec(`pnpm install ${isGUI ? '' : '-P'}`, {

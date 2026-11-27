@@ -4,12 +4,12 @@
 
 You’ll open AniDL, sign in to Crunchyroll and preview one episode before downloading it.
 
-[💻 Open AniDL](#open-anidl) · [🔑 Choose your sign-in](#choose-your-sign-in) · [📥 Find and download an episode](#find-and-download-one-episode) · [🛠️ Troubleshooting](#troubleshooting)
+[💻 Open AniDL](#open-anidl) · [🧰 Download tools](#download-tools) · [🔑 Choose your sign-in](#choose-your-sign-in) · [📥 Find and download an episode](#find-and-download-one-episode) · [🛠️ Troubleshooting](#troubleshooting)
 
 ## Open AniDL
 
 1. Download a **CLI** archive for your operating system and processor from the [Nightly Fork release](../../../releases/tag/nightly-fork). For example, a typical Intel or AMD Windows PC uses `multi-downloader-nx-windows-x64-cli.7z`. On Linux, choose the matching `linux-x64` or `linux-arm64` CLI archive. On an ARM-based Windows PC, choose `windows-arm64`.
-2. Extract the archive into a folder you can find again. Keep the included `config`, `videos`, `widevine` and `playready` folders beside the application.
+2. Extract the archive into a folder you can find again. Keep the folders together. The `docs/` folder contains the guides and screenshots for offline reading.
 3. Open a terminal in the extracted folder. On Windows, double-click `cmd-here.bat` to open Command Prompt there. On Linux, open your terminal and change to the extracted folder.
 4. Run the command for your computer. You should see the Crunchyroll options.
 
@@ -36,6 +36,48 @@ The Crunchyroll sign-in commands in this guide work from Rev7 onward. To check y
 Keep this terminal open for the commands below. If Windows cannot find `aniDL.exe` or Linux cannot find `./aniDL`, check that your terminal is open in the extracted folder. Linux may require making the executable runnable first with `chmod +x ./aniDL`.
 
 These examples use the standalone CLI. If you built from source, use `node lib/index.js` from your checkout in place of `aniDL.exe` or `./aniDL`. See [Build from source](DEVELOPMENT.md#build-from-source).
+
+## Download tools
+
+You can sign in and preview an episode before installing these tools. To save your first video, download the tools for your operating system and processor. For encrypted streams, you’ll also need your own [CDM device files](../widevine/README.md).
+
+| Tool | What to download |
+| --- | --- |
+| [FFmpeg](https://ffmpeg.org/download.html) | Under **Get packages & executable files**, choose your platform. AniDL uses the `ffmpeg` program to combine tracks and write MP4 files. |
+| [MKVToolNix](https://mkvtoolnix.download/downloads.html) | Choose Windows, macOS or your Linux distribution. The included `mkvmerge` program combines tracks into an MKV file. If you already have FFmpeg, AniDL can use that for MKV too. |
+| [Shaka Packager](https://github.com/stratumadev/shaka-packager/releases) | For encrypted streams, open **Assets** and choose the `packager-` file for your platform (`win`, `linux` or `osx`) and processor (`x64` or `arm64`). Rename it to `shaka-packager.exe` on Windows or `shaka-packager` on Linux and macOS. |
+
+**Where do the files go?** Extract the downloads and put the executables beside AniDL. If the FFmpeg archive has a `bin` folder, the `ffmpeg` executable is inside. Your Windows folder should look like this.
+
+```text
+AniDL/
+├── aniDL.exe
+├── ffmpeg.exe
+├── mkvmerge.exe
+├── shaka-packager.exe
+└── config/
+    └── bin-path.yml
+```
+
+On Linux and macOS, the layout is the same with the filenames `aniDL`, `ffmpeg`, `mkvmerge` and `shaka-packager`. A downloaded binary needs permission to run. For example, run `chmod +x ./shaka-packager` in the AniDL folder after renaming it. If a tool comes with DLLs or other libraries, keep its package together. You can point AniDL to the executable in that folder using the examples below.
+
+**Do I need to set paths?** With the filenames above, the packaged CLI checks its own folder first. It then looks for each missing tool on your system’s `PATH`. If `ffmpeg -version` or `mkvmerge --version` works from another folder in a new terminal, you can leave that tool where it is.
+
+<details>
+<summary>My tools are in another folder or have different names</summary>
+
+Open `config/bin-path.yml` inside the extracted AniDL folder. Change the entry for the tool you want to use. Give the path to its **executable file**, including the filename. A relative path starts from the folder containing AniDL. Here are two common examples.
+
+| Example | Entry in `config/bin-path.yml` |
+| --- | --- |
+| Windows, MKVToolNix installed in Program Files | `mkvmerge: 'C:\Program Files\MKVToolNix\mkvmerge.exe'` |
+| Linux, Shaka kept under its download name | `shaka: "tools/packager-linux-x64"` |
+
+Use the path on your computer. For a full Windows path, keep the backslashes and single quotes shown above. If you already have `config/bin-path.user.yml`, edit that file instead. AniDL reads it in place of `bin-path.yml`.
+
+</details>
+
+Already using Bento4? Its `mp4decrypt` tool is an alternative to Shaka Packager for encrypted streams. The same placement rules apply. Use `mp4decrypt.exe` on Windows or `mp4decrypt` on Linux and macOS. Its config key is `mp4decrypt`. [Bento4 downloads](https://www.bento4.com/downloads/)
 
 ## Choose your sign-in
 
@@ -134,7 +176,7 @@ The preview contacts Crunchyroll and shows the available and selected streams. I
 
 ### Download the episode
 
-First check the [download tools](#download-tools) and [CDM files](#cdm-files). Then run the same command without `--dry-run`.
+First check the [download tools](#download-tools) and [CDM files](../widevine/README.md). Then run the same command without `--dry-run`.
 
 <details>
 <summary>🪟 Windows — Command Prompt</summary>
@@ -252,25 +294,9 @@ Download
 
 A valid saved login is reused across episodes and dubs. For playback capacity and retry information, see [Crunchyroll playback recovery](CRUNCHYROLL-RECOVERY.md).
 
-## Download tools
-
-For a normal download and mux, install [FFmpeg](https://www.videohelp.com/software/ffmpeg) and [MKVToolNix](https://www.videohelp.com/software/MKVToolNix). DRM decryption also needs either [Bento4 (`mp4decrypt`)](https://www.bento4.com/downloads/) or [Shaka Packager](https://github.com/stratumadev/shaka-packager/releases). These tools are separate from AniDL.
-
-Add the folders containing the tools to your system path, or set their locations in `config/bin-path.yml`. Open a new terminal and check the commands you installed.
-
-```text
-ffmpeg -version
-mkvmerge --version
-mp4decrypt --help
-```
-
-If you use Shaka Packager, check its command in place of `mp4decrypt`. The exact executable names depend on your system and the tools you installed.
-
 ## CDM files
 
-The application does not include CDM files. Supported Widevine inputs are a `.wvd` file, or a `client_id.bin` and `private_key.pem` pair. It also accepts the pair named `device_client_id_blob` and `device_private_key`. Supported PlayReady inputs are a `.prd` file, or `bgroupcert.dat` and `zgpriv.dat`; supported security levels are SL2000 and SL3000.
-
-Place Widevine files in `widevine/` or PlayReady files in `playready/`, beside the application. See the [CLI reference](ARGUMENTS.md) for additional settings.
+For encrypted streams, place your device files in `widevine/` or `playready/` beside AniDL. The [CDM setup guide](../widevine/README.md) lists the accepted formats and filenames. In the extracted archive, open [`widevine/README.md`](../widevine/README.md).
 
 ## Set defaults and output paths
 

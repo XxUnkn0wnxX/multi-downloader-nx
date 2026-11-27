@@ -84,6 +84,7 @@ async function buildBinary(buildType: BuildTypes, gui: boolean) {
 	fs.mkdirSync(`${buildDir}/config`, { recursive: true });
 	fs.mkdirSync(`${buildDir}/videos`, { recursive: true });
 	fs.mkdirSync(`${buildDir}/widevine`, { recursive: true });
+	fs.copyFileSync('./widevine/README.md', `${buildDir}/widevine/README.md`);
 	fs.mkdirSync(`${buildDir}/playready`, { recursive: true });
 	fs.copyFileSync('./config/cli-defaults.yml', `${buildDir}/config/cli-defaults.yml`);
 	fs.copyFileSync('./config/dir-path.yml', `${buildDir}/config/dir-path.yml`);
