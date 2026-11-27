@@ -20,11 +20,7 @@ Start with **Getting Started** to open a terminal, sign in and preview one Crunc
 
 ### Crunchyroll
 
-With the default settings, sign in once for Android TV (video) and once for Android phone (audio), using the same account. A browser cookie works for Chrome or Firefox streams. [Choose your Crunchyroll sign-in](AUTHENTICATION.md#crunchyroll)
-
-By default, AniDL checks video quality options for your selected audio languages. Use `--qall` to check all available languages and show the full list. The extra requests take longer and can trigger rate limits. [Crunchyroll streams and quality](GET-STARTED.md#crunchyroll-streams-and-quality)
-
-Use `--check-status` to view your account’s playback sessions. If you enable `--tsd` or set `tsd: true`, even a download preview can clear playback sessions when your account is full. [Playback status and recovery](CRUNCHYROLL-RECOVERY.md)
+Use `--service crunchy --device {type}` to sign in. Replace `{type}` with `androidtv` for Android TV or `android` for a phone or tablet. Search for a show and choose episodes from a season. [Crunchyroll sign-in](AUTHENTICATION.md#crunchyroll)
 
 ### HIDIVE
 
