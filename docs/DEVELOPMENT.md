@@ -90,8 +90,17 @@ Once **Tests** passes on the current `main` revision, **Nightly Fork** builds an
 
 </details>
 
-## Planned maintenance tools
+<details>
+<summary>⭐ TODO: Maintenance tools</summary>
 
-The reserved `tools/` directory is intended for standalone Crunchyroll and HIDIVE maintenance utilities. The planned tools would reuse cached app versions, skip duplicate entries in local version histories, and provide command help, a shared Python environment and local tests. The directory currently contains only a placeholder. Their dependencies and work files stay outside the application’s TypeScript, lint, formatting and packaging steps. [Maintenance tools directory](../tools/)
+Planned utilities in [`tools/`](../tools/) will help maintain Crunchyroll’s `basic_auth_token` and HIDIVE’s `hd_new_apiKey` / `hd_apikey` by:
+
+- Downloading the latest suitable Crunchyroll or HIDIVE Android APK with `--dl`, or reusing one cached APK per service, then decompiling and extracting current app authentication tokens.
+- Keeping ignored work folders and append-only token histories by app version/build, skipping identical entries.
+- Providing `--help`, a shared Python environment, dedicated docs and local-only tests.
+
+The folder, ignore rules and separation from application checks/builds are prepared; the scripts are not implemented yet.
+
+</details>
 
 [🏠 README](README.md) · [Fork changes](fork-changes.md) · [Changelog](CHANGELOG.md)
