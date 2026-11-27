@@ -29,7 +29,7 @@ Use `--service crunchy --device {type}` **(Crunchyroll only)** to sign in. Repla
 
 **Does the sign-in method change audio bitrate?** On 25 November 2026 (UTC), one episode was checked using a browser cookie, Android phone and Android TV. All three advertised the same audio bitrate for each dub. English and Japanese differed slightly.
 
-**Can video bitrate differ?** Yes. Video bitrate can vary by dub and endpoint. On that episode, Japanese offered a higher-bitrate video option than English.
+**Can video bitrate differ?** Yes. Video bitrate can vary by dub and endpoint. On that episode, the Japanese dub offered a higher-bitrate video option than the tested English dub.
 
 </details>
 
