@@ -4,7 +4,7 @@
 
 **[🚀 Get started with the CLI](GET-STARTED.md)** · [🔑 Sign in to a service](AUTHENTICATION.md)
 
-**Browse** · [Setup](#setup) · [Services](#services) · [CLI options](DOCUMENTATION.md) · [Changelog](CHANGELOG.md) · [Releases](../../../releases) · [Issues](../../../issues)
+**Browse** · [Setup](#setup) · [Services](#services) · [CLI options](ARGUMENTS.md) · [Changelog](CHANGELOG.md) · [Releases](../../../releases) · [Issues](../../../issues)
 
 This fork follows [anidl/multi-downloader-nx](https://github.com/anidl/multi-downloader-nx). `main` is the stable branch. Changes on `develop` are available for testing before release. [Fork changes](fork-changes.md) · [🛠️ Developer guide](DEVELOPMENT.md)
 

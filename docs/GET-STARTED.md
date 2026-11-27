@@ -1,6 +1,6 @@
 # 🚀 Getting started with the AniDL CLI
 
-[🏠 README](README.md) · [🔑 Sign in to a service](AUTHENTICATION.md) · [CLI reference](DOCUMENTATION.md)
+[🏠 README](README.md) · [🔑 Sign in to a service](AUTHENTICATION.md) · [CLI reference](ARGUMENTS.md)
 
 Use this guide with **Nightly Rev7**. You’ll open AniDL, sign in to Crunchyroll and preview one episode before downloading it.
 
@@ -154,7 +154,7 @@ aniDL.exe --service crunchy -s SEASON_ID -e 1
 
 </details>
 
-By default, AniDL writes downloads to the `videos` folder beside the application. To choose dubs, subtitles and quality, see [Crunchyroll streams and quality](#crunchyroll-streams-and-quality) and the [CLI reference](DOCUMENTATION.md).
+By default, AniDL writes downloads to the `videos` folder beside the application. To choose dubs, subtitles and quality, see [Crunchyroll streams and quality](#crunchyroll-streams-and-quality) and the [CLI reference](ARGUMENTS.md).
 
 ### If you signed in with one method
 
@@ -270,11 +270,11 @@ If you use Shaka Packager, check its command in place of `mp4decrypt`. The exact
 
 The application does not include CDM files. Supported Widevine inputs are a `.wvd` file, or a `client_id.bin` and `private_key.pem` pair. It also accepts the pair named `device_client_id_blob` and `device_private_key`. Supported PlayReady inputs are a `.prd` file, or `bgroupcert.dat` and `zgpriv.dat`; supported security levels are SL2000 and SL3000.
 
-Place Widevine files in `widevine/` or PlayReady files in `playready/`, beside the application. See the [CLI reference](DOCUMENTATION.md) for additional settings.
+Place Widevine files in `widevine/` or PlayReady files in `playready/`, beside the application. See the [CLI reference](ARGUMENTS.md) for additional settings.
 
 ## Set defaults and output paths
 
-Edit `config/cli-defaults.yml` to save options for later commands. The [CLI reference](DOCUMENTATION.md) lists the settings and their defaults. For example, choose an audio endpoint and dub languages:
+Edit `config/cli-defaults.yml` to save options for later commands. The [CLI reference](ARGUMENTS.md) lists the settings and their defaults. For example, choose an audio endpoint and dub languages:
 
 ```yaml
 astream: "android"
@@ -401,4 +401,4 @@ Only `--service crunchy` and optional `--debug` are accepted. The command requir
 
 Status API `Retry-After` information is reported separately from the historical playback wait recorded after an earlier playback refusal. When active, the record includes its observation time, remaining wait and earliest suggested retry; an elapsed or missing record leaves current playback unverified. This command does not verify whether playback is currently allowed because it does not start playback. The local account-bound wait record is informational and best effort; it never changes recovery behavior. See [Crunchyroll playback recovery](CRUNCHYROLL-RECOVERY.md) for session recovery and its limits.
 
-See the [CLI reference](DOCUMENTATION.md) for all options and the [README](README.md) for platform and source-build information.
+See the [CLI reference](ARGUMENTS.md) for all options and the [README](README.md) for platform and source-build information.

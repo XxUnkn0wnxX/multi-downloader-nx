@@ -39,7 +39,7 @@ jobs:
             - name: Verify generated CLI reference
               run: |
                   pnpm run docs
-                  git diff --exit-code -- docs/DOCUMENTATION.md
+                  git diff --exit-code -- docs/ARGUMENTS.md
     eslint:
         needs: tsc
         runs-on: ubuntu-latest

@@ -467,7 +467,8 @@ const configuredHelp = help(['--help', '--service', 'crunchy'], { token: 'privat
 for (const value of ['private-cookie', 'private-user', 'private-password']) assert(!configuredHelp.includes(value));
 output.log('ok - discovery timer, aliases, config precedence and service-aware help');
 
-const docs = fs.readFileSync(path.join(root, 'docs/DOCUMENTATION.md'), 'utf8');
+const referencePath = path.join(root, 'docs/ARGUMENTS.md');
+const docs = fs.readFileSync(referencePath, 'utf8');
 const [mainReference, crunchyReference] = docs.split('## Crunchyroll-only commands and options');
 assert.match(crunchyReference, /<details>[\s\S]*<summary>[^\n]+--service crunchy[\s\S]*<\/details>/);
 const headings = (text) => Array.from(text.matchAll(/^#### `([^`]+)`$/gm), (match) => match[1]);
@@ -503,7 +504,8 @@ try {
 		'./module.args': { args, groups },
 		'./module.fork-display': compile('modules/module.fork-display.ts'),
 		fs: {
-			writeFileSync: (_path, text) => {
+			writeFileSync: (outputPath, text) => {
+				assert.equal(outputPath, referencePath, 'write the reference to its documented path');
 				generated = text;
 			}
 		},

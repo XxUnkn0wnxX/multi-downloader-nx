@@ -192,7 +192,7 @@ Nightly Fork publishes eight CLI archives with SHA-256 files at the fixed `night
 
 ### CLI documentation
 
-The [documentation generator](../modules/build-docs.ts) writes only the [CLI reference](DOCUMENTATION.md). It lists each option once, with shared options in the main list and Crunchyroll-only options in a separate disclosure. The hand-written guides use relative links and package their CLI screenshots under `docs/imgs/cli/` for offline viewing. [Updating the docs](DEVELOPMENT.md#update-the-cli-docs)
+The [documentation generator](../modules/build-docs.ts) writes only the [CLI reference](ARGUMENTS.md). It lists each option once, with shared options in the main list and Crunchyroll-only options in a separate disclosure. The hand-written guides use relative links and package their CLI screenshots under `docs/imgs/cli/` for offline viewing. [Updating the docs](DEVELOPMENT.md#update-the-cli-docs)
 
 ## Already incorporated upstream
 

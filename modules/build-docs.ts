@@ -107,4 +107,4 @@ ${renderOptions(crunchyOptions, '--service crunchy')}
 </details>
 `;
 
-fs.writeFileSync(path.resolve(__dirname, '..', 'docs', 'DOCUMENTATION.md'), docs);
+fs.writeFileSync(path.resolve(__dirname, '..', 'docs', 'ARGUMENTS.md'), docs);

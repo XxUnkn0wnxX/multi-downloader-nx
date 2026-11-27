@@ -46,11 +46,11 @@ The CLI reference is generated. Edit the option definitions or generator, then r
 pnpm run docs
 ```
 
-Review and stage the updated [CLI reference](DOCUMENTATION.md) with its inputs. Run the generator again and check that the second run produces no further changes.
+Review and stage the updated [CLI reference](ARGUMENTS.md) with its inputs. Run the generator again and check that the second run produces no further changes.
 
 ```sh
 pnpm run docs
-git diff --exit-code -- docs/DOCUMENTATION.md
+git diff --exit-code -- docs/ARGUMENTS.md
 ```
 
 ## Branches and upstream changes
