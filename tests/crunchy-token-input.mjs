@@ -1541,7 +1541,7 @@ try {
 		assert.deepEqual(phoneFixture.outputText.trimEnd().split('\n'), [
 			'If your browser doesn’t open, use this sign-in link.',
 			'',
-			`  ${phoneFixture.launched.href}`,
+			phoneFixture.launched.href,
 			'',
 			'After sign-in, copy the full browser address, even on a 404 page.',
 			'Paste it here and press Enter. Input is hidden to protect your sign-in code.'
@@ -1576,7 +1576,7 @@ try {
 			await service.cli();
 			await new Promise((resolve) => setTimeout(resolve, 0));
 			assert.equal(phoneFixture.outputText.trimStart().split('\n', 1)[0], 'If your browser doesn’t open, use this sign-in link.');
-			assert.match(phoneFixture.outputText, /https:\/\/sso\.crunchyroll\.com\/en\/authorize\?/);
+			assert.match(phoneFixture.outputText, /\n\nhttps:\/\/sso\.crunchyroll\.com\/en\/authorize\?[^\s]+\n\n/);
 			assert.match(phoneFixture.outputText, /full browser address, even on a 404 page/i);
 			assert.match(phoneFixture.outputText, /Input is hidden to protect your sign-in code/i);
 			assert.equal(phoneFixture.openAttempts, 0);

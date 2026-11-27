@@ -148,7 +148,7 @@ export async function loginWithPhone(request: Req['getData'], dryRun = false): P
 		response_type: 'code',
 		state
 	}).toString();
-	process.stdout.write(`If your browser doesn’t open, use this sign-in link.\n\n  ${authorize.href}\n\n`);
+	process.stdout.write(`If your browser doesn’t open, use this sign-in link.\n\n${authorize.href}\n\n`);
 	if (dryRun) {
 		process.stdout.write(callbackInstructions);
 		return 'dry-run';
