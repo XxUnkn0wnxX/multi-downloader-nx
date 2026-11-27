@@ -45,13 +45,90 @@ function compile(file, deps = {}, overrides = {}) {
 	return module.exports;
 }
 
-for (const [entry, isGUI, expected] of [
-	['index.ts', false, 'pnpm exec tsx index.ts'],
-	['lib/index.js', false, 'node lib/index.js'],
-	['lib/gui.js', true, 'node lib/index.js']
+for (const { name, runtime, expected } of [
+	{
+		name: 'source entry in its project root',
+		runtime: { argv: ['node', '/synthetic/project/index.ts', '--service', 'crunchy'], cwd: () => '/synthetic/project', platform: 'linux', env: {} },
+		expected: 'anidl'
+	},
+	{
+		name: 'built Node entry from an unrelated deep directory',
+		runtime: { argv: ['node', '/synthetic/project/lib/index.js', '--service', 'crunchy'], cwd: () => '/unrelated/deep/cwd', platform: 'linux', env: {} },
+		expected: 'anidl'
+	},
+	{
+		name: 'built Node GUI bridge from an unrelated directory',
+		runtime: { argv: ['node', '/synthetic/project/lib/gui.js', '--service', 'crunchy'], cwd: () => '/unrelated/deep/cwd', platform: 'linux', env: { isGUI: 'true' } },
+		expected: 'anidl'
+	},
+	{
+		name: 'Windows executable',
+		runtime: { argv: ['node', 'C:/synthetic/project/lib/index.js', '--service', 'crunchy'], cwd: () => 'C:/unrelated/cwd', platform: 'win32', env: {} },
+		expected: 'anidl'
+	},
+	{
+		name: 'packaged POSIX from its executable folder',
+		runtime: {
+			argv: ['aniDL', '/snapshot/project/index.js', '--service', 'crunchy'],
+			cwd: () => '/synthetic/package',
+			platform: 'linux',
+			env: {},
+			execPath: '/synthetic/package/aniDL',
+			pkg: {}
+		},
+		expected: './aniDL'
+	},
+	{
+		name: 'packaged POSIX from elsewhere',
+		runtime: {
+			argv: ['aniDL', '/snapshot/project/index.js', '--service', 'crunchy'],
+			cwd: () => '/unrelated/deep/cwd',
+			platform: 'linux',
+			env: {},
+			execPath: '/synthetic/package/aniDL',
+			pkg: {}
+		},
+		expected: 'anidl'
+	},
+	{
+		name: 'packaged Windows from its executable folder',
+		runtime: {
+			argv: ['aniDL.exe', 'C:/snapshot/project/index.js', '--service', 'crunchy'],
+			cwd: () => 'C:/synthetic/package',
+			platform: 'win32',
+			env: {},
+			execPath: 'C:/synthetic/package/aniDL.exe',
+			pkg: {}
+		},
+		expected: 'aniDL.exe'
+	}
 ]) {
-	const runtime = { argv: ['node', path.join(root, entry)], cwd: () => root, platform: 'linux', env: { isGUI: String(isGUI) } };
-	assert.equal(compile('modules/module.crunchy-cli-auth.ts', {}, { process: runtime }).cliInvocation(), expected);
+	const runtimePath = runtime.platform === 'win32' ? path.win32 : path.posix;
+	const auth = compile('modules/module.crunchy-cli-auth.ts', { path: runtimePath }, { process: runtime });
+	assert.equal(auth.cliInvocation(), expected, name);
+	assert.equal(auth.leadingCliService(runtime.argv.slice(2)), 'crunchy');
+	assert.equal(auth.leadingCliService(['-service', 'hidive']), 'hidive');
+	assert.equal(auth.leadingCliService(['--service=adn']), 'adn');
+	assert.equal(auth.leadingCliService(['--token=--service=crunchy']), undefined);
+	assert.equal(auth.leadingCliService(['--', '--service', 'crunchy']), undefined);
+	const recovery = auth.crunchyLoginInstruction('--device androidtv');
+	if (runtime.env.isGUI === 'true') assert.equal(recovery, `Run:\n  ${expected} --service crunchy --device androidtv`);
+	else assert.equal(recovery, 'Keep your Crunchyroll command and replace its options with:\n  --device androidtv');
+	for (const [argv, example] of [
+		[{ service: 'crunchy', auth: true }, '--device android'],
+		[{ service: 'crunchy', device: true }, '--device androidtv'],
+		[{ service: 'crunchy', token: true }, '--token']
+	]) {
+		const decision = auth.crunchyCliAuthDecision(argv);
+		assert.notEqual(decision.kind, 'continue', `${name}: expected a sign-in notice`);
+		assert(decision.message.includes(example), `${name}: missing compact example ${example}`);
+		assert.match(decision.message, /Run the same command again, replacing/, `${name}: explain how to use the option suffixes`);
+		assert.doesNotMatch(decision.message, /--service|(?:^|\n)\s*(?:anidl|aniDL\.exe|node|pnpm exec tsx)\s+--|\/synthetic\/|\/unrelated\/|node_modules|\.\.\/|C:\/synthetic/i);
+	}
+	const unscopedRuntime = { ...runtime, argv: runtime.argv.slice(0, 2) };
+	const unscoped = compile('modules/module.crunchy-cli-auth.ts', { path: runtimePath }, { process: unscopedRuntime });
+	assert.equal(unscoped.leadingCliService(unscopedRuntime.argv.slice(2)), undefined);
+	assert.equal(unscoped.crunchyLoginInstruction('--device androidtv'), `Run:\n  ${expected} --service crunchy --device androidtv`);
 }
 
 const { args, groups, configuredDefault, getDefault } = compile('modules/module.args.ts', {

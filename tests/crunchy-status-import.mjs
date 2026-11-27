@@ -18,7 +18,7 @@ const nativeRequire = createRequire(import.meta.url);
 const transformed = new Map();
 const quiet = { info() {}, warn() {}, error() {}, debug() {}, log() {} };
 
-async function run(args, { exitCode = 1, page, defaults = '' } = {}) {
+async function run(args, { exitCode = 1, page, exactMessage, defaults = '' } = {}) {
 	const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'anidl-status-import-'));
 	const originalExitCode = process.exitCode;
 	const originalStdoutWrite = process.stdout.write;
@@ -28,7 +28,7 @@ async function run(args, { exitCode = 1, page, defaults = '' } = {}) {
 		fs.writeFileSync(path.join(directory, 'config', 'cli-defaults.yml'), defaults);
 		const tokenPath = path.join(directory, 'config', 'cr_token.yml');
 		const oldSession = 'auth_type: web\nrefresh_token: dummy-old-session\n';
-		if (page) fs.writeFileSync(tokenPath, oldSession);
+		if (page || exactMessage) fs.writeFileSync(tokenPath, oldSession);
 		const fakeProcess = Object.create(process);
 		Object.defineProperty(fakeProcess, 'exitCode', { value: undefined, writable: true, enumerable: true, configurable: true });
 		fakeProcess.env = { ...process.env, contentDirectory: directory, isGUI: 'false' };
@@ -37,7 +37,7 @@ async function run(args, { exitCode = 1, page, defaults = '' } = {}) {
 		const messages = [];
 		const capture = (message) => messages.push(String(message));
 		process.stdout.write = (message) => (capture(message), true);
-		const logger = { ...quiet, info: capture, error: capture };
+		const logger = { ...quiet, info: capture, error: capture, log: capture };
 		let requests = 0;
 		function load(filename) {
 			if (cache.has(filename)) return cache.get(filename).exports;
@@ -105,9 +105,10 @@ async function run(args, { exitCode = 1, page, defaults = '' } = {}) {
 		assert.equal(requests, 0);
 		assert.equal(fs.existsSync(path.join(directory, 'must-not-create')), false);
 		assert.equal(fs.existsSync(path.join(directory, 'config', 'updates.json')), false);
-		if (page) {
+		if (page || exactMessage) {
 			assert.equal(fs.readFileSync(tokenPath, 'utf8'), oldSession);
-			assert.match(messages.join('\n'), page);
+			if (page) assert.match(messages.join('\n'), page);
+			if (exactMessage) assert.equal(messages.join('\n'), exactMessage);
 			for (const file of ['crunchy.ts', 'adn.ts', 'hidive.ts', 'modules/module.updater.ts', 'modules/module.downloadArchive.ts']) {
 				assert.equal(cache.has(path.join(root, file)), false, `unexpected import on a notice: ${file}`);
 			}
@@ -123,6 +124,32 @@ await run(['--service', 'crunchy', '--check-status']);
 await run([], { exitCode: 0, page: /Usage:/ });
 await run([], { exitCode: 0, page: /Usage:/, defaults: 'service: crunchy\n' });
 for (const args of [['-h'], ['--help'], ['-help']]) await run(args, { exitCode: 0, page: /Usage:/, defaults: 'service: crunchy\n' });
+for (const args of [['--debug'], ['-debug']])
+	await run(args, { exitCode: 0, page: /AniDL[\s\S]*Node v?[\d.]+[\s\S]*To debug a service command, put --service first and add --debug/ });
+for (const args of [
+	['--help', '--debug'],
+	['--debug', '--help'],
+	['-h', '--debug'],
+	['--debug', '-h'],
+	['-help', '--debug']
+])
+	await run(args, { exitCode: 0, page: /Usage:[\s\S]*AniDL[\s\S]*Node v?[\d.]+[\s\S]*To debug a service command/ });
+const serviceFirstHelpError = /Choose a service first\. Use --service with exactly one name \(crunchy, hidive, adn\)\.[\s\S]*--service crunchy --help/;
+await run(['--auth'], { exactMessage: 'Choose a service first. Use --service with exactly one name (crunchy, hidive, adn).' });
+for (const args of [
+	['--debug', '--auth'],
+	['--debug', '--service', 'crunchy'],
+	['--help', '--auth']
+])
+	await run(args, { page: serviceFirstHelpError });
+await run(['--device'], { exactMessage: 'Choose a service first. Use --service with exactly one name (crunchy, hidive, adn). For example:\n  anidl --service crunchy --device' });
+await run(['--token'], { exactMessage: 'Choose a service first. Use --service with exactly one name (crunchy, hidive, adn). For example:\n  anidl --service crunchy --token' });
+for (const args of [
+	['--help', '--token'],
+	['--token', '--help'],
+	['--debug', '--token']
+])
+	await run(args, { page: serviceFirstHelpError });
 
 // Every non-empty invocation needs an explicit supported service at the front.
 for (const args of [
@@ -146,7 +173,7 @@ for (const args of [
 	['--service', 'crunchy', '--device'],
 	['--service=crunchy', '--device']
 ]) {
-	await run(args, { exitCode: 0, page: /--service crunchy --device androidtv/ });
+	await run(args, { exitCode: 0, page: /--device androidtv/ });
 }
 for (const args of [
 	['--service', 'crunchy', '--token'],
@@ -155,7 +182,7 @@ for (const args of [
 	await run(args, { exitCode: 0, page: /cookies\.txt/ });
 }
 await run(['--service', 'crunchy', '--auth'], {
-	page: /HIDIVE and ADN still use --auth with a username or email and password\.[\s\S]*--service crunchy --device android/
+	page: /HIDIVE and ADN still use --auth with a username or email and password\.[\s\S]*Run the same command again[\s\S]*--device android/
 });
 await run(['--auth'], { defaults: 'service: crunchy\n', page: /Choose a service first/ });
 await run(['--service', 'crunchy', '--device'], { defaults: 'token: fixture-cookie\n', exitCode: 0, page: /--device androidtv/ });

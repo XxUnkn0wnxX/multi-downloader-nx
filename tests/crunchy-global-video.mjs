@@ -1265,7 +1265,11 @@ const mediaDeps = {
 		}
 	},
 	'./modules/module.crunchy-device-auth': {},
-	'./modules/module.crunchy-cli-auth': { cliInvocation: () => 'aniDL', crunchyCliAuthDecision: () => ({ kind: 'continue' }) },
+	'./modules/module.crunchy-cli-auth': {
+		cliInvocation: () => 'aniDL',
+		crunchyCliAuthDecision: () => ({ kind: 'continue' }),
+		crunchyLoginInstruction: (options) => `Keep your Crunchyroll command and replace its options with:\n  ${options}`
+	},
 	'./modules/module.crunchy-phone-auth': {},
 	'./modules/module.crunchy-session-store': compile('modules/module.crunchy-session-store.ts'),
 	'./package.json': packageMetadata,
@@ -3919,8 +3923,9 @@ assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/
 		observed.length = mediaLogs.length = 0;
 		assert.equal(await service.downloadMediaList(mediaData, opts), undefined);
 		assert.equal(roleErrors().length, 1);
-		assert.match(roleErrors()[0], /Audio endpoint "android" has no valid Android phone session\. Sign in first:/);
-		assert.match(roleErrors()[0], /--service crunchy --device android/);
+		assert.match(roleErrors()[0], /Audio endpoint "android" has no valid Android phone session\. Sign in first\./);
+		assert.match(roleErrors()[0], /Keep your Crunchyroll command and replace its options with:[\s\S]*--device android/);
+		assert.doesNotMatch(roleErrors()[0], /--service|aniDL|anidl/);
 		assert.match(roleErrors()[0], /run your download command again\./i);
 		assert.deepEqual(
 			observed.filter((item) => item.method === 'DELETE').map((item) => item.bearer),
@@ -3930,8 +3935,9 @@ assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/
 		observed.length = mediaLogs.length = 0;
 		assert.equal(await service.downloadEpisode(mediaData, opts), false);
 		assert.equal(roleErrors().length, 1);
-		assert.match(roleErrors()[0], /Video endpoint "androidtv" has no valid Android TV session\. Sign in first:/);
-		assert.match(roleErrors()[0], /--service crunchy --device androidtv/);
+		assert.match(roleErrors()[0], /Video endpoint "androidtv" has no valid Android TV session\. Sign in first\./);
+		assert.match(roleErrors()[0], /Keep your Crunchyroll command and replace its options with:[\s\S]*--device androidtv/);
+		assert.doesNotMatch(roleErrors()[0], /--service|aniDL|anidl/);
 		assert.match(roleErrors()[0], /run your download command again\./i);
 		assert.equal(observed.filter((item) => item.url.includes('/play?')).length, 1);
 		reject = undefined;

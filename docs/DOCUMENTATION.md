@@ -539,7 +539,7 @@ Reset session cookie for testing purposes
 | --- | --- | --- | --- | --- | --- | ---|
 | All | `--debug ` | `boolean` | `No`| `—` | `false`| `debug: ` |
 
-Debug mode (tokens may be revealed in the console output)
+Show local version and platform details, alone or with --help. Add --debug to a service command for detailed output (which may include tokens).
 ### Utilities
 #### `--check-status`
 | **Service** | **Usage** | **Type** | **Required** | **Alias** |  **cli-default Entry**

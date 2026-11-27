@@ -57,7 +57,13 @@ try {
 	}
 	const realHelper = compile(path.join(root, 'modules/module.crunchy-token.ts'), (id) => require(id));
 	const { parseCrunchyTokenInput } = realHelper;
-	const cliAuth = compile(path.join(root, 'modules/module.crunchy-cli-auth.ts'), (id) => require(id));
+	const cliAuthRuntime = {
+		argv: ['node', path.join(root, 'index.ts'), '--service', 'crunchy'],
+		cwd: () => root,
+		platform: process.platform,
+		env: { ...process.env, isGUI: 'false' }
+	};
+	const cliAuth = compile(path.join(root, 'modules/module.crunchy-cli-auth.ts'), (id) => require(id), { process: cliAuthRuntime });
 	const requireDeviceDeps = (id) => (id === './module.crunchy-cli-auth' ? cliAuth : require(id));
 	const deviceHelper = compile(path.join(root, 'modules/module.crunchy-device-auth.ts'), requireDeviceDeps);
 	const sessionStore = compile(path.join(root, 'modules/module.crunchy-session-store.ts'), (id) => require(id));
@@ -313,7 +319,11 @@ try {
 			service.loginWithDevice = async () => authCalls++;
 			assert.equal(await service.cli(), false);
 			assert.equal(process.exitCode, 1);
-			assert(logs.some(([kind, line]) => kind === 'error' && /uses --device or --token/i.test(line)));
+			const error = logs.find(([kind]) => kind === 'error')?.[1];
+			assert.match(error, /Crunchyroll CLI sign-in uses --device or --token/);
+			assert.match(error, /replace the sign-in options/);
+			assert.match(error, /--device[\s\S]*--token/);
+			assert.doesNotMatch(error, /--service|anidl|aniDL\.exe|pnpm exec tsx/);
 			assert.equal(helperPrompts, promptCount);
 			assert.equal(loadBinCalls, binLoadCount);
 			assert.equal(saved.length, saveCount);
@@ -537,7 +547,8 @@ try {
 			});
 			assert.equal(calls, 2);
 			assert.match(messages.at(-1), /Device code expired\./);
-			assert.match(messages.at(-1), /--service crunchy --device androidtv/);
+			assert.match(messages.at(-1), /--device androidtv/);
+			assert.doesNotMatch(messages.at(-1), /--service|anidl|aniDL\.exe|pnpm exec tsx/);
 			assert.deepEqual(values, [1, 1, 0, undefined]);
 			assert.deepEqual(states, ['waiting', 'waiting', 'timed-out', undefined]);
 			assert.equal(countdown.active, false);
@@ -591,7 +602,8 @@ try {
 			});
 			assert.equal(calls, 2);
 			assert.match(messages.at(-1), /Device code expired\./);
-			assert.match(messages.at(-1), /--service crunchy --device androidtv/);
+			assert.match(messages.at(-1), /--device androidtv/);
+			assert.doesNotMatch(messages.at(-1), /--service|anidl|aniDL\.exe|pnpm exec tsx/);
 			assert.deepEqual(values, [1, 1, 0, undefined]);
 			assert.deepEqual(states, ['waiting', 'waiting', 'timed-out', undefined]);
 			assert.equal(countdown.active, false);
@@ -693,14 +705,17 @@ try {
 			options.onCountdown(300, 'waiting');
 			options.onCountdown(0, 'timed-out');
 			options.onCountdown(undefined);
-			options.log('Device code expired. Run --service crunchy --device androidtv again to get a new code.');
+			options.log('Device code expired. To get a new code:\nKeep your Crunchyroll command and replace its options with:\n  --device androidtv');
 			return undefined;
 		};
 		try {
 			const { service } = makeService({});
 			assert.equal(await service.loginWithDevice(new AbortController().signal), false);
 			const timeoutIndex = logs.findIndex(([, line]) => line === 'Expires in 0 seconds. (Timed Out)');
-			const instructionIndex = logs.findIndex(([, line]) => /Device code expired\./.test(line) && /--service crunchy --device androidtv/.test(line));
+			const instructionIndex = logs.findIndex(
+				([, line]) => /Device code expired\./.test(line) && /Keep your Crunchyroll command and replace its options with:[\s\S]*--device androidtv/.test(line)
+			);
+			assert(!logs.some(([, line]) => /Device code expired\./.test(line) && /--service|anidl|aniDL\.exe/.test(line)));
 			assert(timeoutIndex >= 0);
 			assert(instructionIndex > timeoutIndex);
 			assert(!logs.some(([, line]) => line === 'Expires in 300 seconds. (Approved)'));
@@ -1035,7 +1050,10 @@ try {
 
 	await test('device refresh distinguishes explicit rejection from transient and malformed responses', async () => {
 		for (const [response, expected] of [
-			[{ ok: false, res: { status: 400, json: async () => ({ error: 'invalid_grant' }) } }, '--service crunchy --device androidtv'],
+			[
+				{ ok: false, res: { status: 400, json: async () => ({ error: 'invalid_grant' }) } },
+				'Keep your Crunchyroll command and replace its options with:\n  --device androidtv'
+			],
 			[{ ok: false, res: { status: 503, json: async () => ({ error: 'invalid_grant' }) } }, 'retry later'],
 			[
 				{
@@ -1071,9 +1089,9 @@ try {
 		const opts = { s: 'SEASONID1', vstream: 'androidtv', astream: 'android', dubLang: ['eng'] };
 		const roleErrors = () => logs.filter(([level, text]) => level === 'error' && text.includes('endpoint "')).map(([, text]) => text);
 		const tv =
-			/Video endpoint "androidtv" has no valid Android TV session\. Sign in first:[\s\S]*--service crunchy --device androidtv[\s\S]*run your download command again\./i;
+			/Video endpoint "androidtv" has no valid Android TV session\. Sign in first\.[\s\S]*Keep your Crunchyroll command and replace its options with:[\s\S]*--device androidtv[\s\S]*run your download command again\./i;
 		const phone =
-			/Audio endpoint "android" has no valid Android phone session\. Sign in first:[\s\S]*--service crunchy --device android[\s\S]*run your download command again\./i;
+			/Audio endpoint "android" has no valid Android phone session\. Sign in first\.[\s\S]*Keep your Crunchyroll command and replace its options with:[\s\S]*--device android[\s\S]*run your download command again\./i;
 		logs.length = 0;
 		parsedArgv = opts;
 		assert.equal(await service.cli(), true);
@@ -1095,7 +1113,10 @@ try {
 	await test('a shared expired login refreshes once and reports the appropriate error for both roles', async () => {
 		const opts = { e: 'EPISODE01', vstream: 'androidtv', astream: 'androidtv', dubLang: ['eng'] };
 		for (const [status, expected] of [
-			[400, /has no valid Android TV session\. Sign in first:[\s\S]*--service crunchy --device androidtv[\s\S]*run your download command again\./i],
+			[
+				400,
+				/has no valid Android TV session\. Sign in first\.[\s\S]*Keep your Crunchyroll command and replace its options with:[\s\S]*--device androidtv[\s\S]*run your download command again\./i
+			],
 			[429, 'could not refresh the saved session. Retry later.']
 		]) {
 			const auth = 'https://www.crunchyroll.com/auth/v1/token';
@@ -1741,10 +1762,10 @@ try {
 			{ argv: { service: 'crunchy', downloadArchive: true }, result: false, expectedCalls: 1, exit: 1, updates: 1 },
 			{ argv: { service: 'crunchy', downloadArchive: true }, result: true, expectedCalls: 2, exit: undefined, updates: 1 },
 			{ argv: { service: 'crunchy', auth: true }, result: true, expectedCalls: 0, exit: 1, updates: 0, error: /now uses --device or --token/ },
-			{ argv: { service: 'crunchy', username: 'legacy-user' }, result: true, expectedCalls: 0, exit: 1, updates: 0, error: /uses --device or --token/ },
-			{ argv: { service: 'crunchy', password: '' }, result: true, expectedCalls: 0, exit: 1, updates: 0, error: /uses --device or --token/ },
-			{ argv: { service: 'crunchy', password: 'entry-secret' }, result: true, expectedCalls: 0, exit: 1, updates: 0, error: /uses --device or --token/ },
-			{ argv: { service: 'crunchy', silentAuth: true }, result: true, expectedCalls: 0, exit: 1, updates: 0, error: /uses --device or --token/ },
+			{ argv: { service: 'crunchy', username: 'legacy-user' }, result: true, expectedCalls: 0, exit: 1, updates: 0, error: /replace the sign-in options/ },
+			{ argv: { service: 'crunchy', password: '' }, result: true, expectedCalls: 0, exit: 1, updates: 0, error: /replace the sign-in options/ },
+			{ argv: { service: 'crunchy', password: 'entry-secret' }, result: true, expectedCalls: 0, exit: 1, updates: 0, error: /replace the sign-in options/ },
+			{ argv: { service: 'crunchy', silentAuth: true }, result: true, expectedCalls: 0, exit: 1, updates: 0, error: /replace the sign-in options/ },
 			{
 				argv: { service: 'crunchy', auth: true, device: true },
 				result: true,
@@ -1816,7 +1837,12 @@ try {
 							__esModule: true
 						};
 					if (id === './modules/module.crunchy-device-auth') return deviceHelper;
-					if (id === './modules/module.crunchy-cli-auth') return { cliInvocation: cliAuth.cliInvocation, crunchyCliAuthDecision: cliAuth.crunchyCliAuthDecision };
+					if (id === './modules/module.crunchy-cli-auth')
+						return {
+							cliInvocation: cliAuth.cliInvocation,
+							crunchyCliAuthDecision: cliAuth.crunchyCliAuthDecision,
+							leadingCliService: cliAuth.leadingCliService
+						};
 					throw new Error(`Unexpected index import ${id}`);
 				},
 				{ process: fakeProcess, global: { console: fakeConsole } }

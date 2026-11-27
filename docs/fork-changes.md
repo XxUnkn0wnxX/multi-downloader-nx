@@ -104,7 +104,7 @@ The root and GUI workspace overrides pin transitive `proxy-addr` to `2.0.8` for 
 
 ### Accept Crunchyroll cookies exports for `--token`
 
-The CLI opens global help with no arguments or with `--help` alone. For other commands, put `--service crunchy`, `--service hidive` or `--service adn` first and specify the service only once. Global help lists shared options. Each service’s help adds its own options. Crunchyroll device and cookie sign-in appear in `--service crunchy --help`. On HIDIVE and ADN, `--auth` still prompts for a username or email and password.
+The CLI opens global help with no arguments or with `--help` alone. Use `--debug` alone or with global `--help` to show the local version and platform. For service commands, put `--service crunchy`, `--service hidive` or `--service adn` first and specify the service only once. Global help lists shared options. Each service’s help adds its own options. Crunchyroll device and cookie sign-in appear in `--service crunchy --help`. Once Crunchyroll is selected, its sign-in notices show which options to replace in the current command. Complete examples use `anidl` for source runs and from outside the executable’s folder. On HIDIVE and ADN, `--auth` still prompts for a username or email and password.
 
 On `develop`, `--token` accepts the Crunchyroll `etp_rt` UUID value directly or a path to a file containing that value or a Netscape cookies export. File names and extensions are unrestricted. Only the existing Crunchyroll web-token request is used; authentication reports failure unless both the profile and CMS token requests succeed. Keep the existing cookie-based authentication and refresh behavior. See the [browser cookie input formats](CRUNCHYROLL-AUTH.md#browser-cookie-inputs).
 

@@ -80,7 +80,7 @@ import { randomUUID } from 'node:crypto';
 import { FetchParams } from './modules/module.fetch';
 import { CrunchyTokenInputError, parseCrunchyTokenInput } from './modules/module.crunchy-token';
 import { loginWithPhone, PHONE_CALLBACK_INVALID, PHONE_CLIENT_REQUIRED, refreshPhoneToken } from './modules/module.crunchy-phone-auth';
-import { cliInvocation, crunchyCliAuthDecision } from './modules/module.crunchy-cli-auth';
+import { crunchyCliAuthDecision, crunchyLoginInstruction } from './modules/module.crunchy-cli-auth';
 import { CrunchySession, CrunchySessionSlot, crunchySessionSlot } from './modules/module.crunchy-session-store';
 import {
 	requestDeviceToken,
@@ -117,11 +117,11 @@ function playbackAuthError(role: PlaybackRole, endpoint: VideoEndpoint, failure:
 		console.error(`${prefix} could not refresh the saved session. Retry later.`);
 	} else if (failure === 'account') {
 		console.error(
-			`${prefix} requires a session for the active Crunchyroll account. Sign in using the same account:\n  ${cliInvocation()} --service crunchy ${command}\nWhen AniDL confirms you’re signed in, run your download command again.`
+			`${prefix} requires a session for the active Crunchyroll account. Sign in using the same account.\n${crunchyLoginInstruction(command)}\nWhen AniDL confirms you’re signed in, run your download command again.`
 		);
 	} else {
 		console.error(
-			`${prefix} has no valid ${session} session. Sign in first:\n  ${cliInvocation()} --service crunchy ${command}\nWhen AniDL confirms you’re signed in, run your download command again.`
+			`${prefix} has no valid ${session} session. Sign in first.\n${crunchyLoginInstruction(command)}\nWhen AniDL confirms you’re signed in, run your download command again.`
 		);
 	}
 }
@@ -1401,8 +1401,8 @@ export default class Crunchy implements ServiceClass {
 				console.error(
 					rejected && previous.auth_type === 'device'
 						? primaryTimedOut && origin === 'api'
-							? `Device refresh credentials are unusable. Sign in again:\n  ${cliInvocation()} --service crunchy --device androidtv`
-							: `Device refresh rejected. Sign in again:\n  ${cliInvocation()} --service crunchy --device androidtv`
+							? `Device refresh credentials are unusable. Sign in again.\n${crunchyLoginInstruction('--device androidtv')}`
+							: `Device refresh rejected. Sign in again.\n${crunchyLoginInstruction('--device androidtv')}`
 						: 'Token refresh failed; retry later. Saved login was retained.'
 				);
 			}
@@ -1462,7 +1462,7 @@ export default class Crunchy implements ServiceClass {
 			if (['device', 'android', 'web'].includes(this.token.auth_type) && !this.token.refresh_token) {
 				console.error(
 					this.token.auth_type === 'device'
-						? `Device login is missing its refresh token. Sign in again:\n  ${cliInvocation()} --service crunchy --device androidtv`
+						? `Device login is missing its refresh token. Sign in again.\n${crunchyLoginInstruction('--device androidtv')}`
 						: 'The saved login is missing its refresh token. Sign in again.'
 				);
 				return false;

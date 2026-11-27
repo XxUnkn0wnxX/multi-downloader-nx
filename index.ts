@@ -1,21 +1,32 @@
 import packageJson from './package.json';
-import { forkReleaseUrl } from './modules/module.fork-display';
+import { displayVersion, forkReleaseUrl } from './modules/module.fork-display';
 import { cliServices } from './modules/module.args';
-import { cliInvocation, crunchyCliAuthDecision } from './modules/module.crunchy-cli-auth';
+import { cliInvocation, crunchyCliAuthDecision, leadingCliService } from './modules/module.crunchy-cli-auth';
 
 (async () => {
 	const raw = process.argv.slice(2);
-	const [first, value] = raw;
-	if (raw.length === 0 || (raw.length === 1 && ['--help', '-h', '-help'].includes(first))) {
-		const { getCommander } = await import('./modules/module.app-args');
-		getCommander({}, false).outputHelp();
+	const [first] = raw;
+	const helpFlags = ['--help', '-h', '-help'];
+	const debugFlags = ['--debug', '-debug'];
+	if (raw.every((arg) => helpFlags.includes(arg) || debugFlags.includes(arg))) {
+		if (!raw.length || raw.some((arg) => helpFlags.includes(arg))) {
+			const { getCommander } = await import('./modules/module.app-args');
+			getCommander({}, false).outputHelp();
+		}
+		if (raw.some((arg) => debugFlags.includes(arg)))
+			global.console.info(
+				`AniDL ${displayVersion(packageJson)}\nNode ${process.version} | ${process.platform} ${process.arch}\nTo debug a service command, put --service first and add --debug to that command.`
+			);
 		return;
 	}
-	const selectedService = first === '--service' || first === '-service' ? value : first.startsWith('--service=') ? first.slice('--service='.length) : undefined;
+	const selectedService = leadingCliService(raw);
 	if (!selectedService || !cliServices.includes(selectedService)) {
-		global.console.error(
-			`Choose a service first (${cliServices.join(', ')}). For example, to see the Crunchyroll commands, run\n  ${cliInvocation()} --service crunchy --help`
-		);
+		const message = `Choose a service first. Use --service with exactly one name (${cliServices.join(', ')}).`;
+		if (raw.length === 1 && (first === '--auth' || first === '-auth')) global.console.error(message);
+		else {
+			const example = raw.length === 1 && (first === '--device' || first === '--token') ? first : '--help';
+			global.console.error(`${message} For example:\n  ${cliInvocation()} --service crunchy ${example}`);
+		}
 		process.exitCode = 1;
 		return;
 	}

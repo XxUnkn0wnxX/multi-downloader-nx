@@ -129,7 +129,7 @@ const processArgv = (program: Command) => {
 			const known = program.options.some((option) => option.short === flag || option.long === flag || option.long === long);
 			// A dash-prefixed file was valid with the old required token argument. Real flags still take precedence.
 			if (!known) {
-				if (!existsSync(next)) program.error('Invalid --token input or unknown option. Use --service crunchy --token for examples.');
+				if (!existsSync(next)) program.error('Invalid --token input or unknown option. With Crunchyroll selected, use --token alone for examples.');
 				argv.push(`--token=${next}`);
 				i++;
 				continue;

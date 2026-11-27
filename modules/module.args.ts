@@ -786,7 +786,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	{
 		name: 'debug',
 		group: 'debug',
-		describe: 'Debug mode (tokens may be revealed in the console output)',
+		describe: 'Show local version and platform details, alone or with --help. Add --debug to a service command for detailed output (which may include tokens).',
 		docDescribe: true,
 		service: ['all'],
 		type: 'boolean',

@@ -1,4 +1,4 @@
-import { cliInvocation } from './module.crunchy-cli-auth';
+import { crunchyLoginInstruction } from './module.crunchy-cli-auth';
 import { FetchParams } from './module.fetch';
 
 export const getDeviceName = (deviceId: string): string => `ANDROIDTV (${deviceId.slice(-4)})`;
@@ -290,14 +290,12 @@ export async function requestDeviceToken(options: DeviceOptions): Promise<Record
 			expired = true;
 			reportTimeout();
 		}
-		throw new Error(
-			signal.aborted && !expired ? 'Device login cancelled.' : `Device code expired. Run ${cliInvocation()} --service crunchy --device androidtv again to get a new code.`
-		);
+		throw new Error(signal.aborted && !expired ? 'Device login cancelled.' : `Device code expired. Request a new code.\n${crunchyLoginInstruction('--device androidtv')}`);
 	} catch (error) {
 		const message = initiationTimedOut
 			? 'Device code request timed out. Retry the command.'
 			: expired
-				? `Device code expired. Run ${cliInvocation()} --service crunchy --device androidtv again to get a new code.`
+				? `Device code expired. Request a new code.\n${crunchyLoginInstruction('--device androidtv')}`
 				: signal.aborted
 					? 'Device login cancelled.'
 					: error instanceof Error
