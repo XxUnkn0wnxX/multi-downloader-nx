@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { Writable } from 'node:stream';
 import { api, domain } from './module.api-urls';
-import { refreshCredentialsRejected, validDeviceToken } from './module.crunchy-device-auth';
+import { classifyOAuthError, validDeviceToken } from './module.crunchy-device-auth';
 import type { Req } from './module.fetch';
 import type { CrunchySession } from './module.crunchy-session-store';
 
@@ -11,7 +11,10 @@ const callbackPath = '/android/oauth-callback';
 const inputTimeoutMs = 10 * 60_000;
 const userAgent = 'Crunchyroll/3.130.0 Android/16 okhttp/5.3.2';
 
-export const PHONE_CLIENT_REQUIRED = 'Android phone client settings are missing or invalid in this build.';
+export const PHONE_CLIENT_REQUIRED =
+	'This build has missing or invalid Android phone sign-in settings (phone_client_id and phone_client_secret). An AniDL maintainer needs to update them.';
+export const PHONE_CLIENT_REJECTED =
+	'Crunchyroll rejected this build’s Android phone sign-in settings (phone_client_id and phone_client_secret). An AniDL maintainer needs to update them.';
 
 export const PHONE_CALLBACK_INVALID =
 	'AniDL could not verify that sign-in address. Start Android phone sign-in again and paste the full address from the browser tab opened for that attempt.';
@@ -90,7 +93,9 @@ async function exchangePhoneToken(request: Req['getData'], fields: Record<string
 			signal: AbortSignal.timeout(15_000)
 		});
 		if (!result.ok || !result.res) {
-			if (onRejected && (await refreshCredentialsRejected(result.res))) onRejected();
+			const providerError = await classifyOAuthError(result.res);
+			if (providerError === 'invalid_client') throw new Error(PHONE_CLIENT_REJECTED);
+			if (onRejected && (providerError === 'invalid_grant' || providerError === 'invalid_refresh_token')) onRejected();
 			else if (!result.res?.bodyUsed) await result.res?.body?.cancel().catch(() => {});
 			return;
 		}

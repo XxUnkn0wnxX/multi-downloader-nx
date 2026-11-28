@@ -25,6 +25,61 @@ type DeviceOptions = {
 
 export const DEVICE_BETA_WARNING = 'Using beta API fallback: beta-api.crunchyroll.com';
 
+export const CR_BASIC_REQUIRED = 'This build has missing or invalid Crunchyroll sign-in settings (basic_auth_token). An AniDL maintainer needs to update them.';
+export const CR_BASIC_REJECTED = 'Crunchyroll rejected this build’s sign-in settings (basic_auth_token). An AniDL maintainer needs to update them.';
+export const CR_WEB_BASIC_REQUIRED =
+	'This build has missing or invalid Crunchyroll browser-cookie sign-in settings (web_basic_auth_token). An AniDL maintainer needs to update them.';
+export const CR_WEB_BASIC_REJECTED = 'Crunchyroll rejected this build’s browser-cookie sign-in settings (web_basic_auth_token). An AniDL maintainer needs to update them.';
+
+// Reject only locally verifiable malformed Basic settings, without logging their contents.
+export function validBasicClient(value: unknown, allowEmptySecret = false): boolean {
+	if (typeof value !== 'string' || !value || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) return false;
+	try {
+		const decoded = atob(value);
+		const separator = decoded.indexOf(':');
+		return (
+			separator > 0 &&
+			(allowEmptySecret || separator < decoded.length - 1) &&
+			[...decoded].every((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127)
+		);
+	} catch {
+		return false;
+	}
+}
+
+// Consume at most 8 KiB and return only recognized OAuth codes; never expose the provider body.
+export async function classifyOAuthError(response?: Response): Promise<'invalid_client' | 'invalid_grant' | 'invalid_refresh_token' | undefined> {
+	if (!response || (response.status !== 400 && response.status !== 401)) return;
+	const reader = response.body?.getReader();
+	if (!reader) return;
+	try {
+		const chunks: Uint8Array[] = [];
+		let size = 0;
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			size += value.byteLength;
+			if (size > 8192) {
+				void reader.cancel().catch(() => {});
+				return;
+			}
+			chunks.push(value);
+		}
+		const bytes = new Uint8Array(size);
+		let offset = 0;
+		for (const chunk of chunks) {
+			bytes.set(chunk, offset);
+			offset += chunk.byteLength;
+		}
+		const error = JSON.parse(new TextDecoder().decode(bytes))?.error;
+		if (error === 'invalid_client' || error === 'invalid_grant' || error === 'invalid_refresh_token') return error;
+	} catch {
+		return;
+	} finally {
+		reader.releaseLock();
+	}
+}
+
 type Attempt = { result: Result; timedOut: boolean; cancelled: boolean };
 export async function deviceAuthAttempt(
 	request: (url: string, options: FetchParams) => Promise<Result>,
@@ -67,7 +122,7 @@ export async function deviceFallbackEligible(result: Result): Promise<boolean> {
 	}
 }
 
-export async function deviceErrorDetails(result: { res?: Response; error?: { name?: string; message?: string } }): Promise<string> {
+export async function deviceErrorDetails(result: { res?: Response; error?: { name?: string; message?: string } }, credentialRequest = false): Promise<string> {
 	const status = result.res?.status;
 	let providerCode: string | undefined;
 	let reason: string | undefined;
@@ -89,6 +144,13 @@ export async function deviceErrorDetails(result: { res?: Response; error?: { nam
 			.replace(/https?:\/\/\S+/gi, '[URL]')
 			.replace(/[\r\n\t]+/g, ' ')
 			.slice(0, 100);
+	if (credentialRequest) {
+		const allowedCodes = ['invalid_grant', 'invalid_refresh_token', 'invalid_client', 'authorization_pending', 'slow_down', 'access_denied', 'expired_token'];
+		const allowedReasons = ['approval denied'];
+		return [status ? `HTTP ${status}` : '', providerCode && allowedCodes.includes(providerCode) ? providerCode : '', reason && allowedReasons.includes(reason) ? reason : '']
+			.filter(Boolean)
+			.join(' ');
+	}
 	const details = [status ? `HTTP ${status}` : '', providerCode ? safe(providerCode) : '', reason ? safe(reason) : ''].filter(Boolean);
 	if (!status && !details.length && result.error?.name) details.push(safe(result.error.name));
 	return details.join(' ');
@@ -105,16 +167,6 @@ export function validDeviceToken(token: any): boolean {
 		Number.isFinite(token.expires_in) &&
 		token.expires_in > 0
 	);
-}
-
-export async function refreshCredentialsRejected(response?: Response): Promise<boolean> {
-	if (!response || (response.status !== 400 && response.status !== 401)) return false;
-	try {
-		const { error } = await response.json();
-		return error === 'invalid_grant' || error === 'invalid_refresh_token';
-	} catch {
-		return false;
-	}
 }
 
 const sleep = (ms: number, signal: AbortSignal) =>
@@ -170,7 +222,8 @@ export async function requestDeviceToken(options: DeviceOptions): Promise<Record
 			body,
 			useProxy: true,
 			signal,
-			quietErrors: !debug
+			quietErrors: !debug,
+			quietDebug: true
 		});
 		if (debug) log(`[DEBUG] Device ${endpoint} response: ${result.res?.status ?? 'network error'}`);
 		return result;
@@ -180,7 +233,12 @@ export async function requestDeviceToken(options: DeviceOptions): Promise<Record
 		const initiate = async (authUrl: string) => {
 			const url = `${authUrl.replace(/\/token\/?$/, '')}/device/code`;
 			if (debug) log(`[DEBUG] Device code request: ${url}`);
-			const attempt = await deviceAuthAttempt(request, url, { method: 'POST', headers: { ...headers }, body: '', useProxy: true, quietErrors: !debug }, signal);
+			const attempt = await deviceAuthAttempt(
+				request,
+				url,
+				{ method: 'POST', headers: { ...headers }, body: '', useProxy: true, quietErrors: !debug, quietDebug: true },
+				signal
+			);
 			if (debug) log(`[DEBUG] Device code response: ${attempt.result.res?.status ?? 'network error'}`);
 			return attempt;
 		};
@@ -196,7 +254,14 @@ export async function requestDeviceToken(options: DeviceOptions): Promise<Record
 		initiationTimedOut = attempt.timedOut;
 		if (attempt.cancelled || signal.aborted) throw new Error('Device login cancelled.');
 		if (!attempt.result.ok || !attempt.result.res || attempt.timedOut) {
-			const details = attempt.timedOut ? '' : await deviceErrorDetails(attempt.result);
+			if (
+				!attempt.timedOut &&
+				attempt.result.res &&
+				[400, 401].includes(attempt.result.res.status) &&
+				(await classifyOAuthError(attempt.result.res.clone())) === 'invalid_client'
+			)
+				throw new Error(`Device code request failed. ${CR_BASIC_REJECTED}`);
+			const details = attempt.timedOut ? '' : await deviceErrorDetails(attempt.result, true);
 			throw new Error(`Device code request failed.${details ? ` ${details}.` : ''} Retry the command.`);
 		}
 		const data = await attempt.result.res.json();
@@ -278,15 +343,17 @@ export async function requestDeviceToken(options: DeviceOptions): Promise<Record
 				return token;
 			}
 			if (result.res?.status === 429) {
-				const details = await deviceErrorDetails(result);
+				const details = await deviceErrorDetails(result, true);
 				throw new Error(`Device approval rate limited${details ? ` (${details})` : ''}. Retry later.`);
 			}
+			if (result.res && [400, 401].includes(result.res.status) && (await classifyOAuthError(result.res.clone())) === 'invalid_client')
+				throw new Error(`Device approval was rejected. ${CR_BASIC_REJECTED}`);
 			if (!result.res || result.res.status >= 500) {
 				if (++errors <= 3) continue;
-				const details = await deviceErrorDetails(result);
+				const details = await deviceErrorDetails(result, true);
 				throw new Error(`Device approval failed after repeated temporary errors${details ? ` (${details})` : ''}. Retry the command.`);
 			}
-			const details = await deviceErrorDetails(result);
+			const details = await deviceErrorDetails(result, true);
 			throw new Error(`Device approval was rejected${details ? ` (${details})` : ''}. Retry the command.`);
 		}
 		if (!expired && now() >= deadline) {

@@ -47,6 +47,19 @@ function recordArchivedEpisode(episode: NewHidiveEpisodeExtra) {
 	}
 }
 
+async function isExplicitApiKeyRejection(response?: Response): Promise<boolean> {
+	if (!response || ![400, 401, 403].includes(response.status)) return false;
+	try {
+		const data: unknown = await response.clone().json();
+		if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
+		const fields = data as Record<string, unknown>;
+		if (fields.code === 'invalid_api_key' || fields.error === 'invalid_api_key') return true;
+		return !!fields.error && typeof fields.error === 'object' && !Array.isArray(fields.error) && (fields.error as Record<string, unknown>).code === 'invalid_api_key';
+	} catch {
+		return false;
+	}
+}
+
 export default class Hidive implements ServiceClass {
 	public cfg: yamlCfg.ConfigObject;
 	private token: Record<string, any>;
@@ -124,7 +137,11 @@ export default class Hidive implements ServiceClass {
 		authType: 'refresh' | 'auth' | 'both' | 'other' | 'none' = 'none',
 		method: 'GET' | 'POST' = 'POST',
 		authHeader?: string
-	) {
+	): Promise<Awaited<ReturnType<reqModule.Req['getData']>> & { appKeyInvalid?: boolean }> {
+		if (typeof api.hd_new_apiKey !== 'string' || !api.hd_new_apiKey.trim()) {
+			console.error('An AniDL maintainer needs to update hd_new_apiKey.');
+			return { ok: false, appKeyInvalid: true };
+		}
 		const options = {
 			headers: {
 				'X-Api-Key': api.hd_new_apiKey,
@@ -156,20 +173,40 @@ export default class Hidive implements ServiceClass {
 			options.headers['Authorization'] = `Mixed ${this.token.authorisationToken} ${this.token.refreshToken}`;
 		}
 		if (this.debug) {
-			console.debug('[DEBUG] Request params:');
-			console.debug(options);
+			console.debug('[DEBUG] HIDIVE API request:', options.method);
 		}
 		const apiReqOpts: FetchParams = {
 			method: options.method,
 			headers: options.headers as Record<string, string>,
 			body: options.body as string,
-			useProxy: options.useProxy
+			useProxy: options.useProxy,
+			// The request headers, body and provider error text can contain credentials.
+			quietDebug: true
+		};
+		const reportFailure = async (result: Awaited<ReturnType<reqModule.Req['getData']>>) => {
+			const response = result.res ?? result.error?.res;
+			const invalidKey = await isExplicitApiKeyRejection(response);
+			if (invalidKey) {
+				console.error('An AniDL maintainer needs to update hd_new_apiKey.');
+			}
+			if (typeof response?.status === 'number' && Number.isInteger(response.status)) {
+				console.error(`HTTP status: ${response.status}`);
+			}
+			return invalidKey;
 		};
 		let apiReq = await this.req.getData(options.url, apiReqOpts);
 		if (!apiReq.ok || !apiReq.res) {
+			if (await reportFailure(apiReq)) {
+				console.error('API Request Failed!');
+				return { ok: false, res: apiReq.res, error: apiReq.error, appKeyInvalid: true };
+			}
 			if ((apiReq.error && apiReq.error.res?.status == 401) || (apiReq.res && apiReq.res.status == 401)) {
 				console.warn('Token expired, refreshing token and retrying.');
-				if (await this.refreshToken()) {
+				const refreshed = await this.refreshToken();
+				if (refreshed === 'invalid-api-key') {
+					return { ok: false, res: apiReq.res, error: apiReq.error, appKeyInvalid: true };
+				}
+				if (refreshed) {
 					if (authType == 'other') {
 						options.headers['Authorization'] = authHeader;
 					} else if (authType == 'auth') {
@@ -181,11 +218,13 @@ export default class Hidive implements ServiceClass {
 					}
 					apiReq = await this.req.getData(options.url, apiReqOpts);
 					if (!apiReq.ok || !apiReq.res) {
+						const appKeyInvalid = await reportFailure(apiReq);
 						console.error('API Request Failed!');
 						return {
 							ok: false,
 							res: apiReq.res,
-							error: apiReq.error
+							error: apiReq.error,
+							appKeyInvalid
 						};
 					}
 				} else {
@@ -213,7 +252,9 @@ export default class Hidive implements ServiceClass {
 
 	public async doAuth(data: AuthData): Promise<AuthResponse> {
 		if (!this.token.refreshToken || !this.token.authorisationToken) {
-			await this.doAnonymousAuth();
+			if ((await this.doAnonymousAuth()) === 'invalid-api-key') {
+				return { isOk: false, reason: new Error('Authentication failed') };
+			}
 		}
 		const authReq = await this.apiReq(
 			'/v2/login',
@@ -237,9 +278,10 @@ export default class Hidive implements ServiceClass {
 		return { isOk: true, value: undefined };
 	}
 
-	public async doAnonymousAuth() {
+	public async doAnonymousAuth(): Promise<boolean | 'invalid-api-key'> {
 		const authReq = await this.apiReq('/v2/login/guest/checkin');
 		if (!authReq.ok || !authReq.res) {
+			if (authReq.appKeyInvalid) return 'invalid-api-key';
 			console.error('Authentication failed!');
 			return false;
 		}
@@ -253,7 +295,7 @@ export default class Hidive implements ServiceClass {
 		return true;
 	}
 
-	public async refreshToken() {
+	public async refreshToken(): Promise<boolean | 'invalid-api-key'> {
 		if (!this.token.refreshToken || !this.token.authorisationToken) {
 			return await this.doAnonymousAuth();
 		} else {
@@ -265,6 +307,7 @@ export default class Hidive implements ServiceClass {
 				'auth'
 			);
 			if (!authReq.ok || !authReq.res) {
+				if (authReq.appKeyInvalid) return 'invalid-api-key';
 				console.error('Token refresh failed, reinitializing session...');
 				return this.initSession();
 			}

@@ -79,26 +79,39 @@ import { CrunchyVideoPlayStreams, CrunchyAudioPlayStreams } from './@types/enums
 import { randomUUID } from 'node:crypto';
 import { FetchParams } from './modules/module.fetch';
 import { CrunchyTokenInputError, parseCrunchyTokenInput } from './modules/module.crunchy-token';
-import { loginWithPhone, PHONE_CALLBACK_INVALID, PHONE_CLIENT_REQUIRED, refreshPhoneToken } from './modules/module.crunchy-phone-auth';
+import { loginWithPhone, PHONE_CALLBACK_INVALID, PHONE_CLIENT_REJECTED, PHONE_CLIENT_REQUIRED, refreshPhoneToken } from './modules/module.crunchy-phone-auth';
 import { crunchyCliAuthDecision, crunchyLoginInstruction } from './modules/module.crunchy-cli-auth';
 import { CrunchySession, CrunchySessionSlot, crunchySessionSlot } from './modules/module.crunchy-session-store';
 import {
 	requestDeviceToken,
 	validDeviceToken,
-	refreshCredentialsRejected,
 	getDeviceName,
 	DEVICE_TYPE,
 	DEVICE_USER_AGENT,
 	DEVICE_BETA_WARNING,
 	deviceAuthAttempt,
 	deviceFallbackEligible,
-	deviceErrorDetails
+	deviceErrorDetails,
+	classifyOAuthError,
+	validBasicClient,
+	CR_BASIC_REQUIRED,
+	CR_BASIC_REJECTED,
+	CR_WEB_BASIC_REQUIRED,
+	CR_WEB_BASIC_REJECTED
 } from './modules/module.crunchy-device-auth';
+
+const clientSettingsNotice = (error: unknown): string | undefined => {
+	const message = error && typeof error === 'object' && 'message' in error ? error.message : undefined;
+	return typeof message === 'string' &&
+		[PHONE_CLIENT_REQUIRED, PHONE_CLIENT_REJECTED, CR_BASIC_REQUIRED, CR_BASIC_REJECTED, CR_WEB_BASIC_REQUIRED, CR_WEB_BASIC_REJECTED].includes(message)
+		? message
+		: undefined;
+};
 
 type VideoEndpoint = keyof typeof CrunchyVideoPlayStreams;
 type PlaybackRole = 'Video' | 'Audio' | 'Subtitle metadata';
 type PlaybackAuthFailure = 'invalid' | 'unavailable' | 'account';
-type PlaybackSessionCheck = { session: CrunchySession } | { failure: PlaybackAuthFailure };
+type PlaybackSessionCheck = { session: CrunchySession } | { failure: PlaybackAuthFailure } | { clientSettingsNotice: string };
 const playbackSignIns = {
 	androidtv: { session: 'Android TV', command: '--device androidtv' },
 	android: { session: 'Android phone', command: '--device android' },
@@ -930,6 +943,10 @@ export default class Crunchy implements ServiceClass {
 		if (/^(etp_rt=)?[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(data.username.trim())) {
 			return (await this.loginWithToken(data.username)) ? { isOk: true, value: undefined } : { isOk: false, reason: new Error('Token Authentication failed') };
 		}
+		if (!validBasicClient(api.basic_auth_token)) {
+			console.error(CR_BASIC_REQUIRED);
+			return { isOk: false, reason: new Error(CR_BASIC_REQUIRED) };
+		}
 		const basic = atob(api.basic_auth_token);
 		const client = basic.split(':');
 
@@ -949,10 +966,15 @@ export default class Crunchy implements ServiceClass {
 			method: 'POST',
 			headers: { ...api.crunchyAuthHeader, 'ETP-Anonymous-ID': uuid },
 			body: authData,
-			useProxy: true
+			useProxy: true,
+			quietDebug: true
 		};
 		const authReq = await this.req.getData(api.auth, authReqOpts);
 		if (!authReq.ok || !authReq.res) {
+			if ((await classifyOAuthError(authReq.res)) === 'invalid_client') {
+				console.error(CR_BASIC_REJECTED);
+				return { isOk: false, reason: new Error(CR_BASIC_REJECTED) };
+			}
 			console.error('Authentication failed!');
 			if (authReq.res?.status === 400) {
 				console.warn(
@@ -984,6 +1006,10 @@ export default class Crunchy implements ServiceClass {
 	}
 
 	public async doAnonymousAuth(): Promise<boolean> {
+		if (!validBasicClient(api.basic_auth_token)) {
+			console.error(CR_BASIC_REQUIRED);
+			return false;
+		}
 		const basic = atob(api.basic_auth_token);
 		const client = basic.split(':');
 
@@ -1001,10 +1027,15 @@ export default class Crunchy implements ServiceClass {
 			method: 'POST',
 			headers: { ...api.crunchyAuthHeader, 'ETP-Anonymous-ID': uuid },
 			body: authData,
-			useProxy: true
+			useProxy: true,
+			quietDebug: true
 		};
 		const authReq = await this.req.getData(api.auth, authReqOpts);
 		if (!authReq.ok || !authReq.res) {
+			if ((await classifyOAuthError(authReq.res)) === 'invalid_client') {
+				console.error(CR_BASIC_REJECTED);
+				return false;
+			}
 			console.error('Anonymous Authentication failed!');
 			return false;
 		}
@@ -1054,9 +1085,15 @@ export default class Crunchy implements ServiceClass {
 		if (typeof session.refresh_token !== 'string' || !session.refresh_token.trim()) return { failure: 'invalid' };
 		if (this.sessionIsCurrent(session)) return { session };
 		let rejected = false;
-		const current = await this.refreshStoredSession(session, true, () => {
-			rejected = true;
-		}).catch(() => undefined);
+		let current: CrunchySession | undefined;
+		try {
+			current = await this.refreshStoredSession(session, true, () => {
+				rejected = true;
+			});
+		} catch (error) {
+			const notice = clientSettingsNotice(error);
+			if (notice) return { clientSettingsNotice: notice };
+		}
 		return current ? { session: current } : { failure: rejected ? 'invalid' : 'unavailable' };
 	}
 
@@ -1081,7 +1118,15 @@ export default class Crunchy implements ServiceClass {
 
 	private async refreshPlaybackOwner(auth: PlaybackAuth): Promise<boolean> {
 		if (!auth.session.refresh_token || auth.slot === 'legacy' || this.sessionIsCurrent(auth.session)) return true;
-		const refreshed = await this.refreshStoredSession(auth.session, true);
+		let refreshed: CrunchySession | undefined;
+		try {
+			refreshed = await this.refreshStoredSession(auth.session, true);
+		} catch (error) {
+			const notice = clientSettingsNotice(error);
+			if (!notice) throw error;
+			console.error(notice);
+			return false;
+		}
 		if (!refreshed) return false;
 		auth.session = refreshed;
 		return true;
@@ -1106,7 +1151,15 @@ export default class Crunchy implements ServiceClass {
 		const videoSlot = playbackSlot(videoEndpoint);
 		const audioSlot = playbackSlot(audioEndpoint);
 		const videoCheck = await this.checkPlaybackSession(videoSlot);
+		if ('clientSettingsNotice' in videoCheck) {
+			console.error(videoCheck.clientSettingsNotice);
+			return;
+		}
 		const audioCheck = videoSlot === audioSlot ? videoCheck : await this.checkPlaybackSession(audioSlot);
+		if ('clientSettingsNotice' in audioCheck) {
+			console.error(audioCheck.clientSettingsNotice);
+			return;
+		}
 		if ('failure' in videoCheck && (!options.novids || options.noaudio)) {
 			playbackAuthError(options.novids ? 'Subtitle metadata' : 'Video', videoEndpoint, videoCheck.failure);
 		}
@@ -1176,6 +1229,7 @@ export default class Crunchy implements ServiceClass {
 	}
 
 	private async requestWebToken(refreshToken: string, deviceId: string, errorMessage: string, onRejected?: () => void): Promise<Record<string, any> | undefined> {
+		if (!validBasicClient(api.web_basic_auth_token, true)) throw new Error(CR_WEB_BASIC_REQUIRED);
 		const authData = new URLSearchParams({
 			device_id: deviceId,
 			device_type: 'Firefox on Windows',
@@ -1190,8 +1244,10 @@ export default class Crunchy implements ServiceClass {
 		};
 		const authReq = await this.req.getData(api.auth, authReqOpts);
 		if (!authReq.ok || !authReq.res) {
+			const providerError = await classifyOAuthError(authReq.res);
+			if (providerError === 'invalid_client') throw new Error(CR_WEB_BASIC_REJECTED);
 			if (onRejected) {
-				if (await refreshCredentialsRejected(authReq.res)) onRejected();
+				if (providerError === 'invalid_grant' || providerError === 'invalid_refresh_token') onRejected();
 			} else {
 				console.error(errorMessage);
 				if (authReq.res?.status === 400) {
@@ -1248,8 +1304,8 @@ export default class Crunchy implements ServiceClass {
 			committed = true;
 			console.info(`Signed in with a Crunchyroll browser cookie (${source}). Session saved.`);
 			return true;
-		} catch {
-			console.error(`Token authentication failed (${source}).`);
+		} catch (error) {
+			console.error(clientSettingsNotice(error) ?? `Token authentication failed (${source}).`);
 			return false;
 		} finally {
 			if (!committed) {
@@ -1273,12 +1329,16 @@ export default class Crunchy implements ServiceClass {
 			console.info('Signed in with Android phone. Session saved.');
 			return true;
 		} catch (error) {
-			console.error(error instanceof Error && [PHONE_CLIENT_REQUIRED, PHONE_CALLBACK_INVALID].includes(error.message) ? error.message : 'Android phone sign-in failed.');
+			console.error(clientSettingsNotice(error) ?? (error instanceof Error && error.message === PHONE_CALLBACK_INVALID ? error.message : 'Android phone sign-in failed.'));
 			return false;
 		}
 	}
 
 	public async loginWithDevice(signal?: AbortSignal, dryRun = false): Promise<boolean> {
+		if (!validBasicClient(api.basic_auth_token)) {
+			console.error(CR_BASIC_REQUIRED);
+			return false;
+		}
 		const controller = new AbortController();
 		const cancel = () => controller.abort();
 		if (signal) {
@@ -1384,6 +1444,7 @@ export default class Crunchy implements ServiceClass {
 	private async requestRefreshedSession(previous: CrunchySession, onRejected?: () => void): Promise<CrunchySession | undefined> {
 		if (previous.auth_type === 'android') return refreshPhoneToken(this.req.getData.bind(this.req), previous, onRejected);
 		if (previous.auth_type === 'web') return this.requestWebToken(previous.refresh_token, previous.device_id || randomUUID(), 'Token Refresh Failed!', onRejected);
+		if (!validBasicClient(api.basic_auth_token)) throw new Error(CR_BASIC_REQUIRED);
 		if (this.debug && previous.auth_type !== 'device') console.debug(`[DEBUG] Refresh request: ${api.auth}`);
 		const client = atob(api.basic_auth_token).split(':');
 		const uuid = previous.device_id || randomUUID();
@@ -1405,7 +1466,8 @@ export default class Crunchy implements ServiceClass {
 				? { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'User-Agent': this.deviceUserAgent(previous) }
 				: { ...api.crunchyAuthHeader },
 			body,
-			useProxy: true
+			useProxy: true,
+			quietDebug: true
 		};
 		let primaryTimedOut = false;
 		let result;
@@ -1430,7 +1492,9 @@ export default class Crunchy implements ServiceClass {
 
 		if (this.debug) console.debug(`[DEBUG] Refresh response: ${result.res?.status ?? 'network error'}`);
 		if (!result.ok || !result.res) {
-			const rejected = await refreshCredentialsRejected(result.res);
+			const providerError = await classifyOAuthError(result.res);
+			if (providerError === 'invalid_client') throw new Error(CR_BASIC_REJECTED);
+			const rejected = providerError === 'invalid_grant' || providerError === 'invalid_refresh_token';
 			if (onRejected) {
 				if (rejected) onRejected();
 			} else {
@@ -1515,8 +1579,8 @@ export default class Crunchy implements ServiceClass {
 				if (!(await this.getProfile(silent))) return false;
 			} else console.info('USER: Anonymous');
 			return await this.getCMStoken();
-		} catch {
-			console.error('Authentication failed; retry later. Saved login was retained.');
+		} catch (error) {
+			console.error(clientSettingsNotice(error) ?? 'Authentication failed; retry later. Saved login was retained.');
 			return false;
 		}
 	}

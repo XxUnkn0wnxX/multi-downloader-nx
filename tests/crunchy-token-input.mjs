@@ -12,7 +12,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import ts from 'typescript';
 
-const { AbortController, AbortSignal, Response, setTimeout, clearTimeout, setInterval, clearInterval, atob } = globalThis;
+const { AbortController, AbortSignal, Response, TextDecoder, setTimeout, clearTimeout, setInterval, clearInterval, atob } = globalThis;
 const require = createRequire(import.meta.url);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'anidl-token-input-'));
@@ -44,6 +44,7 @@ try {
 				URLSearchParams,
 				Error,
 				AbortController,
+				TextDecoder,
 				setTimeout,
 				clearTimeout,
 				setInterval,
@@ -67,12 +68,23 @@ try {
 	const requireDeviceDeps = (id) => (id === './module.crunchy-cli-auth' ? cliAuth : require(id));
 	const deviceHelper = compile(path.join(root, 'modules/module.crunchy-device-auth.ts'), requireDeviceDeps);
 	const sessionStore = compile(path.join(root, 'modules/module.crunchy-session-store.ts'), (id) => require(id));
-	const phoneAuth = compile(path.join(root, 'modules/module.crunchy-phone-auth.ts'), (id) => {
-		if (id === './module.api-urls') return { domain: { cr_www: 'https://www.crunchyroll.com' } };
-		if (id === './module.crunchy-device-auth') return deviceHelper;
-		return require(id);
-	});
-	const crunchyPhoneAuth = { loginWithPhone: async () => undefined, PHONE_CALLBACK_INVALID: phoneAuth.PHONE_CALLBACK_INVALID };
+	const phoneAuth = compile(
+		path.join(root, 'modules/module.crunchy-phone-auth.ts'),
+		(id) => {
+			if (id === './module.api-urls')
+				return { domain: { cr_www: 'https://www.crunchyroll.com' }, api: { phone_client_id: 'fixture-id', phone_client_secret: 'fixture-secret' } };
+			if (id === './module.crunchy-device-auth') return deviceHelper;
+			return require(id);
+		},
+		{ Buffer, AbortSignal }
+	);
+	const crunchyPhoneAuth = {
+		loginWithPhone: async () => undefined,
+		refreshPhoneToken: phoneAuth.refreshPhoneToken,
+		PHONE_CALLBACK_INVALID: phoneAuth.PHONE_CALLBACK_INVALID,
+		PHONE_CLIENT_REQUIRED: phoneAuth.PHONE_CLIENT_REQUIRED,
+		PHONE_CLIENT_REJECTED: phoneAuth.PHONE_CLIENT_REJECTED
+	};
 	const forkDisplay = compile(path.join(root, 'modules/module.fork-display.ts'), (id) => require(id));
 	const same = (actual, expected) => assert.deepEqual(JSON.parse(JSON.stringify(actual)), expected);
 	const sourceError = (input, source, fragment) => {
@@ -123,7 +135,15 @@ try {
 
 	const logs = [];
 	const fakeConsole = Object.fromEntries(['info', 'warn', 'error', 'debug'].map((method) => [method, (...args) => logs.push([method, args.map(String).join(' ')])]));
-	const api = { auth: 'auth', profile: 'profile', cms_auth: 'cms', crunchyWebAuthHeader: {}, crunchyDefHeader: {} };
+	const api = {
+		auth: 'auth',
+		profile: 'profile',
+		cms_auth: 'cms',
+		crunchyWebAuthHeader: {},
+		crunchyDefHeader: {},
+		basic_auth_token: Buffer.from('fixture-client:fixture-secret').toString('base64'),
+		web_basic_auth_token: Buffer.from('fixture-web:').toString('base64')
+	};
 	const saved = [];
 	const openedActivationUrls = [];
 	let helperPrompts = 0;
@@ -1142,23 +1162,9 @@ try {
 
 	await test('device refresh distinguishes explicit rejection from transient and malformed responses', async () => {
 		for (const [response, expected] of [
-			[
-				{ ok: false, res: { status: 400, json: async () => ({ error: 'invalid_grant' }) } },
-				'Keep your Crunchyroll command and replace its options with:\n  --device androidtv'
-			],
-			[{ ok: false, res: { status: 503, json: async () => ({ error: 'invalid_grant' }) } }, 'retry later'],
-			[
-				{
-					ok: false,
-					res: {
-						status: 400,
-						json: async () => {
-							throw new Error('HTML');
-						}
-					}
-				},
-				'retry later'
-			]
+			[{ ok: false, res: Response.json({ error: 'invalid_grant' }, { status: 400 }) }, 'Keep your Crunchyroll command and replace its options with:\n  --device androidtv'],
+			[{ ok: false, res: Response.json({ error: 'invalid_grant' }, { status: 503 }) }, 'retry later'],
+			[{ ok: false, res: new Response('<html>challenge</html>', { status: 400 }) }, 'retry later']
 		]) {
 			logs.length = 0;
 			const { service } = makeService({});
@@ -1227,6 +1233,35 @@ try {
 				assert.match(errors[index], new RegExp(`${role} endpoint "androidtv"`));
 				assert.match(errors[index], expected instanceof RegExp ? expected : new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 			}
+		}
+	});
+	await test('CLI playback and refresh consumers stop on client-setting errors without retry or sign-in advice', async () => {
+		const config = stubs['./modules/module.cfg-loader'];
+		const originalLoad = config.loadCRSessions;
+		const tv = { auth_type: 'device', account_id: 'fixture-account', device_id: 'tv-device', access_token: 'expired', refresh_token: 'fixture-refresh', expires: 0 };
+		const web = { auth_type: 'web', account_id: 'fixture-account', device_id: 'web-device', access_token: 'expired', refresh_token: 'fixture-refresh', expires: 0 };
+		try {
+			for (const role of ['video', 'audio', 'owner', 'regular']) {
+				const active = role === 'audio' ? { ...tv, expires: new Date(Date.now() + 60000) } : tv;
+				config.loadCRSessions = () => ({ sessions: { androidtv: active, web } });
+				const { service } = makeService({});
+				service.token = active;
+				service.req.getData = async () => ({ ok: false, res: Response.json({ error: 'invalid_client', error_description: 'fixture-secret' }, { status: 401 }) });
+				logs.length = 0;
+				if (role === 'owner') assert.equal(await service.refreshPlaybackOwner({ session: tv, slot: 'androidtv' }), false);
+				else if (role === 'regular') assert.equal(await service.refreshToken(), false);
+				else {
+					parsedArgv = { e: 'EPISODE01', vstream: 'androidtv', astream: role === 'audio' ? 'chrome' : 'androidtv', dubLang: ['eng'] };
+					assert.equal(await service.cli(), false);
+				}
+				const errors = logs.filter(([level]) => level === 'error').map(([, message]) => message);
+				assert.equal(errors.length, 1, `${role}: ${JSON.stringify(errors)}`);
+				assert(errors[0].includes(role === 'audio' ? 'web_basic_auth_token' : 'basic_auth_token'));
+				assert(!/retry later|sign in again|sign in first|fixture-secret/i.test(errors[0]));
+				assert.equal(service.token, active);
+			}
+		} finally {
+			config.loadCRSessions = originalLoad;
 		}
 	});
 	await test('GUI failures stop requests and always finish download state', async () => {
@@ -1491,7 +1526,11 @@ try {
 			assert.equal(phoneAuth.parsePhoneCallback(invalid, 'fixture'), undefined);
 		assert.equal(phoneAuth.parsePhoneCallback(url.href, 'different state'), undefined);
 	});
-	function makePhoneFlow(callbackHost = 'sso.crunchyroll.com', code = 'fixture-hidden-code') {
+	function makePhoneFlow(
+		callbackHost = 'sso.crunchyroll.com',
+		code = 'fixture-hidden-code',
+		phoneSettings = { phone_client_id: 'fixture-id', phone_client_secret: 'fixture-secret' }
+	) {
 		let outputText = '';
 		let launched;
 		let openAttempts = 0;
@@ -1512,7 +1551,7 @@ try {
 				if (id === './module.api-urls')
 					return {
 						domain: { cr_www: 'https://www.crunchyroll.com' },
-						api: { phone_client_id: 'fixture-id', phone_client_secret: 'fixture-secret' }
+						api: phoneSettings
 					};
 				if (id === './module.crunchy-device-auth') return deviceHelper;
 				if (id === 'node:readline') {
@@ -1555,6 +1594,65 @@ try {
 			}
 		};
 	}
+	await test('Android phone auth reports invalid client configuration and provider rejection without exposing credentials', async () => {
+		const settingsNotice =
+			'This build has missing or invalid Android phone sign-in settings (phone_client_id and phone_client_secret). An AniDL maintainer needs to update them.';
+		const rejectedNotice =
+			'Crunchyroll rejected this build’s Android phone sign-in settings (phone_client_id and phone_client_secret). An AniDL maintainer needs to update them.';
+		const malformed = makePhoneFlow('sso.crunchyroll.com', 'fixture-hidden-code', { phone_client_id: 'bad id', phone_client_secret: 'fixture-secret' });
+		await assert.rejects(
+			malformed.flow.loginWithPhone(async () => assert.fail('malformed settings must not request a token'), true),
+			(error) => error.message === settingsNotice
+		);
+		const session = {
+			refresh_token: 'fixture-refresh',
+			account_id: 'fixture-account',
+			device_id: 'fixture-device',
+			device_name: 'Fixture Phone',
+			device_type: 'Android Phone'
+		};
+		for (const status of [400, 401]) {
+			const fixture = makePhoneFlow();
+			let rejected = false;
+			await assert.rejects(
+				fixture.flow.refreshPhoneToken(
+					async () => ({ ok: false, res: Response.json({ error: 'invalid_client' }, { status }) }),
+					session,
+					() => (rejected = true)
+				),
+				(error) => error.message === rejectedNotice
+			);
+			assert.equal(rejected, false);
+		}
+		const other = makePhoneFlow();
+		let rejected = false;
+		assert.equal(
+			await other.flow.refreshPhoneToken(
+				async () => ({ ok: false, res: new Response('<html>challenge</html>', { status: 401 }) }),
+				session,
+				() => (rejected = true)
+			),
+			undefined
+		);
+		assert.equal(rejected, false);
+		const invalidGrant = makePhoneFlow();
+		assert.equal(
+			await invalidGrant.flow.refreshPhoneToken(
+				async () => ({ ok: false, res: Response.json({ error: 'invalid_grant' }, { status: 400 }) }),
+				session,
+				() => (rejected = true)
+			),
+			undefined
+		);
+		assert.equal(rejected, true);
+		const success = makePhoneFlow();
+		const refreshed = await success.flow.refreshPhoneToken(async (_url, options) => {
+			assert.equal(options.body.get('refresh_token'), 'fixture-refresh');
+			return { ok: true, res: Response.json({ access_token: 'fixture-access', refresh_token: 'fixture-new-refresh', expires_in: 60, account_id: 'fixture-account' }) };
+		}, session);
+		assert.equal(refreshed.refresh_token, 'fixture-new-refresh');
+		assert.equal(refreshed.auth_type, 'android');
+	});
 	await test('Android CLI browser flow prints its launch URL and keeps the pasted callback hidden', async () => {
 		let requests = 0;
 		const phoneFixture = makePhoneFlow();
@@ -1657,6 +1755,117 @@ try {
 			assert(logs.some(([kind, line]) => kind === 'error' && /failed or was cancelled/i.test(line)));
 		} finally {
 			crunchyPhoneAuth.loginWithPhone = previousPhoneLogin;
+		}
+	});
+	await test('Android phone CLI surfaces maintainer notices for rejected sign-in and refresh while retaining saved sessions', async () => {
+		const previousPhoneLogin = crunchyPhoneAuth.loginWithPhone;
+		const previousArgv = parsedArgv;
+		const previousExitCode = process.exitCode;
+		const phoneFixture = makePhoneFlow('sso.crunchyroll.com', 'fixture-sign-in-code');
+		crunchyPhoneAuth.loginWithPhone = phoneFixture.flow.loginWithPhone;
+		const { service } = makeService({});
+		const prior = {
+			auth_type: 'android',
+			refresh_token: 'fixture-saved-refresh',
+			account_id: 'fixture-account',
+			device_id: 'fixture-device',
+			device_name: 'Fixture Phone',
+			device_type: 'Android Phone'
+		};
+		service.token = prior;
+		parsedArgv = { service: 'crunchy', device: 'android' };
+		process.exitCode = undefined;
+		logs.length = 0;
+		const savedBefore = saved.length;
+		try {
+			service.req.getData = async () => ({ ok: false, res: Response.json({ error: 'invalid_client' }, { status: 401 }) });
+			assert.equal(await service.loginWithAndroidPhone(), false);
+			assert(
+				logs.some(([kind, line]) => kind === 'error' && line.includes('phone_client_id and phone_client_secret')),
+				JSON.stringify(logs)
+			);
+			assert.equal(saved.length, savedBefore);
+			assert.equal(service.token, prior);
+			logs.length = 0;
+			assert.equal(await service.refreshToken(), false);
+			assert(
+				logs.some(([kind, line]) => kind === 'error' && line.includes('phone_client_id and phone_client_secret')),
+				JSON.stringify(logs)
+			);
+			assert(!logs.some(([, line]) => /sign in again|cancelled/i.test(line)));
+			assert.equal(saved.length, savedBefore);
+			assert.equal(service.token, prior);
+			assert(!logs.some(([, line]) => line.includes('fixture-secret') || line.includes('fixture-sign-in-code')));
+		} finally {
+			crunchyPhoneAuth.loginWithPhone = previousPhoneLogin;
+			parsedArgv = previousArgv;
+			process.exitCode = previousExitCode;
+		}
+	});
+	await test('TV, native and web client notices survive sign-in and quiet playback refresh without exposing inputs', async () => {
+		const savedBefore = saved.length;
+		for (const status of [400, 401]) {
+			for (const route of ['native', 'anonymous', 'web', 'tv-refresh', 'native-refresh', 'web-refresh', 'phone-refresh']) {
+				logs.length = 0;
+				const { service } = makeService({});
+				const requests = [];
+				service.req.getData = async (_url, options) => {
+					requests.push(options);
+					return { ok: false, res: Response.json({ error: 'invalid_client', error_description: 'fixture-provider-echo' }, { status }) };
+				};
+				const authType = route === 'tv-refresh' ? 'device' : route === 'web-refresh' ? 'web' : route === 'phone-refresh' ? 'android' : '';
+				const prior = {
+					auth_type: authType,
+					refresh_token: 'fixture-refresh',
+					account_id: 'fixture-account',
+					device_id: 'fixture-device',
+					device_name: 'fixture-device-name',
+					device_type: 'fixture-type',
+					expires: 0
+				};
+				service.token = prior;
+				if (route === 'native') assert.equal((await service.doAuth({ username: 'fixture-user', password: 'fixture-password' })).isOk, false);
+				else if (route === 'anonymous') assert.equal(await service.doAnonymousAuth(), false);
+				else if (route === 'web') assert.equal(await service.loginWithToken(fakeToken), false);
+				else if (route === 'native-refresh') assert.equal(await service.refreshToken(), false);
+				else {
+					const slot = route === 'tv-refresh' ? 'androidtv' : route === 'web-refresh' ? 'web' : 'android';
+					assert((await service.checkPlaybackSession(slot)).clientSettingsNotice);
+				}
+				const setting = route.startsWith('web') ? 'web_basic_auth_token' : route === 'phone-refresh' ? 'phone_client_id and phone_client_secret' : 'basic_auth_token';
+				if (route.endsWith('-refresh') && route !== 'native-refresh') assert(!logs.some(([kind]) => kind === 'error'));
+				else
+					assert(
+						logs.some(([kind, line]) => kind === 'error' && line.includes(setting)),
+						`${route} ${status}: ${JSON.stringify(logs)}`
+					);
+				assert(!logs.some(([, line]) => /fixture-provider-echo|fixture-password|fixture-refresh|sign in again|likely wrong/i.test(line)));
+				assert(requests.every((options) => options.quietDebug === true));
+				assert.equal(service.token, prior);
+				assert.equal(saved.length, savedBefore);
+			}
+		}
+	});
+	await test('missing client settings stop before requests and preserve intentional empty web secret', async () => {
+		for (const [setting, route] of [
+			['basic_auth_token', 'tv'],
+			['basic_auth_token', 'native'],
+			['web_basic_auth_token', 'web']
+		]) {
+			const previous = api[setting];
+			api[setting] = 'malformed!';
+			const { service, calls } = makeService({});
+			logs.length = 0;
+			try {
+				if (route === 'tv') assert.equal(await service.loginWithDevice(), false);
+				else if (route === 'native') assert.equal(await service.doAnonymousAuth(), false);
+				else assert.equal(await service.loginWithToken(fakeToken), false);
+				assert.equal(calls.length, 0);
+				assert(logs.some(([, line]) => line.includes(setting)));
+				assert(!logs.some(([, line]) => line.includes('malformed!')));
+			} finally {
+				api[setting] = previous;
+			}
 		}
 	});
 	await test('a malformed phone callback is rejected before token exchange without echoing it', async () => {
