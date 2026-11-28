@@ -43,7 +43,11 @@ const base = {
 const selected = { sha, testedSha: sha, testsRunId: 101, testsAttempt: 2 };
 assert.deepEqual(eligibleEvent(base, repo), selected);
 const changed = (part, values) => ({ ...base, [part]: { ...base[part], ...values } });
-assert.deepEqual(eligibleEvent(changed('workflow_run', { event: 'workflow_dispatch' }), repo), selected);
+assert.deepEqual(eligibleEvent(changed('workflow_run', { event: 'workflow_dispatch', display_title: 'Tests' }), repo), selected);
+assert.equal(eligibleEvent(changed('workflow_run', { event: 'workflow_dispatch', display_title: 'Control build · windows-x64' }), repo), null);
+assert.equal(eligibleEvent(changed('workflow_run', { event: 'workflow_dispatch' }), repo), null);
+assert.equal(eligibleEvent(changed('workflow_run', { event: 'workflow_dispatch', display_title: '' }), repo), null);
+assert.deepEqual(eligibleEvent(changed('workflow_run', { event: 'push', display_title: 'Control build · windows-x64' }), repo), selected);
 for (const event of [
 	{ ...base, action: 'requested' },
 	changed('repository', { full_name: 'other/repository' }),
@@ -143,6 +147,14 @@ const proofApi =
 		throw new Error(`Unexpected request ${method} ${endpoint}`);
 	};
 assert.deepEqual(await latestApplicableProof(repo, sha, proofApi([run])), selected);
+const controlBuild = { ...run, id: 102, event: 'workflow_dispatch', display_title: 'Control build · windows-x64', run_started_at: '2026-01-02T00:00:00Z' };
+assert.deepEqual(await latestApplicableProof(repo, sha, proofApi([run, controlBuild])), selected);
+assert.deepEqual(await latestApplicableProof(repo, sha, proofApi([run, { ...controlBuild, display_title: undefined }])), selected);
+await assert.rejects(latestApplicableProof(repo, sha, proofApi([controlBuild])), /No successful/);
+await assert.rejects(
+	latestApplicableProof(repo, sha, proofApi([run], { '/repos/owner/repository/actions/runs/101': { ...run, display_title: 'Control build · windows-x64' } })),
+	/changed during proof/
+);
 assert.deepEqual(await latestApplicableProof(repo, otherSha, proofApi([run])), { ...selected, sha: otherSha });
 const laterFailedRerun = { ...run, id: 100, run_attempt: 3, run_started_at: '2026-01-02T00:00:00Z', conclusion: 'failure' };
 await assert.rejects(latestApplicableProof(repo, sha, proofApi([run, laterFailedRerun])), /did not succeed/);

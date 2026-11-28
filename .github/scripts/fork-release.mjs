@@ -14,6 +14,8 @@ const platforms = ['windows', 'macos', 'linux', 'alpine'];
 const architectures = ['x64', 'arm64'];
 const shaPattern = /^[0-9a-f]{40}$/;
 const positiveInteger = (value) => Number.isSafeInteger(value) && value > 0;
+const isNonReleaseDispatch = (run) =>
+	run?.event === 'workflow_dispatch' && (typeof run.display_title !== 'string' || !run.display_title || run.display_title.startsWith('Control build · '));
 
 export function eligibleEvent(event, repository) {
 	const run = event?.workflow_run;
@@ -28,6 +30,7 @@ export function eligibleEvent(event, repository) {
 		run?.status !== 'completed' ||
 		run?.conclusion !== 'success' ||
 		!['push', 'workflow_dispatch'].includes(run?.event) ||
+		isNonReleaseDispatch(run) ||
 		run?.head_branch !== 'main' ||
 		run?.head_repository?.full_name !== repository ||
 		run?.repository?.full_name !== repository ||
@@ -85,6 +88,7 @@ function relevantRun(run, workflowId, repository) {
 		run?.workflow_id === workflowId &&
 		run.head_branch === 'main' &&
 		['push', 'workflow_dispatch'].includes(run.event) &&
+		!isNonReleaseDispatch(run) &&
 		run.repository?.full_name === repository &&
 		run.head_repository?.full_name === repository &&
 		shaPattern.test(run.head_sha ?? '') &&
@@ -119,6 +123,7 @@ function historySnapshot(runs) {
 				head_sha: run.head_sha,
 				head_branch: run.head_branch,
 				event: run.event,
+				display_title: run.display_title,
 				repository: run.repository?.full_name,
 				head_repository: run.head_repository?.full_name,
 				run_attempt: run.run_attempt,

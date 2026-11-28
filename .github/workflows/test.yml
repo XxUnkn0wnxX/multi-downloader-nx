@@ -1,4 +1,5 @@
 name: Tests
+run-name: ${{ github.event_name == 'workflow_dispatch' && (inputs.cli_target && inputs.cli_target != 'none' && format('Control build · {0}', inputs.cli_target) || 'Tests') || '' }}
 
 on:
     push:
@@ -8,6 +9,21 @@ on:
         branches: [develop, main]
         paths-ignore: ['**/*.md', 'docs/**', 'tools/**']
     workflow_dispatch:
+        inputs:
+            cli_target:
+                description: Optional CLI package
+                type: choice
+                default: none
+                options:
+                    - none
+                    - windows-x64
+                    - windows-arm64
+                    - macos-x64
+                    - macos-arm64
+                    - linux-x64
+                    - linux-arm64
+                    - alpine-x64
+                    - alpine-arm64
 
 permissions:
     contents: read
@@ -95,3 +111,59 @@ jobs:
                   git ls-files -z -- 'tests/*.mjs' | while IFS= read -r -d '' test_file; do
                       node "$test_file"
                   done
+
+    cli-preview:
+        name: CLI artifact (${{ inputs.cli_target }})
+        needs: [tsc, node22, eslint, prettier]
+        if: github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') && inputs.cli_target != 'none'
+        runs-on: ${{ endsWith(inputs.cli_target, '-arm64') && 'macos-latest' || 'ubuntu-latest' }}
+        timeout-minutes: 30
+        env:
+            CLI_TARGET: ${{ inputs.cli_target }}
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  persist-credentials: false
+            - uses: pnpm/action-setup@v5
+              with:
+                  version: latest
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: 24
+                  cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
+            - name: Restore verified packager runtimes
+              uses: actions/cache/restore@v6
+              with:
+                  path: ~/.pkg-cache/**/fetched-*
+                  key: fork-cli-runtime-v2-${{ runner.os }}-${{ endsWith(inputs.cli_target, '-arm64') && 'arm64' || 'x64' }}-windows-macos-linuxstatic-alpine-${{ hashFiles('pnpm-lock.yaml', 'modules/build.ts') }}
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm run prebuild-cli
+            - name: Package selected CLI
+              working-directory: lib
+              shell: bash
+              run: |
+                  case "$CLI_TARGET" in
+                      linux-x64|linux-arm64) target="linuxstatic-${CLI_TARGET#linux-}" ;;
+                      windows-x64|windows-arm64|macos-x64|macos-arm64|alpine-x64|alpine-arm64) target="$CLI_TARGET" ;;
+                      *) exit 1 ;;
+                  esac
+                  node modules/build "$target"
+            - name: Verify archive and checksum
+              working-directory: lib/_builds
+              shell: bash
+              run: |
+                  archive="multi-downloader-nx-${CLI_TARGET}-cli.7z"
+                  read -r digest filename < "$archive.sha256"
+                  test "$filename" = "$archive"
+                  printf '%s  %s\n' "$digest" "$filename" | shasum -a 256 -c -
+                  7z t "$archive"
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: aniDL-${{ inputs.cli_target }}-${{ github.sha }}
+                  path: |
+                      lib/_builds/multi-downloader-nx-${{ inputs.cli_target }}-cli.7z
+                      lib/_builds/multi-downloader-nx-${{ inputs.cli_target }}-cli.7z.sha256
+                  if-no-files-found: error
+                  retention-days: 14
+                  compression-level: 0
