@@ -2,6 +2,12 @@
 
 Changes specific to this fork are grouped below with their implementation commits. See [Fork changes](fork-changes.md) for current differences, the [developer guide](DEVELOPMENT.md) for maintenance, or the [README](README.md) for usage.
 
+## Unreleased
+
+### Nightly Rev8 — Bundled Android phone sign-in
+
+- Bundle the Android phone sign-in settings with AniDL. Start phone sign-in with `--service crunchy --device android` **(Crunchyroll only)** and complete the browser prompts. [Android phone sign-in](AUTHENTICATION.md#android-phone-or-tablet)
+
 ## 2026-11-28
 
 ### Nightly Rev7 — Crunchyroll CLI sign-in

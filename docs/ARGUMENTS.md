@@ -1,4 +1,4 @@
-# multi-downloader-nx v5.8.8 (Nightly) [Rev7]
+# multi-downloader-nx v5.8.8 (Nightly) [Rev8]
 
 [🚀 Getting started](GET-STARTED.md) · [🔑 Sign in to a service](AUTHENTICATION.md) · [Report an issue](https://github.com/XxUnkn0wnxX/multi-downloader-nx/issues)
 
