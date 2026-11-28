@@ -4,12 +4,12 @@ Changes specific to this fork are grouped below with their implementation commit
 
 ## Unreleased
 
-### Nightly Rev8 — Phone sign-in and subtitle fonts
+### Nightly Rev8 — Sign-in and subtitle fonts
 
-- Android phone sign-in and refresh now use the settings bundled with AniDL. Run the same `--service crunchy --device android` command **(Crunchyroll only)**, complete sign-in in your browser, then paste the final address into the terminal. [Sign-in guide](AUTHENTICATION.md#android-phone-or-tablet) · [Phone settings change](https://github.com/XxUnkn0wnxX/multi-downloader-nx/commit/35786611e712c0ecb1cf30dcea648abe268bcba7)
+- Android phone sign-in and refresh now use bundled settings. The command is still `--service crunchy --device android` **(Crunchyroll only)**. [Sign-in guide](AUTHENTICATION.md#android-phone-or-tablet) · [Phone settings change](https://github.com/XxUnkn0wnxX/multi-downloader-nx/commit/35786611e712c0ecb1cf30dcea648abe268bcba7)
 - If Crunchyroll or HIDIVE explicitly rejects a bundled app setting, AniDL names the setting a maintainer needs to update and keeps the saved login. [Warning guide](DEVELOPMENT.md#bundled-sign-in-settings) · [Sign-in diagnostics](https://github.com/XxUnkn0wnxX/multi-downloader-nx/commit/ca1b2057285eb280f37f07c9045d005d06ba0470)
-- The CLI archive now includes 31 subtitle fonts and their license notices in `fonts/`, replacing the loose `NotoSans-Regular.ttf` beside the executable. [Bundled fonts](../fonts/README.md) · [Font packaging change](https://github.com/XxUnkn0wnxX/multi-downloader-nx/commit/dd108d5a77123aea17352b3e42e0a1adc8d845b3)
-- When saving a Crunchyroll MKV, AniDL tries to fetch missing catalog fonts referenced by the selected ASS subtitles. It lists any unavailable fonts and continues muxing.
+- HIDIVE now stops after two session recovery attempts if the service keeps returning HTTP 401. [Retry behavior](fork-changes.md#hidive-session-recovery)
+- The CLI now ships 31 subtitle fonts and their licenses in `fonts/`, replacing the loose `NotoSans-Regular.ttf`. For Crunchyroll MKVs, AniDL fetches missing catalog fonts used by selected ASS subtitles, lists any unavailable fonts and continues. [Bundled fonts](../fonts/README.md) · [Font packaging change](https://github.com/XxUnkn0wnxX/multi-downloader-nx/commit/dd108d5a77123aea17352b3e42e0a1adc8d845b3)
 
 ## 2026-11-28
 

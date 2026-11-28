@@ -35,7 +35,9 @@ https://sso.crunchyroll.com/android/oauth-callback?code=EXAMPLE_CODE&state=ENCOD
 - **Browser and terminal.** A **404 at this callback is harmless**. Copy the entire address from the browser’s address bar, paste once and press Enter. The terminal hides the paste because the address contains a private sign-in code.
 - **Exchange.** AniDL sends the code and the verifier from that same attempt to the provider. An address can pass the local checks and still contain an expired or fabricated code. A failed exchange leaves the saved session intact. The phone flow requires a usable access token, refresh token, positive expiry and an account ID before saving.
 
-If AniDL names `phone_client_id` and `phone_client_secret`, check the bundled settings for that build. The warning covers missing or malformed settings and an explicit `invalid_client` response during sign-in or refresh. An expired sign-in code needs a fresh browser attempt. If the terminal rejects the address as soon as it is pasted, check its origin, path and query field names against the example above. Report only the setting names and the stage that failed. [Bundled sign-in settings](DEVELOPMENT.md#bundled-sign-in-settings) · [Phone flow and callback parser](../modules/module.crunchy-phone-auth.ts)
+- If the terminal **rejects the pasted address**, check the origin, path and query fields against the example above. [Callback parser](../modules/module.crunchy-phone-auth.ts)
+- If the **code has expired**, start a fresh browser sign-in.
+- For an **app settings warning**, check `phone_client_id` and `phone_client_secret` for missing or malformed values, or an explicit `invalid_client` response during sign-in or refresh. Report only the setting names and the stage that failed. [Bundled sign-in settings](DEVELOPMENT.md#bundled-sign-in-settings)
 
 ## Android TV approval
 

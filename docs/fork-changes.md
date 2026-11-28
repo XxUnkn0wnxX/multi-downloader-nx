@@ -76,6 +76,10 @@ Keep `esbuild` at `0.26.0` throughout this fork, including root, GUI, and genera
 
 The root and GUI workspace overrides pin transitive `proxy-addr` to `2.0.8` for [GHSA-jqcg-44mw-7w3h](https://github.com/advisories/GHSA-jqcg-44mw-7w3h). The GUI override also pins `shell-quote` to `1.11.0` for [GHSA-pqg4-j6r4-53mv](https://github.com/advisories/GHSA-pqg4-j6r4-53mv). Express and `launch-editor` already allow these patched versions, so their direct dependency versions remain unchanged. Keep both lockfiles consistent with the overrides. Remove an override only after verifying that the relevant dependency chain resolves to a patched version without it.
 
+### HIDIVE session recovery
+
+After a HIDIVE 401, AniDL tries to renew the session immediately. If renewal or replay returns another 401, it waits one second and tries once more. Each request has its own limit. An explicit API-key rejection stops immediately. [Sign-in settings](DEVELOPMENT.md#bundled-sign-in-settings)
+
 ### Accept Crunchyroll cookies exports for `--token`
 
 The CLI opens global help with no arguments or with `--help` alone. Use `--debug` alone or with global `--help` to show the local version and platform. For service commands, put `--service crunchy`, `--service hidive` or `--service adn` first and specify the service only once. Global help lists options common to all three services. Service help adds the options available on the selected service, including options shared with one other service. Unsupported explicit options fail before dispatch. Shared configuration files and previously accepted compatibility options retain their existing handling. Crunchyroll device and cookie sign-in appear in `--service crunchy --help`. Once Crunchyroll is selected, its sign-in notices show which options to replace in the current command. Complete examples use `anidl` for source runs and from outside the executable’s folder. On HIDIVE and ADN, `--auth` still prompts for a username or email and password.

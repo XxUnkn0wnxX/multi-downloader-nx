@@ -43,9 +43,11 @@ pnpm run prettier
 
 On pushes and pull requests targeting `develop` or `main`, **Tests** runs every tracked `tests/*.mjs` suite serially on both Node 22 and Node 24. Node 22 covers the runtime used by the macOS CLI. Node 24 also checks types, lint, formatting and the generated CLI reference. Automatic runs skip changes confined to Markdown, `docs/` or `tools/`. A change that also touches application code, dependencies, build configuration or workflows runs the usual checks. Tests for standalone maintenance utilities run locally. [Tests workflow](../.github/workflows/test.yml)
 
-For a control build, open **Actions → Tests → Run workflow**. Choose `develop` or `main`, then pick one target under **Optional CLI package**, such as `windows-x64`. All tests run first. Once they pass, open the completed run and download its ZIP under **Artifacts** within 14 days. Extract the ZIP, then the `.7z` inside. A control build publishes no release. [Tests on GitHub](https://github.com/XxUnkn0wnxX/multi-downloader-nx/actions/workflows/test.yml)
+For a control build, open **Actions → Tests → Run workflow**, select `develop` or `main`, and pick one **Optional CLI package**. After the tests pass, download the ZIP under **Artifacts** within 14 days. Extract the ZIP, then the `.7z` inside. [Tests on GitHub](https://github.com/XxUnkn0wnxX/multi-downloader-nx/actions/workflows/test.yml)
 
-Leave **Optional CLI package** set to `none` for an ordinary manual Tests run. On `main`, a passing ordinary run can trigger [Nightly publication](#publish-a-nightly-release).
+GitHub requires sign-in to download an Actions artifact. For a public run, testers can replace `github.com` in the run URL with `nightly.link` to download it without an account. [GitHub artifact access](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts) · [nightly.link](https://nightly.link/)
+
+Leave **Optional CLI package** at `none` for tests only. A passing ordinary run on `main` can trigger [Nightly publication](#publish-a-nightly-release).
 
 To request the Windows x64 package with the GitHub CLI, run this command.
 
@@ -55,7 +57,7 @@ gh workflow run test.yml --repo XxUnkn0wnxX/multi-downloader-nx --ref develop -f
 
 ### Bundled sign-in settings
 
-If AniDL says a maintainer needs to update a setting, first check which service and sign-in method failed. These names refer to settings shipped with the build.
+Match the setting named in the warning to the sign-in method.
 
 | Sign-in method | Setting named in the warning |
 | --- | --- |
@@ -64,7 +66,7 @@ If AniDL says a maintainer needs to update a setting, first check which service 
 | Crunchyroll browser cookie | `web_basic_auth_token` |
 | HIDIVE API | `hd_new_apiKey` |
 
-Crunchyroll can explicitly reject its app client with `invalid_client`. HIDIVE can identify an API-key failure with `invalid_api_key`. An HTTP 401 alone also occurs with an expired account login and does not establish an app-setting failure. When reporting a problem, include the service, setting names and stage that failed. Keep all values private. [Crunchyroll sign-in maintenance notes](CRUNCHYROLL-AUTH.md)
+Crunchyroll reports `invalid_client` for a rejected app client. HIDIVE can report `invalid_api_key`. A plain HTTP 401 can also mean an expired login. Report the service, setting names and stage that failed. Keep the values private. [Crunchyroll sign-in maintenance notes](CRUNCHYROLL-AUTH.md)
 
 ## Update the CLI docs
 

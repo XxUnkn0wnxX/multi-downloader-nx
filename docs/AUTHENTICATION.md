@@ -44,9 +44,7 @@ aniDL.exe --service crunchy --device androidtv
 
 ### Android phone or tablet
 
-Use `--device android` **(Crunchyroll only)** for phone or tablet video or audio. Starting with Rev8, AniDL includes the app settings for phone sign-in and automatically uses them when refreshing a saved phone login.
-
-If AniDL says a maintainer needs to update the phone settings, check for a newer build. You can also use [Android TV](#android-tv) or [a browser cookie](#browser-cookie) with the [matching single-login commands](GET-STARTED.md#if-you-signed-in-with-one-method). If you report the warning, include only the setting names shown.
+Use `--device android` **(Crunchyroll only)** for phone or tablet streams. From Rev8 onward, AniDL includes the settings it needs to sign in and renew this login.
 
 <details>
 <summary>🪟 Windows — Command Prompt</summary>
@@ -74,6 +72,8 @@ aniDL.exe --service crunchy --device android
 2. After sign-in, copy the **entire address** from the browser’s address bar, even if the page says **404 – Page Not Found**. AniDL uses the address on that page.
 3. Return to the same terminal, paste the address once and press **Enter**. Nothing appears while you paste because AniDL hides the address to protect its private sign-in code.
 4. Wait for “Signed in with Android phone. Session saved.” If AniDL rejects the address, start the phone command again and copy the new address from that attempt.
+
+**Phone settings warning?** Check for a newer build. If you report the warning, share only the setting names. To continue with [Android TV](#android-tv) or [a browser cookie](#browser-cookie), use the [single-login commands](GET-STARTED.md#if-you-signed-in-with-one-method).
 
 ### Browser cookie
 
