@@ -4,17 +4,17 @@
 
 **[🚀 Get started with the CLI](GET-STARTED.md)** · [🔑 Sign in to a service](AUTHENTICATION.md)
 
-**Browse** · [Setup](#setup) · [Services](#services) · [CLI options](ARGUMENTS.md) · [Changelog](CHANGELOG.md) · [Releases](../../../releases) · [Issues](../../../issues)
+**Browse** · [Setup](#setup) · [Services](#services) · [CLI options](ARGUMENTS.md) · [Changelog](CHANGELOG.md) · [Releases](https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases) · [Issues](https://github.com/XxUnkn0wnxX/multi-downloader-nx/issues)
 
 This fork follows [anidl/multi-downloader-nx](https://github.com/anidl/multi-downloader-nx). `main` is the stable branch. Changes on `develop` are available for testing before release. [Fork changes](fork-changes.md) · [🛠️ Developer guide](DEVELOPMENT.md)
 
-[![Tests main](https://img.shields.io/github/actions/workflow/status/XxUnkn0wnxX/multi-downloader-nx/test.yml?branch=main&label=Tests%20main&style=flat-square)](../../../actions/workflows/test.yml?query=branch%3Amain)
-[![Tests develop](https://img.shields.io/github/actions/workflow/status/XxUnkn0wnxX/multi-downloader-nx/test.yml?branch=develop&label=Tests%20develop&style=flat-square)](../../../actions/workflows/test.yml?query=branch%3Adevelop)
+[![Tests main](https://img.shields.io/github/actions/workflow/status/XxUnkn0wnxX/multi-downloader-nx/test.yml?branch=main&label=Tests%20main&style=flat-square)](https://github.com/XxUnkn0wnxX/multi-downloader-nx/actions/workflows/test.yml?query=branch%3Amain)
+[![Tests develop](https://img.shields.io/github/actions/workflow/status/XxUnkn0wnxX/multi-downloader-nx/test.yml?branch=develop&label=Tests%20develop&style=flat-square)](https://github.com/XxUnkn0wnxX/multi-downloader-nx/actions/workflows/test.yml?query=branch%3Adevelop)
 [![Discord](https://img.shields.io/discord/884479461997805568?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/qEpbWen5vq)
 
 ## Setup
 
-Download the **Nightly Fork** CLI archive for your operating system and processor, then extract the whole archive. Builds target Windows, macOS, Linux and Alpine on x64 and arm64. Each includes its Node.js runtime. The macOS package uses Node 22 for Big Sur compatibility, and the other packages use Node 24. [Download the Nightly CLI](../../../releases/tag/nightly-fork)
+Download the **Nightly Fork** CLI archive for your operating system and processor, then extract the whole archive. Builds target Windows, macOS, Linux and Alpine on x64 and arm64. Each includes its Node.js runtime. The macOS package uses Node 22 for Big Sur compatibility, and the other packages use Node 24. [Download the Nightly CLI](https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork)
 
 Start with **Getting Started** to open a terminal, sign in and preview one Crunchyroll episode. The guide includes separate Windows and Linux commands and explains which tools you need to save the finished file. [Open the first-download walkthrough](GET-STARTED.md)
 
@@ -37,10 +37,18 @@ Use `--service crunchy --device {type}` **(Crunchyroll only)** to sign in. Repla
 
 **Can I keep English audio and look for better video?** **(Crunchyroll only)** Yes. `--dubLang eng` keeps English audio, `--qall` checks video across all available dubs, and `-q 0` picks the best compatible stream it finds. Use `--qall` sparingly. The extra requests can trigger rate limits that interrupt normal viewing.
 
-Replace `SEASON_ID` with your season ID to try this on episode 6.
+Open a terminal in the extracted AniDL folder. Replace `SEASON_ID` with your season ID to try this on episode 6.
+
+**Windows (Command Prompt)**
+
+```cmd
+aniDL.exe --service crunchy -s SEASON_ID -e 6 --dubLang eng --qall -q 0
+```
+
+**Linux and macOS**
 
 ```sh
-anidl --service crunchy -s SEASON_ID -e 6 --dubLang eng --qall -q 0
+./aniDL --service crunchy -s SEASON_ID -e 6 --dubLang eng --qall -q 0
 ```
 
 </details>
@@ -65,7 +73,7 @@ For developers and advanced users, the [developer guide](DEVELOPMENT.md#build-fr
 
 ## Fork builds and releases
 
-On the release page, open **Assets** and download the file ending in `-cli.7z` for your platform. Its matching `.sha256` file lets you verify the download. [Nightly Fork downloads](../../../releases/tag/nightly-fork)
+On the release page, open **Assets** and download the file ending in `-cli.7z` for your platform. Its matching `.sha256` file lets you verify the download. [Nightly Fork downloads](https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork)
 
 The release title shows the fork revision. To check your installed revision, look for the number after `Rev` in the AniDL startup banner. [Fork changelog](CHANGELOG.md)
 
@@ -88,4 +96,4 @@ A newer base version takes precedence; Rev is compared only when the base versio
 
 This application is not endorsed by or affiliated with _Crunchyroll_, _HIDIVE_ or _AnimationDigitalNetwork_. This application enables you to download videos for offline viewing which may be forbidden by law in your country. The usage of this application may also cause a violation of the _Terms of Service_ between you and the stream provider. This tool is not responsible for your actions; please make an informed decision before using this application.
 
-Released under the [MIT license](../LICENSE.md).
+Released under the [MIT license](https://github.com/XxUnkn0wnxX/multi-downloader-nx/blob/main/LICENSE.md). For an offline copy, open `docs/LICENSE.md` in the extracted archive.

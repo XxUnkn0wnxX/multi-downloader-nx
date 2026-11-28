@@ -17,7 +17,7 @@ const transformService = (services: Array<'crunchy' | 'hidive' | 'adn' | 'all'>)
 
 const intro = `# ${packageJSON.name} v${displayVersion(packageJSON)}
 
-[🚀 Getting started](GET-STARTED.md) · [🔑 Sign in to a service](AUTHENTICATION.md) · [Report an issue](../../../issues)
+[🚀 Getting started](GET-STARTED.md) · [🔑 Sign in to a service](AUTHENTICATION.md) · [Report an issue](https://github.com/${packageJSON.fork.repository}/issues)
 
 Run a service command as \`aniDL --service <name> <options>\`, using \`crunchy\`, \`hidive\` or \`adn\`. The global list covers all three services. Open a service section for its additional options.
 

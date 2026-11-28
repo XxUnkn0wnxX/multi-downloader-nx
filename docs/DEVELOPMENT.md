@@ -77,7 +77,7 @@ Once **Tests** passes on the current `main` revision, **Nightly Fork** builds an
 
 **Which Tests run counts?** The workflow accepts a successful **Tests** run from a push or manual run on `main` in the same repository. A manual release can reuse a passing ancestor when the entire diff is limited to documentation, the release controller or its focused test. Validate controller changes locally first. Application code, dependencies, workflows, build tooling and other tests require fresh passing Tests. A newer applicable failure or unfinished run blocks release. [Release controller](../.github/scripts/fork-release.mjs) · [Release tests](../tests/fork-release.mjs)
 
-**How do I verify the release?** Follow the x64 and arm64 build jobs, then the publisher. Open the **Latest** release at the fixed `nightly-fork` tag. Check the revision in the title, the built and tested commits in the notes, and the eight CLI archives with matching SHA-256 files under **Assets**. GitHub also supplies source archives. [Nightly Fork release](../../../releases/tag/nightly-fork)
+**How do I verify the release?** Follow the x64 and arm64 build jobs, then the publisher. Open the **Latest** release at the fixed `nightly-fork` tag. Check the revision in the title, the built and tested commits in the notes, and the eight CLI archives with matching SHA-256 files under **Assets**. GitHub also supplies source archives. [Nightly Fork release](https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork)
 
 <details>
 <summary>Build provenance, caching and publication recovery</summary>

@@ -1,6 +1,6 @@
 # multi-downloader-nx v5.8.8 (Nightly) [Rev7]
 
-[🚀 Getting started](GET-STARTED.md) · [🔑 Sign in to a service](AUTHENTICATION.md) · [Report an issue](../../../issues)
+[🚀 Getting started](GET-STARTED.md) · [🔑 Sign in to a service](AUTHENTICATION.md) · [Report an issue](https://github.com/XxUnkn0wnxX/multi-downloader-nx/issues)
 
 Run a service command as `aniDL --service <name> <options>`, using `crunchy`, `hidive` or `adn`. The global list covers all three services. Open a service section for its additional options.
 

@@ -8,7 +8,7 @@ You’ll open AniDL, sign in to Crunchyroll and preview one episode before downl
 
 ## Open AniDL
 
-1. Download a **CLI** archive for your operating system and processor from the [Nightly Fork release](../../../releases/tag/nightly-fork). For example, a typical Intel or AMD Windows PC uses `multi-downloader-nx-windows-x64-cli.7z`. On Linux, choose the matching `linux-x64` or `linux-arm64` CLI archive. On an ARM-based Windows PC, choose `windows-arm64`.
+1. Download a **CLI** archive for your operating system and processor from the [Nightly Fork release](https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork). For example, a typical Intel or AMD Windows PC uses `multi-downloader-nx-windows-x64-cli.7z`. On Linux, choose the matching `linux-x64` or `linux-arm64` CLI archive. On an ARM-based Windows PC, choose `windows-arm64`.
 2. Extract the archive into a folder you can find again. Keep the folders together. The `docs/` folder contains the guides and screenshots for offline reading.
 3. Open a terminal in the extracted folder. On Windows, double-click `cmd-here.bat` to open Command Prompt there. On Linux, open your terminal and change to the extracted folder.
 4. Run the command for your computer. You should see the Crunchyroll options.
