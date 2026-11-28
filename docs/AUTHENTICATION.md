@@ -44,7 +44,7 @@ aniDL.exe --service crunchy --device androidtv
 
 ### Android phone or tablet
 
-Use `--device android` **(Crunchyroll only)** for phone or tablet streams. From Rev8 onward, AniDL includes the settings it needs to sign in and renew this login.
+Use `--device android` **(Crunchyroll only)** for phone or tablet streams. The first sign-in downloads the window runtime. Use a desktop session on Windows, macOS or Linux with glibc. On Linux, install `unzip` if needed.
 
 <details>
 <summary>🪟 Windows — Command Prompt</summary>
@@ -64,14 +64,8 @@ aniDL.exe --service crunchy --device android
 
 </details>
 
-[![AniDL asks for the full browser address and explains that pasted input is hidden](imgs/cli/cr-login-android.png)](imgs/cli/cr-login-android.png)
-
-*Rev7 screenshot with the sign-in link redacted. Paste the full address from your own browser.*
-
-1. Sign in to Crunchyroll in your browser. If the browser stays closed, open the sign-in link printed in the terminal.
-2. After sign-in, copy the **entire address** from the browser’s address bar, even if the page says **404 – Page Not Found**. AniDL uses the address on that page.
-3. Return to the same terminal, paste the address once and press **Enter**. Nothing appears while you paste because AniDL hides the address to protect its private sign-in code.
-4. Wait for “Signed in with Android phone. Session saved.” If AniDL rejects the address, start the phone command again and copy the new address from that attempt.
+1. Enter your Crunchyroll email and password in the sign-in window. AniDL handles the return from Crunchyroll automatically.
+2. Wait for your account details and “Signed in with Android phone. Session saved.”
 
 **Phone settings warning?** Check for a newer build. If you report the warning, share only the setting names. To continue with [Android TV](#android-tv) or [a browser cookie](#browser-cookie), use the [single-login commands](GET-STARTED.md#if-you-signed-in-with-one-method).
 
@@ -123,6 +117,12 @@ aniDL.exe --service crunchy --token "YOUR_COOKIE_VALUE"
 If AniDL cannot read the file, check the quoted path. If Crunchyroll rejects the cookie, sign in to Crunchyroll again and use a fresh cookie. Keep the cookie and the file private.
 
 [Continue to your first Crunchyroll download](GET-STARTED.md#find-and-download-one-episode).
+
+### Check your saved Crunchyroll sign-ins
+
+Run AniDL with `--service crunchy --check-auth` to check the Android TV, Android phone and browser-cookie sessions. AniDL uses read-only profile requests and reports missing, invalid, expired, rejected or unverified access separately. An expired or rejected access token can still have a usable refresh token.
+
+The command exits with status 0 when all three checks confirm valid access and 1 otherwise.
 
 ## HIDIVE and ADN
 

@@ -4,6 +4,11 @@ Changes specific to this fork are grouped below with their implementation commit
 
 ## Unreleased
 
+### Nightly Rev9 — Crunchyroll sign-in
+
+- `--device android` opens a Crunchyroll sign-in window and handles the return automatically. It reuses Crunchyroll’s device ID for the Android Phone entry. [Sign-in guide](AUTHENTICATION.md#android-phone-or-tablet)
+- `--check-auth` reports the three saved Crunchyroll sign-ins without refreshing them. [Sign-in check](AUTHENTICATION.md#check-your-saved-crunchyroll-sign-ins)
+
 ### Nightly Rev8 — Sign-in and subtitle fonts
 
 - Android phone sign-in and refresh now use bundled settings. The command is still `--service crunchy --device android` **(Crunchyroll only)**. [Sign-in guide](AUTHENTICATION.md#android-phone-or-tablet) · [Phone settings change](https://github.com/XxUnkn0wnxX/multi-downloader-nx/commit/35786611e712c0ecb1cf30dcea648abe268bcba7)

@@ -9,7 +9,6 @@ import { fileURLToPath, URLSearchParams, URL } from 'node:url';
 import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import { EventEmitter } from 'node:events';
-import { PassThrough } from 'node:stream';
 import ts from 'typescript';
 
 const { AbortController, AbortSignal, Response, TextDecoder, setTimeout, clearTimeout, setInterval, clearInterval, atob } = globalThis;
@@ -44,6 +43,7 @@ try {
 				URLSearchParams,
 				Error,
 				AbortController,
+				AbortSignal,
 				TextDecoder,
 				setTimeout,
 				clearTimeout,
@@ -74,6 +74,7 @@ try {
 			if (id === './module.api-urls')
 				return { domain: { cr_www: 'https://www.crunchyroll.com' }, api: { phone_client_id: 'fixture-id', phone_client_secret: 'fixture-secret' } };
 			if (id === './module.crunchy-device-auth') return deviceHelper;
+			if (id === './module.crunchy-phone-runtime') return {};
 			return require(id);
 		},
 		{ Buffer, AbortSignal }
@@ -81,9 +82,11 @@ try {
 	const crunchyPhoneAuth = {
 		loginWithPhone: async () => undefined,
 		refreshPhoneToken: phoneAuth.refreshPhoneToken,
-		PHONE_CALLBACK_INVALID: phoneAuth.PHONE_CALLBACK_INVALID,
+		PHONE_RUNTIME_ERROR: phoneAuth.PHONE_RUNTIME_ERROR,
 		PHONE_CLIENT_REQUIRED: phoneAuth.PHONE_CLIENT_REQUIRED,
-		PHONE_CLIENT_REJECTED: phoneAuth.PHONE_CLIENT_REJECTED
+		PHONE_CLIENT_REJECTED: phoneAuth.PHONE_CLIENT_REJECTED,
+		PHONE_WEBVIEW_FAILED: phoneAuth.PHONE_WEBVIEW_FAILED,
+		PHONE_BROWSER_DEVICE_MISSING: phoneAuth.PHONE_BROWSER_DEVICE_MISSING
 	};
 	const forkDisplay = compile(path.join(root, 'modules/module.fork-display.ts'), (id) => require(id));
 	const same = (actual, expected) => assert.deepEqual(JSON.parse(JSON.stringify(actual)), expected);
@@ -1526,6 +1529,7 @@ try {
 			assert.equal(phoneAuth.parsePhoneCallback(invalid, 'fixture'), undefined);
 		assert.equal(phoneAuth.parsePhoneCallback(url.href, 'different state'), undefined);
 	});
+	const issuedBrowserId = 'af234567-e89b-42d3-a456-42661417b000';
 	function makePhoneFlow(
 		callbackHost = 'sso.crunchyroll.com',
 		code = 'fixture-hidden-code',
@@ -1533,64 +1537,85 @@ try {
 	) {
 		let outputText = '';
 		let launched;
-		let openAttempts = 0;
-		let inputReads = 0;
-		const terminal = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+		let preparations = 0;
+		let result = 'valid';
+		const profiles = [];
+		const traceFile = path.join(work, 'phone-window-requests.ndjson');
+		const fixtureExecutable = path.join(work, 'electron');
+		const fixtureHelper = path.join(work, 'crunchyroll-phone-signin.cjs');
 		const fixtureProcess = Object.assign(new EventEmitter(), {
-			stdin: terminal,
+			env: { ANIDL_CRUNCHY_PHONE_TRACE: traceFile, ELECTRON_RUN_AS_NODE: '1' },
 			stdout: {
-				isTTY: true,
-				write(value) {
-					outputText += value;
+				write(line) {
+					outputText += line;
 				}
 			}
 		});
 		const flow = compile(
 			path.join(root, 'modules/module.crunchy-phone-auth.ts'),
 			(id) => {
-				if (id === './module.api-urls')
-					return {
-						domain: { cr_www: 'https://www.crunchyroll.com' },
-						api: phoneSettings
-					};
+				if (id === './module.api-urls') return { domain: { cr_www: 'https://www.crunchyroll.com' }, api: phoneSettings };
 				if (id === './module.crunchy-device-auth') return deviceHelper;
-				if (id === 'node:readline') {
-					const readline = require(id);
+				if (id === './module.crunchy-phone-runtime')
 					return {
-						...readline,
-						createInterface(...args) {
-							inputReads++;
-							return readline.createInterface(...args);
-						}
+						resolvePhoneRuntime: async () => {
+							preparations++;
+							return fixtureExecutable;
+						},
+						phoneWindowEnvironment: () => ({ ...fixtureProcess.env }),
+						phoneWindowPath: () => fixtureHelper
 					};
-				}
-				if (id === 'open')
-					return async (url) => {
-						openAttempts++;
-						launched = new URL(url);
-						const callback = new URL(launched.searchParams.get('redirect_uri'));
-						callback.hostname = callbackHost;
-						callback.searchParams.set('state', launched.searchParams.get('state'));
-						callback.searchParams.set('code', code);
-						terminal.write(callback.href + '\r');
+				if (id === 'open' || id === 'node:readline') assert.fail('Phone sign-in must use the sign-in window.');
+				if (id === 'node:child_process')
+					return {
+						execFile(executable, args, options, complete) {
+							assert.equal(executable, fixtureExecutable);
+							assert.equal(args.length, 2);
+							assert.equal(args[0], fixtureHelper);
+							assert(fs.statSync(args[1]).isDirectory());
+							profiles.push(args[1]);
+							assert.equal(options.timeout, 600_000);
+							assert.equal(options.maxBuffer, 8230);
+							assert.equal(options.windowsHide, true);
+							assert.equal(options.env.ELECTRON_NO_ATTACH_CONSOLE, '1');
+							assert.equal(options.env.ELECTRON_RUN_AS_NODE, undefined);
+							return {
+								stdin: {
+									on() {},
+									end(line) {
+										launched = new URL(line.trim());
+										const callback = new URL(launched.searchParams.get('redirect_uri'));
+										callback.hostname = callbackHost;
+										callback.searchParams.set('code', code);
+										callback.searchParams.set('state', result === 'wrong-state' ? 'unmatched' : launched.searchParams.get('state'));
+										const exitStatus = { cancelled: 2, failed: 3, 'missing-device': 4 }[result];
+										const deviceId = result === 'invalid-device' ? 'fixture-invalid-device' : issuedBrowserId;
+										complete(exitStatus ? { code: exitStatus } : null, callback.href + '\n' + deviceId + '\n');
+									}
+								}
+							};
+						}
 					};
 				return require(id);
 			},
-			{ process: fixtureProcess, Buffer, AbortSignal }
+			{ process: fixtureProcess, Buffer }
 		);
 		return {
 			flow,
+			profiles,
+			traceFile,
+			fixtureProcess,
+			set result(value) {
+				result = value;
+			},
 			get outputText() {
 				return outputText;
 			},
 			get launched() {
 				return launched;
 			},
-			get openAttempts() {
-				return openAttempts;
-			},
-			get inputReads() {
-				return inputReads;
+			get preparations() {
+				return preparations;
 			}
 		};
 	}
@@ -1653,36 +1678,219 @@ try {
 		assert.equal(refreshed.refresh_token, 'fixture-new-refresh');
 		assert.equal(refreshed.auth_type, 'android');
 	});
-	await test('Android CLI browser flow prints its launch URL and keeps the pasted callback hidden', async () => {
-		let requests = 0;
-		const phoneFixture = makePhoneFlow();
-		const { flow } = phoneFixture;
-		const session = await flow.loginWithPhone(async (url, options) => {
-			requests++;
+	await test('Android phone sign-in uses the verified device ID and exchanges the callback once', async () => {
+		let exchanges = 0;
+		const fixture = makePhoneFlow();
+		const exchange = async (url, options) => {
+			exchanges++;
 			assert.equal(url, 'https://www.crunchyroll.com/auth/v1/token');
-			assert.equal(phoneFixture.launched.searchParams.get('client_id'), 'fixture-id');
-			assert.equal(options.headers.Authorization, `Basic ${Buffer.from('fixture-id:fixture-secret').toString('base64')}`);
+			assert.equal(fixture.launched.origin, 'https://sso.crunchyroll.com');
+			assert.equal(fixture.launched.pathname, '/en/authorize');
+			assert.equal(fixture.launched.searchParams.get('client_id'), 'fixture-id');
+			assert.equal(fixture.launched.searchParams.has('device_id'), false);
+			assert.equal(options.headers.Authorization, 'Basic ' + Buffer.from('fixture-id:fixture-secret').toString('base64'));
+			assert.equal(options.headers['User-Agent'], 'Crunchyroll/3.130.0 Android/16 okhttp/5.3.2');
 			assert.equal(options.redirect, 'manual');
 			assert.equal(options.quietDebug, true);
 			assert.equal(options.body.get('grant_type'), 'authorization_code');
 			assert.equal(options.body.get('code'), 'fixture-hidden-code');
-			assert.equal(options.body.get('code_verifier'), phoneFixture.launched.searchParams.get('code_challenge'));
-			return { ok: true, res: Response.json({ access_token: 'fake-access', refresh_token: 'fake-refresh', expires_in: 60, account_id: 'fixture-account' }) };
-		});
-		assert.equal(requests, 1);
-		assert.equal(session.auth_type, 'android');
-		assert.deepEqual(phoneFixture.outputText.trimEnd().split('\n'), [
-			'If your browser doesn’t open, use this sign-in link.',
-			'',
-			phoneFixture.launched.href,
-			'',
-			'After sign-in, copy the full browser address, even on a 404 page.',
-			'Paste it here and press Enter. Input is hidden to protect your sign-in code.'
-		]);
-		assert(!phoneFixture.outputText.includes('fixture-hidden-code'));
-		assert(!phoneFixture.outputText.includes('fixture-secret'));
+			assert.equal(options.body.get('code_verifier'), fixture.launched.searchParams.get('code_challenge'));
+			assert.equal(options.body.get('device_id'), issuedBrowserId);
+			assert.equal(options.body.get('device_name'), 'Android Phone (b000)');
+			assert.equal(options.body.get('device_type'), 'Android Phone');
+			return { ok: true, res: Response.json({ access_token: 'fixture-access', refresh_token: 'fixture-refresh', expires_in: 60, account_id: 'fixture-account' }) };
+		};
+		const token = await fixture.flow.loginWithPhone(exchange);
+		assert.equal(token.auth_type, 'android');
+		assert.equal(token.device_id, issuedBrowserId);
+		assert.equal(token.device_name, 'Android Phone (b000)');
+		fixture.result = 'cancelled';
+		assert.equal(await fixture.flow.loginWithPhone(exchange), undefined);
+		for (const [result, notice] of [
+			['failed', phoneAuth.PHONE_WEBVIEW_FAILED],
+			['wrong-state', phoneAuth.PHONE_WEBVIEW_FAILED],
+			['missing-device', phoneAuth.PHONE_BROWSER_DEVICE_MISSING],
+			['invalid-device', phoneAuth.PHONE_BROWSER_DEVICE_MISSING]
+		]) {
+			fixture.result = result;
+			await assert.rejects(() => fixture.flow.loginWithPhone(exchange), { message: notice });
+		}
+		assert.equal(exchanges, 1);
+		assert(fixture.profiles.every((profile) => !fs.existsSync(profile)));
+		assert.equal(fixture.fixtureProcess.listenerCount('SIGINT'), 0);
+		assert.equal(fixture.fixtureProcess.listenerCount('SIGTERM'), 0);
+		const trace = fs.readFileSync(fixture.traceFile, 'utf8');
+		assert(trace.includes('cli.browser-device-selected'));
+		assert(trace.includes('"event":"cli.token-result","status":200'));
+		assert(!trace.includes(issuedBrowserId));
+		assert(!/fixture-|code_challenge/.test(trace));
+		assert(!/fixture-|code_challenge|https:\/\/|Paste/.test(fixture.outputText));
 	});
-	await test('Android phone CLI dry-run prepares hidden callback instructions without opening or reading input', async () => {
+	await test('Android window resolves its packaged helper and rejects a corrupt runtime before extraction', async () => {
+		const home = fs.mkdtempSync(path.join(work, 'phone-runtime-'));
+		const packagedExecutable = path.join(home, 'portable', 'aniDL');
+		const helper = path.join(path.dirname(packagedExecutable), 'crunchyroll-phone-signin.cjs');
+		const processFixture = { env: {}, platform: 'darwin', arch: 'x64', pkg: {}, execPath: packagedExecutable, stdout: { write() {} } };
+		let downloads = 0;
+		const runtime = compile(
+			path.join(root, 'modules/module.crunchy-phone-runtime.ts'),
+			(id) => {
+				if (id === 'node:os') return { homedir: () => home, release: () => '20.6.0' };
+				if (id === 'node:child_process') return { execFile: () => assert.fail('Invalid archives must not be extracted.') };
+				return require(id);
+			},
+			{
+				__dirname: path.join(home, 'source', 'modules'),
+				process: processFixture,
+				fetch: async (url) => {
+					downloads++;
+					assert.match(url, /\/v37\.10\.3\/electron-v37\.10\.3-darwin-x64\.zip$/);
+					return new Response('corrupt-fixture');
+				}
+			}
+		);
+		assert.equal(runtime.phoneWindowPath(), helper);
+		await assert.rejects(() => runtime.resolvePhoneRuntime(), /sign-in helper is missing/);
+		assert.equal(downloads, 0);
+		fs.mkdirSync(path.dirname(helper));
+		fs.writeFileSync(helper, 'fixture', { mode: 0o700 });
+		processFixture.env.ANIDL_CRUNCHY_PHONE_WEBVIEW = helper;
+		await assert.rejects(() => runtime.resolvePhoneRuntime(), { name: runtime.PHONE_RUNTIME_ERROR });
+		assert.equal(downloads, 1);
+		assert.deepEqual(fs.readdirSync(path.join(home, 'Library', 'Caches', 'AniDL', 'phone-signin')), []);
+	});
+	await test('Android phone reports the signed-in profile and country and saves only after validation', async () => {
+		const login = crunchyPhoneAuth.loginWithPhone;
+		const cfg = stubs['./modules/module.cfg-loader'];
+		const save = cfg.saveCRTokenAtomic;
+		const candidate = { auth_type: 'android', access_token: 'fixture-phone-access', device_user_agent: 'fixture-phone-agent' };
+		crunchyPhoneAuth.loginWithPhone = async () => candidate;
+		try {
+			for (const failure of [undefined, 'profile', 'cms', 'save']) {
+				logs.length = 0;
+				const successes = { ...successfulResponses };
+				if (failure === 'profile' || failure === 'cms') successes[failure] = { ok: false };
+				const previous = { auth_type: 'device', access_token: 'fixture-previous' };
+				const previousCMS = { previous: true };
+				const { service, calls } = makeService(successes, previousCMS);
+				service.token = previous;
+				const savedBefore = saved.length;
+				let saveAttempts = 0;
+				cfg.saveCRTokenAtomic = (token) => {
+					saveAttempts++;
+					assert.deepEqual(
+						calls.map(({ url }) => url),
+						['profile', 'cms']
+					);
+					assert.equal(token, candidate);
+					if (failure === 'save') return false;
+					saved.push(token);
+					return true;
+				};
+				assert.equal(await service.loginWithAndroidPhone(), !failure);
+				assert.equal(saveAttempts, Number(!failure || failure === 'save'));
+				assert.equal(saved.length, savedBefore + Number(!failure));
+				assert.equal(service.token, failure ? previous : candidate);
+				if (failure) assert.equal(service.cmsToken, previousCMS);
+				assert(calls.every(({ options }) => options.quietDebug && options.headers.Authorization === 'Bearer fixture-phone-access'));
+				if (!failure) {
+					assert(logs.some(([kind, line]) => kind === 'info' && /USER:.*test-user.*test@example.invalid/.test(line)));
+					assert(logs.some(([kind, line]) => kind === 'info' && /Your Country:.*US/s.test(line)));
+				}
+			}
+		} finally {
+			crunchyPhoneAuth.loginWithPhone = login;
+			cfg.saveCRTokenAtomic = save;
+		}
+	});
+	await test('check-auth reports the three slots independently and makes only bounded profile reads', async () => {
+		const cfg = stubs['./modules/module.cfg-loader'];
+		const load = cfg.loadCRSessions;
+		const savedBefore = saved.length;
+		const current = new Date(Date.now() + 60_000).toISOString();
+		const tv = { auth_type: 'device', access_token: 'fixture-tv', refresh_token: 'fixture-refresh', expires: current };
+		const phone = { ...tv, auth_type: 'android', access_token: 'fixture-phone', device_user_agent: 'fixture-phone-agent' };
+		const web = { ...tv, auth_type: 'web', access_token: 'fixture-web' };
+		const valid = () => Response.json({ username: 'fixture-private-profile' });
+		try {
+			for (const example of [
+				{ sessions: {}, replies: [], messages: ['Not present', 'Not present', 'Not present'] },
+				{
+					sessions: { androidtv: tv, android: { ...phone, expires: 1 }, web: { ...web, refresh_token: '' } },
+					replies: [valid()],
+					messages: ['Valid', 'Expired access token', 'Invalid saved sign-in']
+				},
+				{
+					sessions: { androidtv: tv, android: phone, web },
+					replies: [
+						Response.json({ error: 'fixture-private-error' }, { status: 401, headers: { 'WWW-Authenticate': 'Bearer error="invalid_token"' } }),
+						new Response('fixture-private-challenge', { status: 403 }),
+						valid()
+					],
+					messages: ['Rejected access token', 'Unverified (HTTP 403)', 'Valid']
+				},
+				{
+					sessions: { androidtv: tv, android: phone, web },
+					replies: [Response.json({ error: 'fixture-private-inconclusive' }, { status: 401 }), valid(), valid()],
+					messages: ['Unverified (HTTP 401)', 'Valid', 'Valid']
+				},
+				{
+					sessions: { androidtv: { ...tv, expires: null }, android: { ...phone, expires: false } },
+					replies: [],
+					messages: ['Invalid access-token expiry', 'Invalid access-token expiry', 'Not present']
+				},
+				{
+					sessions: { androidtv: tv, android: phone, web },
+					replies: [new Response(null, { status: 429 })],
+					messages: ['Unverified (HTTP 429 rate limit)', 'Unverified (Crunchyroll rate limit)', 'Unverified (Crunchyroll rate limit)']
+				},
+				{ sessions: { androidtv: tv, android: phone, web }, replies: [valid(), valid(), valid()], messages: ['Valid', 'Valid', 'Valid'] }
+			]) {
+				logs.length = 0;
+				cfg.loadCRSessions = (strict) => {
+					assert.equal(strict, true);
+					return { sessions: example.sessions };
+				};
+				const { service } = makeService({});
+				const original = { access_token: 'fixture-original' };
+				service.token = original;
+				const calls = [];
+				service.req.getData = async (url, options) => {
+					assert.equal(url, 'profile');
+					assert.equal(options.redirect, 'manual');
+					assert.equal(options.useProxy, undefined);
+					assert.equal(options.quietDebug, true);
+					assert.equal(options.skipErrorBody, true);
+					assert.equal(options.signal.aborted, false);
+					const res = example.replies[calls.length];
+					calls.push(options.headers.Authorization);
+					return { ok: res.ok, res };
+				};
+				assert.equal(
+					await service.checkAuth(),
+					example.messages.every((message) => message === 'Valid')
+				);
+				assert.equal(calls.length, example.replies.length);
+				assert.deepEqual(calls, ['Bearer fixture-tv', 'Bearer fixture-phone', 'Bearer fixture-web'].slice(0, example.replies.length));
+				assert.equal(service.token, original);
+				assert.equal(saved.length, savedBefore);
+				for (const [i, label] of ['Android TV', 'Android phone', 'Browser cookie'].entries()) assert(logs[i][1].startsWith(`${label}: ${example.messages[i]}`));
+				assert(!logs.some(([, line]) => /fixture-private|fixture-tv|fixture-phone|fixture-web/.test(line)));
+			}
+			logs.length = 0;
+			cfg.loadCRSessions = () => {
+				throw new Error('fixture-private-file-content');
+			};
+			const { service, calls } = makeService({});
+			assert.equal(await service.checkAuth(), false);
+			assert.equal(calls.length, 0);
+			assert.equal(logs.length, 3);
+			assert(logs.every(([, line]) => line.includes('Unverified (cannot read saved sign-ins)') && !line.includes('fixture-private')));
+		} finally {
+			cfg.loadCRSessions = load;
+		}
+	});
+	await test('Android phone CLI dry-run skips preparing and launching the sign-in window', async () => {
 		const previousPhoneLogin = crunchyPhoneAuth.loginWithPhone;
 		const previousArgv = parsedArgv;
 		const previousExitCode = process.exitCode;
@@ -1708,12 +1916,8 @@ try {
 		try {
 			await service.cli();
 			await new Promise((resolve) => setTimeout(resolve, 0));
-			assert.equal(phoneFixture.outputText.trimStart().split('\n', 1)[0], 'If your browser doesn’t open, use this sign-in link.');
-			assert.match(phoneFixture.outputText, /\n\nhttps:\/\/sso\.crunchyroll\.com\/en\/authorize\?[^\s]+\n\n/);
-			assert.match(phoneFixture.outputText, /full browser address, even on a 404 page/i);
-			assert.match(phoneFixture.outputText, /Input is hidden to protect your sign-in code/i);
-			assert.equal(phoneFixture.openAttempts, 0);
-			assert.equal(phoneFixture.inputReads, 0);
+			assert.equal(phoneFixture.outputText.trim(), 'Dry run: the Crunchyroll sign-in window would open.');
+			assert.equal(phoneFixture.preparations, 0);
 			assert.equal(phoneFixture.launched, undefined);
 			assert.equal(calls.length, 0);
 			assert.equal(profileCalls, 0);
@@ -1888,7 +2092,7 @@ try {
 			assert.equal(requests, 0);
 			assert.equal(saved.length, savedBefore);
 			assert.equal(service.token, priorToken);
-			assert(logs.some(([kind, line]) => kind === 'error' && /could not verify that sign-in address/i.test(line)));
+			assert(logs.some(([kind, line]) => kind === 'error' && /could not complete sign-in in the Crunchyroll window/i.test(line)));
 			assert(!phoneFixture.outputText.includes('fixture-invalid-callback-code'));
 			assert(!logs.some(([, line]) => line.includes('fixture-invalid-callback-code')));
 		} finally {
@@ -2103,6 +2307,17 @@ try {
 			{ status: 'invalid', argv: {}, result: false, expectedCalls: 0, exit: 1, updates: 0, cfgReads: 0 },
 			{ status: 'valid', argv: { service: 'crunchy', checkStatus: true }, result: true, expectedCalls: 1, exit: undefined, updates: 0 },
 			{ status: 'valid', argv: { service: 'crunchy', checkStatus: true }, result: false, expectedCalls: 1, exit: 1, updates: 0 },
+			{
+				authStatus: 'valid',
+				rawArgs: ['--service', 'crunchy', '--check-auth'],
+				argv: { service: 'crunchy', checkAuth: true, downloadArchive: true, update: true },
+				result: false,
+				expectedCalls: 1,
+				exit: 1,
+				updates: 0,
+				readOnly: true
+			},
+			{ authStatus: 'invalid', argv: { service: 'hidive' }, result: false, expectedCalls: 0, exit: 1, updates: 0, cfgReads: 0 },
 			{ argv: { service: 'crunchy' }, result: false, expectedCalls: 1, exit: 1, updates: 1 },
 			{ argv: { service: 'crunchy', skipUpdate: true }, result: true, expectedCalls: 1, exit: undefined, updates: 0 },
 			{ argv: { service: 'crunchy', dryRun: true, debug: true }, result: true, expectedCalls: 1, exit: undefined, updates: 0 },
@@ -2189,11 +2404,17 @@ try {
 			compile(
 				path.join(root, 'index.ts'),
 				(id) => {
+					if (id === './modules/module.crunchy-phone-runtime') return {};
 					if (id === './modules/log') return { console: fakeConsole };
 					if (id === './package.json') return JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 					if (id === './modules/module.fork-display') return forkDisplay;
 					if (id === './modules/module.args') return { cliServices: ['crunchy', 'hidive', 'adn'] };
-					if (id === './modules/module.app-args') return { appArgv: () => scenario.argv, overrideArguments: () => {}, statusInvocation: () => scenario.status ?? 'none' };
+					if (id === './modules/module.app-args')
+						return {
+							appArgv: () => scenario.argv,
+							overrideArguments: () => {},
+							statusInvocation: (_raw, flag) => (flag === '--check-auth' ? scenario.authStatus : scenario.status) ?? 'none'
+						};
 					if (id === './modules/module.cfg-loader')
 						return {
 							loadCliCfg: () => ({}),

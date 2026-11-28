@@ -79,7 +79,15 @@ import { CrunchyVideoPlayStreams, CrunchyAudioPlayStreams } from './@types/enums
 import { randomUUID } from 'node:crypto';
 import { FetchParams } from './modules/module.fetch';
 import { CrunchyTokenInputError, parseCrunchyTokenInput } from './modules/module.crunchy-token';
-import { loginWithPhone, PHONE_CALLBACK_INVALID, PHONE_CLIENT_REJECTED, PHONE_CLIENT_REQUIRED, refreshPhoneToken } from './modules/module.crunchy-phone-auth';
+import {
+	loginWithPhone,
+	PHONE_BROWSER_DEVICE_MISSING,
+	PHONE_CLIENT_REJECTED,
+	PHONE_CLIENT_REQUIRED,
+	PHONE_RUNTIME_ERROR,
+	PHONE_WEBVIEW_FAILED,
+	refreshPhoneToken
+} from './modules/module.crunchy-phone-auth';
 import { crunchyCliAuthDecision, crunchyLoginInstruction } from './modules/module.crunchy-cli-auth';
 import { CrunchySession, CrunchySessionSlot, crunchySessionSlot } from './modules/module.crunchy-session-store';
 import {
@@ -112,6 +120,7 @@ type VideoEndpoint = keyof typeof CrunchyVideoPlayStreams;
 type PlaybackRole = 'Video' | 'Audio' | 'Subtitle metadata';
 type PlaybackAuthFailure = 'invalid' | 'unavailable' | 'account';
 type PlaybackSessionCheck = { session: CrunchySession } | { failure: PlaybackAuthFailure } | { clientSettingsNotice: string };
+type SavedAuthStatus = { message: string; valid?: true; rateLimited?: true };
 const playbackSignIns = {
 	androidtv: { session: 'Android TV', command: '--device androidtv' },
 	android: { session: 'Android phone', command: '--device android' },
@@ -564,6 +573,7 @@ export default class Crunchy implements ServiceClass {
 	public async cli() {
 		console.info(`\n=== Multi Downloader NX ${displayVersion(packageJson)} ===\n`);
 		const argv = yargs.appArgv(this.cfg.cli);
+		if (argv.checkAuth) return this.checkAuth();
 		if (argv.checkStatus) return this.playbackStatus(!!argv.debug);
 		const authDecision = crunchyCliAuthDecision({ ...argv, service: 'crunchy' });
 		if (authDecision.kind !== 'continue') {
@@ -1068,6 +1078,71 @@ export default class Crunchy implements ServiceClass {
 		return token.auth_type === 'device' ? { ...api.crunchyDefHeader, 'User-Agent': this.deviceUserAgent(token) } : api.crunchyDefHeader;
 	}
 
+	private async savedAuthStatus(session: CrunchySession | undefined, online: boolean): Promise<SavedAuthStatus> {
+		if (!session) return { message: 'Not present' };
+		if (typeof session.refresh_token !== 'string' || !session.refresh_token.trim()) return { message: 'Invalid saved sign-in (missing refresh token, access not checked)' };
+		if (typeof session.access_token !== 'string' || !session.access_token.trim()) return { message: 'Access token missing (refresh not checked)' };
+		const storedExpiry = session.expires;
+		let expiry = NaN;
+		if (storedExpiry instanceof Date) expiry = storedExpiry.getTime();
+		else if (typeof storedExpiry === 'number' || (typeof storedExpiry === 'string' && storedExpiry.trim())) expiry = new Date(storedExpiry).getTime();
+		if (!Number.isFinite(expiry)) return { message: 'Invalid access-token expiry (refresh not checked)' };
+		if (expiry <= Date.now()) return { message: 'Expired access token (refresh not checked)' };
+		if (!online) return { message: 'Unverified (Crunchyroll rate limit)' };
+
+		const signal = AbortSignal.timeout(8000);
+		try {
+			const { ok, res } = await this.req.getData(api.profile, {
+				headers: { ...this.sessionHeaders(session), Authorization: `Bearer ${session.access_token}` },
+				redirect: 'manual',
+				quietDebug: true,
+				skipErrorBody: true,
+				signal
+			});
+			if (res?.status === 429) return { message: 'Unverified (HTTP 429 rate limit)', rateLimited: true };
+			if (!res || signal.aborted) return { message: 'Unverified (profile request unavailable)' };
+			if (!ok) {
+				const challenge = res.headers.get('www-authenticate') ?? '';
+				const bearer = /^\s*Bearer\s+(.+)$/i.exec(challenge)?.[1] ?? '';
+				if (res.status === 401 && /(?:^|,)\s*error\s*=\s*(?:"invalid_token"|invalid_token)\s*(?:,|$)/i.test(bearer)) {
+					return { message: 'Rejected access token (HTTP 401, refresh not checked)' };
+				}
+				return { message: `Unverified (HTTP ${res.status})` };
+			}
+			const profile = await res.json();
+			const hasIdentity = [profile?.username, profile?.email].some((value) => typeof value === 'string' && value.trim());
+			if (!hasIdentity || signal.aborted) return { message: 'Unverified (unexpected profile response)' };
+			if (session.account_id && profile.account_id && session.account_id !== profile.account_id) return { message: 'Invalid (profile account does not match)' };
+			return { message: 'Valid', valid: true };
+		} catch {
+			return { message: 'Unverified (profile request unavailable)' };
+		}
+	}
+
+	public async checkAuth(): Promise<boolean> {
+		const slots = [
+			['androidtv', 'Android TV'],
+			['android', 'Android phone'],
+			['web', 'Browser cookie']
+		] as const;
+		let saved: ReturnType<typeof yamlCfg.loadCRSessions>;
+		try {
+			saved = yamlCfg.loadCRSessions(true);
+		} catch {
+			for (const [, label] of slots) console.info(`${label}: Unverified (cannot read saved sign-ins)`);
+			return false;
+		}
+		let allValid = true;
+		let online = true;
+		for (const [slot, label] of slots) {
+			const status = await this.savedAuthStatus(saved.sessions[slot], online);
+			console.info(`${label}: ${status.message}`);
+			allValid &&= status.valid === true;
+			online &&= !status.rateLimited;
+		}
+		return allValid;
+	}
+
 	private async checkPlaybackSession(slot: PlaybackSlot): Promise<PlaybackSessionCheck> {
 		const activeSlot = crunchySessionSlot(this.token);
 		const session = yamlCfg.loadCRSessions().sessions[slot] ?? (activeSlot === slot || activeSlot === 'legacy' ? this.token : undefined);
@@ -1204,6 +1279,7 @@ export default class Crunchy implements ServiceClass {
 		const profileReqOptions = {
 			signal,
 			quietErrors,
+			quietDebug: this.token.auth_type === 'android',
 			headers: {
 				...this.deviceHeaders(),
 				Authorization: `Bearer ${this.token.access_token}`
@@ -1316,6 +1392,9 @@ export default class Crunchy implements ServiceClass {
 	}
 
 	public async loginWithAndroidPhone(dryRun = false): Promise<boolean> {
+		const previousToken = this.token;
+		const previousCMS = this.cmsToken;
+		let committed = false;
 		try {
 			const token = await loginWithPhone(this.req.getData.bind(this.req), dryRun);
 			if (token === 'dry-run') return true;
@@ -1323,14 +1402,31 @@ export default class Crunchy implements ServiceClass {
 				console.error('Android phone sign-in failed or was cancelled.');
 				return false;
 			}
-			if (!yamlCfg.saveCRTokenAtomic(token)) return false;
 			this.token = token;
 			this.cmsToken = {};
+			const signal = AbortSignal.timeout(30_000);
+			if (!(await this.getProfile(false, signal, true)) || signal.aborted) {
+				console.error('Could not verify the Crunchyroll profile for this Android phone sign-in.');
+				return false;
+			}
+			if (!(await this.getCMStoken(false, signal, true)) || signal.aborted) {
+				console.error('Could not verify CMS access for this Android phone sign-in.');
+				return false;
+			}
+			if (!yamlCfg.saveCRTokenAtomic(token)) return false;
+			committed = true;
 			console.info('Signed in with Android phone. Session saved.');
 			return true;
 		} catch (error) {
-			console.error(clientSettingsNotice(error) ?? (error instanceof Error && error.message === PHONE_CALLBACK_INVALID ? error.message : 'Android phone sign-in failed.'));
+			const callbackError =
+				error instanceof Error && (error.name === PHONE_RUNTIME_ERROR || error.message === PHONE_WEBVIEW_FAILED || error.message === PHONE_BROWSER_DEVICE_MISSING);
+			console.error(clientSettingsNotice(error) ?? (callbackError ? error.message : 'Android phone sign-in failed.'));
 			return false;
+		} finally {
+			if (!committed) {
+				this.token = previousToken;
+				this.cmsToken = previousCMS;
+			}
 		}
 	}
 

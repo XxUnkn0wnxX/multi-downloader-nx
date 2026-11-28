@@ -1,3 +1,5 @@
+// Capture the window loader's launch environment before configuration loads .env.
+import './modules/module.crunchy-phone-runtime';
 import packageJson from './package.json';
 import { displayVersion, forkReleaseUrl } from './modules/module.fork-display';
 import { cliServices } from './modules/module.args';
@@ -37,13 +39,20 @@ import { cliInvocation, crunchyCliAuthDecision, leadingCliService } from './modu
 	]);
 	const recoveryBudget = { used: false };
 	const status = statusInvocation(raw);
-	if (status === 'invalid') {
-		console.error('--check-status requires only --service crunchy and optional --debug');
+	const authStatus = statusInvocation(raw, '--check-auth');
+	if (status === 'invalid' || authStatus === 'invalid') {
+		console.error(`${authStatus === 'invalid' ? '--check-auth' : '--check-status'} requires only --service crunchy and optional --debug`);
 		process.exitCode = 1;
 		return;
 	}
 	const cliDefaults = yamlCfg.loadCliCfg();
 	const argv = appArgv(cliDefaults);
+	if (status === 'valid' || authStatus === 'valid') {
+		const { default: Crunchy } = await import('./crunchy');
+		const service = new Crunchy(false, recoveryBudget, true);
+		if (!(await service.cli())) process.exitCode = 1;
+		return;
+	}
 	if (argv.update) {
 		console.warn(`Updates disabled on this fork. Download updates: ${forkReleaseUrl(packageJson.fork)}`);
 		process.exitCode = 1;
@@ -54,13 +63,11 @@ import { cliInvocation, crunchyCliAuthDecision, leadingCliService } from './modu
 		process.exitCode = 1;
 		return;
 	}
-	if (status !== 'valid') {
-		const authDecision = crunchyCliAuthDecision(argv);
-		if (authDecision.kind !== 'continue') {
-			(authDecision.kind === 'notice' ? console.info : console.error)(authDecision.message);
-			if (authDecision.kind === 'error') process.exitCode = 1;
-			return;
-		}
+	const authDecision = crunchyCliAuthDecision(argv);
+	if (authDecision.kind !== 'continue') {
+		(authDecision.kind === 'notice' ? console.info : console.error)(authDecision.message);
+		if (authDecision.kind === 'error') process.exitCode = 1;
+		return;
 	}
 	const { makeCommand, addToArchive } = await import('./modules/module.downloadArchive');
 	const archiveCommands = argv.downloadArchive && !argv.addArchive && !(argv.all && argv.but) ? makeCommand(argv.service) : undefined;
@@ -76,11 +83,6 @@ import { cliInvocation, crunchyCliAuthDecision, leadingCliService } from './modu
 		import('./modules/module.updater')
 	]);
 	const SERVICES: Record<string, any> = { crunchy: Crunchy, hidive: Hidive, adn: ADN };
-	if (status === 'valid') {
-		const service = new Crunchy(false, recoveryBudget, true);
-		if (!(await service.cli())) process.exitCode = 1;
-		return;
-	}
 	if (!argv.dryRun && !argv.skipUpdate) await update(argv.update);
 
 	if (argv.all && argv.but) {

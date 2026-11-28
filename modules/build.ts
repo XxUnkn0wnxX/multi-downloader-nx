@@ -93,6 +93,7 @@ async function buildBinary(buildType: BuildTypes, gui: boolean) {
 	copyBundledFonts('./fonts', `${buildDir}/fonts`);
 	fs.copyFileSync('./package.json', `${buildDir}/package.json`);
 	copyReleaseDocs('.', buildDir);
+	if (!gui) fs.copyFileSync('./crunchyroll-phone-signin.cjs', `${buildDir}/crunchyroll-phone-signin.cjs`);
 	if (gui) {
 		fs.cpSync('./gui', `${buildDir}/gui`, { recursive: true });
 		fs.cpSync('./node_modules/open/xdg-open', `${buildDir}/xdg-open`, { recursive: true });

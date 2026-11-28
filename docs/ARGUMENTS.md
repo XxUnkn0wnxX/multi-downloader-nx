@@ -1,4 +1,4 @@
-# multi-downloader-nx v5.8.8 (Nightly) [Rev8]
+# multi-downloader-nx v5.8.8 (Nightly) [Rev9]
 
 [🚀 Getting started](GET-STARTED.md) · [🔑 Sign in to a service](AUTHENTICATION.md) · [Report an issue](https://github.com/XxUnkn0wnxX/multi-downloader-nx/issues)
 
@@ -360,7 +360,7 @@ Use `--service crunchy` before these options. For the full help on your computer
 | --- | --- | --- | --- | --- | --- |
 | Crunchyroll | `--service crunchy --device [type]` | `string` | `No` | `—` | `—` |
 
-Crunchyroll only. After `--service crunchy`, use `--device` on its own for help. Use `--device androidtv` to enter an activation code online or `--device android` to sign in and paste the full browser address into the terminal. With `--dry-run`, phone sign-in shows the link and hidden-paste prompt, and TV sign-in requests a real code and shows its expiry. Both previews cancel automatically before opening a browser, reading a callback or polling for approval. Neither preview exchanges tokens or saves a session. [Android TV steps](AUTHENTICATION.md#android-tv) · [Android phone steps](AUTHENTICATION.md#android-phone-or-tablet).
+Crunchyroll only. Use `--device androidtv` for a browser activation code or `--device android` for the Crunchyroll sign-in window. AniDL handles the phone callback automatically. With `--dry-run`, phone sign-in previews the window and TV sign-in requests a real code. Both cancel before opening a window or exchanging tokens. [Android TV steps](AUTHENTICATION.md#android-tv) · [Android phone steps](AUTHENTICATION.md#android-phone-or-tablet).
 #### `--silentAuth`
 
 | **Service** | **Usage** | **Type** | **Required** | **Alias** | **Default** | **cli-default Entry** |
@@ -648,6 +648,13 @@ If you find bugs with this, please report it in the discord or github
 Set the label appended to closed-caption tracks and filenames; this does not select signs or control caption downloads.
 
 ### Utilities
+#### `--check-auth`
+
+| **Service** | **Usage** | **Type** | **Required** | **Alias** | **cli-default Entry** |
+| --- | --- | --- | --- | --- | --- |
+| Crunchyroll | `--service crunchy --check-auth` | `boolean` | `No` | `—` | `—` |
+
+CLI-only action. Use `--service crunchy --check-auth`, with optional `--debug`. Reports which saved sign-ins are valid, missing, expired, rejected or unverified. Checks each current access token with a profile request and leaves saved sessions as they are. Exit status is 0 when all three checks confirm valid access and 1 otherwise.
 #### `--check-status`
 
 | **Service** | **Usage** | **Type** | **Required** | **Alias** | **cli-default Entry** |

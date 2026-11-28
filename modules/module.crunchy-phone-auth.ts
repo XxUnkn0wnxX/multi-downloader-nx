@@ -1,23 +1,30 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { createInterface } from 'node:readline';
-import { Writable } from 'node:stream';
+import { execFile } from 'node:child_process';
+import { appendFileSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { isAbsolute, join } from 'node:path';
 import { api, domain } from './module.api-urls';
 import { classifyOAuthError, validDeviceToken } from './module.crunchy-device-auth';
 import type { Req } from './module.fetch';
 import type { CrunchySession } from './module.crunchy-session-store';
+import { phoneWindowEnvironment, phoneWindowPath, resolvePhoneRuntime } from './module.crunchy-phone-runtime';
+
+export { PHONE_RUNTIME_ERROR } from './module.crunchy-phone-runtime';
 
 const ssoOrigin = 'https://sso.crunchyroll.com';
 const callbackPath = '/android/oauth-callback';
 const inputTimeoutMs = 10 * 60_000;
 const userAgent = 'Crunchyroll/3.130.0 Android/16 okhttp/5.3.2';
+const browserDevicePattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
 export const PHONE_CLIENT_REQUIRED =
 	'This build has missing or invalid Android phone sign-in settings (phone_client_id and phone_client_secret). An AniDL maintainer needs to update them.';
 export const PHONE_CLIENT_REJECTED =
 	'Crunchyroll rejected this build’s Android phone sign-in settings (phone_client_id and phone_client_secret). An AniDL maintainer needs to update them.';
 
-export const PHONE_CALLBACK_INVALID =
-	'AniDL could not verify that sign-in address. Start Android phone sign-in again and paste the full address from the browser tab opened for that attempt.';
+export const PHONE_WEBVIEW_FAILED = 'AniDL could not complete sign-in in the Crunchyroll window. Close the window and start Android phone sign-in again.';
+export const PHONE_BROWSER_DEVICE_MISSING = 'The sign-in window could not verify the browser device ID for this attempt. The Android exchange was skipped.';
 
 function phoneClient() {
 	const { phone_client_id: id, phone_client_secret: secret } = api;
@@ -41,30 +48,49 @@ export function parsePhoneCallback(input: string, state: string): string | undef
 	return codes[0];
 }
 
-const callbackInstructions = 'After sign-in, copy the full browser address, even on a 404 page.\nPaste it here and press Enter. Input is hidden to protect your sign-in code.\n';
-
-async function readCallback(): Promise<string | undefined> {
-	const hidden = new Writable({
-		write(_chunk, _encoding, done) {
-			done();
-		}
-	});
-	const input = createInterface({ input: process.stdin, output: hidden, terminal: true, historySize: 0 });
-	const close = () => input.close();
-	input.once('SIGINT', close);
-	process.once('SIGINT', close);
-	process.once('SIGTERM', close);
-	const timer = setTimeout(close, inputTimeoutMs);
+async function readWebViewCallback(executable: string, authorize: URL): Promise<{ callback: string; deviceId: string } | undefined> {
+	const env = phoneWindowEnvironment();
+	const overridden = new Set(['ELECTRON_RUN_AS_NODE', 'ELECTRON_NO_ATTACH_CONSOLE', 'ELECTRON_ENABLE_LOGGING', 'ELECTRON_LOG_FILE', 'NODE_OPTIONS']);
+	for (const name of Object.keys(env)) {
+		if (overridden.has(name.toUpperCase())) delete env[name];
+	}
+	env.ELECTRON_NO_ATTACH_CONSOLE = '1';
+	const profile = await mkdtemp(join(tmpdir(), 'anidl-phone-signin-'));
 	try {
-		process.stdout.write(callbackInstructions);
-		for await (const line of input) return line;
+		return await new Promise((resolve, reject) => {
+			const controller = new AbortController();
+			const cancel = () => controller.abort();
+			const child = execFile(
+				executable,
+				[phoneWindowPath(), profile],
+				{
+					encoding: 'utf8',
+					timeout: inputTimeoutMs,
+					maxBuffer: 8230,
+					signal: controller.signal,
+					windowsHide: true,
+					env
+				},
+				(error, stdout) => {
+					process.removeListener('SIGINT', cancel);
+					process.removeListener('SIGTERM', cancel);
+					if (controller.signal.aborted || error?.code === 2 || error?.signal === 'SIGINT') return resolve(undefined);
+					if (error?.code === 4) return reject(new Error(PHONE_BROWSER_DEVICE_MISSING));
+					if (error) return reject(new Error(PHONE_WEBVIEW_FAILED));
+					const lines = stdout.trim().split('\n');
+					const [callback, deviceId] = lines;
+					if (!callback || /[\r\n]/.test(callback)) return reject(new Error(PHONE_WEBVIEW_FAILED));
+					if (lines.length !== 2 || !deviceId || !browserDevicePattern.test(deviceId)) return reject(new Error(PHONE_BROWSER_DEVICE_MISSING));
+					resolve({ callback, deviceId });
+				}
+			);
+			process.once('SIGINT', cancel);
+			process.once('SIGTERM', cancel);
+			child.stdin?.on('error', () => {});
+			child.stdin?.end(`${authorize.href}\n`);
+		});
 	} finally {
-		clearTimeout(timer);
-		close();
-		process.removeListener('SIGINT', close);
-		process.removeListener('SIGTERM', close);
-		hidden.end();
-		process.stdout.write('\n');
+		await rm(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).catch(() => {});
 	}
 }
 
@@ -119,8 +145,12 @@ async function exchangePhoneToken(request: Req['getData'], fields: Record<string
 }
 
 export async function loginWithPhone(request: Req['getData'], dryRun = false): Promise<CrunchySession | 'dry-run' | undefined> {
-	if (!dryRun && (!process.stdin.isTTY || !process.stdout.isTTY)) throw new Error('Android phone sign-in requires an interactive terminal.');
 	const client = phoneClient();
+	if (dryRun) {
+		process.stdout.write('Dry run: the Crunchyroll sign-in window would open.\n');
+		return 'dry-run';
+	}
+	const executable = await resolvePhoneRuntime();
 	const verifier = randomBytes(32).toString('base64url');
 	const state = JSON.stringify({ flow: 'SIGN_IN', flowRoot: randomUUID() });
 	const authorize = new URL('/en/authorize', ssoOrigin);
@@ -133,19 +163,44 @@ export async function loginWithPhone(request: Req['getData'], dryRun = false): P
 		response_type: 'code',
 		state
 	}).toString();
-	process.stdout.write(`If your browser doesn’t open, use this sign-in link.\n\n${authorize.href}\n\n`);
-	if (dryRun) {
-		process.stdout.write(callbackInstructions);
-		return 'dry-run';
+	process.stdout.write('Use the Crunchyroll window to sign in.\n');
+	const tracePath = phoneWindowEnvironment().ANIDL_CRUNCHY_PHONE_TRACE;
+	const trace =
+		tracePath && isAbsolute(tracePath)
+			? (event: string, status?: number) => {
+					try {
+						appendFileSync(tracePath, `${JSON.stringify({ at: Date.now(), event, status })}\n`, { mode: 0o600 });
+					} catch {
+						// A diagnostic write must not interrupt sign-in.
+					}
+				}
+			: undefined;
+	const result = await readWebViewCallback(executable, authorize);
+	if (!result) {
+		trace?.('cli.cancelled');
+		return;
 	}
-	void import('open').then(({ default: open }) => open(authorize.href)).catch(() => {});
-	const input = await readCallback();
-	if (!input) return;
-	const code = parsePhoneCallback(input, state);
-	if (!code) throw new Error(PHONE_CALLBACK_INVALID);
-	const deviceId = randomUUID();
+	const { callback, deviceId } = result;
+	const code = parsePhoneCallback(callback, state);
+	trace?.(code ? 'cli.callback-validated' : 'cli.callback-rejected');
+	if (!code) throw new Error(PHONE_WEBVIEW_FAILED);
+	const exchange: Req['getData'] = trace
+		? async (url, options) => {
+				trace('cli.token-request');
+				try {
+					const result = await request(url, options);
+					const status = result.res?.status;
+					trace(typeof status === 'number' ? 'cli.token-result' : 'cli.token-no-response', status);
+					return result;
+				} catch (error) {
+					trace('cli.token-error');
+					throw error;
+				}
+			}
+		: request;
+	trace?.('cli.browser-device-selected');
 	return exchangePhoneToken(
-		request,
+		exchange,
 		{ grant_type: 'authorization_code', code, code_verifier: verifier },
 		{
 			device_id: deviceId,

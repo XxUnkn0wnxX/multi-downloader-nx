@@ -79,7 +79,7 @@ Show how to sign in with a browser cookie or cookies file
 			message: `Android TV — enter the activation code online
   --device androidtv
 
-Android phone or tablet — paste the final browser address (input is hidden)
+Android phone or tablet — sign in through the Crunchyroll window
   --device android`
 		};
 	if (argv.token === true)

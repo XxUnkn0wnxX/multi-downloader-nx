@@ -8,7 +8,7 @@ Start Crunchyroll CLI commands with `--service crunchy` and specify the service 
 
 | CLI option **(Crunchyroll only)** | Input to check first | Required before saving |
 | --- | --- | --- |
-| `--device android` | Final address from the Android phone browser sign-in | Matching callback and a successful code exchange with usable tokens and an account ID |
+| `--device android` | Email and password in the Crunchyroll sign-in window | Matching callback and browser device ID, usable tokens, profile lookup and CMS authorization |
 | `--device androidtv` | User code entered on the TV activation page | Provider approval, usable tokens, profile lookup and fresh CMS authorization |
 | `--token` | Browser cookie value or cookies file | Successful web-cookie exchange, profile lookup and fresh CMS authorization |
 
@@ -19,7 +19,7 @@ aniDL --service crunchy --device android --dry-run
 aniDL --service crunchy --device androidtv --dry-run
 ```
 
-Phone sign-in builds the authorization link and displays the hidden-paste instructions, then cancels automatically before opening a browser or accepting input. TV sign-in requests a real device code and reports its initial expiry, then cancels automatically before opening the activation page or polling for approval. Neither flow exchanges a token or changes a saved session.
+Phone preview shows that the sign-in window would open and cancels before preparing it. TV preview requests a real device code and reports its initial expiry, then cancels before opening the activation page or polling for approval. Neither flow exchanges a token or changes a saved session.
 
 ## Android phone callback
 
@@ -30,13 +30,13 @@ https://sso.crunchyroll.com/android/oauth-callback?code=EXAMPLE_CODE&state=ENCOD
 ```
 
 - **Address.** AniDL expects the HTTPS origin `https://sso.crunchyroll.com` and the exact path `/android/oauth-callback`. It rejects embedded usernames or passwords, a fragment, and an OAuth `error` parameter.
-- **Query.** There must be exactly one `code` and one `state`. The decoded code must contain 1–2,048 printable ASCII characters, excluding spaces. The full pasted address is limited to 8,192 characters.
+- **Query.** There must be exactly one `code` and one `state`. The decoded code must contain 1–2,048 printable ASCII characters, excluding spaces. The callback is limited to 8,192 bytes.
 - **State.** The URL-decoded value must match the state issued for this attempt. AniDL generates it in the form `{"flow":"SIGN_IN","flowRoot":"EXAMPLE_UUID"}`, with a fresh UUID each time. Query order and unrelated extra fields are allowed.
-- **Browser and terminal.** A **404 at this callback is harmless**. Copy the entire address from the browser’s address bar, paste once and press Enter. The terminal hides the paste because the address contains a private sign-in code.
-- **Exchange.** AniDL sends the code and the verifier from that same attempt to the provider. An address can pass the local checks and still contain an expired or fabricated code. A failed exchange leaves the saved session intact. The phone flow requires a usable access token, refresh token, positive expiry and an account ID before saving.
+- **Device ID.** The window verifies that the authorize redirect used the `device_id` cookie from that attempt’s password response. AniDL uses the same ID in the exchange and names the device `Android Phone (xxxx)`.
+- **Exchange.** AniDL sends the code and verifier from the same attempt, validates the returned tokens and account, and checks profile and CMS access before saving. A failed sign-in leaves the saved session intact.
 
-- If the terminal **rejects the pasted address**, check the origin, path and query fields against the example above. [Callback parser](../modules/module.crunchy-phone-auth.ts)
-- If the **code has expired**, start a fresh browser sign-in.
+- If the **window does not start**, check the desktop requirements. AniDL downloads a checksum-verified Electron runtime on first use. Set `ANIDL_CRUNCHY_PHONE_WEBVIEW` in your shell to use an existing Electron executable by its absolute path. Big Sur uses Electron 37, which no longer receives updates. [Electron support schedule](https://releases.electronjs.org/schedule)
+- If the **callback or device ID could not be verified**, start a fresh phone sign-in. [Callback parser](../modules/module.crunchy-phone-auth.ts)
 - For an **app settings warning**, check `phone_client_id` and `phone_client_secret` for missing or malformed values, or an explicit `invalid_client` response during sign-in or refresh. Report only the setting names and the stage that failed. [Bundled sign-in settings](DEVELOPMENT.md#bundled-sign-in-settings)
 
 ## Android TV approval

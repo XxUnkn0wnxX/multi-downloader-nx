@@ -77,7 +77,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		group: 'auth',
 		service: ['crunchy'],
 		docDescribe:
-			'Crunchyroll only. After `--service crunchy`, use `--device` on its own for help. Use `--device androidtv` to enter an activation code online or `--device android` to sign in and paste the full browser address into the terminal. With `--dry-run`, phone sign-in shows the link and hidden-paste prompt, and TV sign-in requests a real code and shows its expiry. Both previews cancel automatically before opening a browser, reading a callback or polling for approval. Neither preview exchanges tokens or saves a session. [Android TV steps](AUTHENTICATION.md#android-tv) · [Android phone steps](AUTHENTICATION.md#android-phone-or-tablet).',
+			'Crunchyroll only. Use `--device androidtv` for a browser activation code or `--device android` for the Crunchyroll sign-in window. AniDL handles the phone callback automatically. With `--dry-run`, phone sign-in previews the window and TV sign-in requests a real code. Both cancel before opening a window or exchanging tokens. [Android TV steps](AUTHENTICATION.md#android-tv) · [Android phone steps](AUTHENTICATION.md#android-phone-or-tablet).',
 		usage: '[type]'
 	},
 	{
@@ -827,6 +827,16 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		docDescribe: true,
 		group: 'help',
 		service: ['all'],
+		type: 'boolean',
+		usage: ''
+	},
+	{
+		name: 'check-auth',
+		describe: 'Check the saved Crunchyroll Android TV, Android phone and browser-cookie sign-ins (optional --debug)',
+		docDescribe:
+			'CLI-only action. Use `--service crunchy --check-auth`, with optional `--debug`. Reports which saved sign-ins are valid, missing, expired, rejected or unverified. Checks each current access token with a profile request and leaves saved sessions as they are. Exit status is 0 when all three checks confirm valid access and 1 otherwise.',
+		group: 'util',
+		service: ['crunchy'],
 		type: 'boolean',
 		usage: ''
 	},

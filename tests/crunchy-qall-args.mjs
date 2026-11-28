@@ -129,7 +129,7 @@ for (const { name, runtime, expected } of [
 			assert.equal(lines.length, 5, 'show just two labeled examples');
 			assert.equal(lines[2], '');
 			assert.deepEqual([lines[1], lines[4]], argv.device ? ['  --device androidtv', '  --device android'] : ['  --token "cookies.txt"', '  --token "YOUR_COOKIE_VALUE"']);
-			if (argv.device) assert.match(lines[3], /input is hidden/);
+			if (argv.device) assert.match(lines[3], /Crunchyroll window/);
 			else assert.match(lines[3], /etp_rt/);
 		}
 		assert.doesNotMatch(decision.message, /--service|(?:^|\n)\s*(?:anidl|aniDL\.exe|node|pnpm exec tsx)\s+--|\/synthetic\/|\/unrelated\/|node_modules|\.\.\/|C:\/synthetic/i);
@@ -389,6 +389,13 @@ assert.equal(parser.statusInvocation(['--check-status=false', '--service', 'crun
 assert.equal(parser.statusInvocation(['--check-status', '--service', 'hidive']), 'invalid');
 assert.equal(parse([], { 'check-status': true }).checkStatus, undefined);
 assert.equal(parse(['--check-status'], { tsd: true, qall: true }).checkStatus, true);
+assert.equal(parser.statusInvocation(['--service=crunchy', '--check-auth', '--debug'], '--check-auth'), 'valid');
+for (const extra of ['--check-status', '--device', '--token', '--help', '--dry-run', '--update', '--check-auth'])
+	assert.equal(parser.statusInvocation(['--service', 'crunchy', '--check-auth', extra], '--check-auth'), 'invalid');
+assert.equal(parser.statusInvocation(['--check-auth=false', '--service', 'crunchy'], '--check-auth'), 'invalid');
+assert.equal(parser.statusInvocation(['--check-auth', '--service', 'adn'], '--check-auth'), 'invalid');
+assert.equal(parse([], { 'check-auth': true }).checkAuth, undefined);
+assert.equal(parse(['--check-auth']).checkAuth, true);
 assert.equal(parse([]).CC, true);
 assert.equal(parse([], { CC: false }).CC, false);
 for (const argv of [['--CC'], ['--CC', 'true'], ['--CC=true']]) assert.equal(parse(argv, { CC: false }).CC, true);
@@ -507,6 +514,7 @@ for (const [argv, cfg, crunchy] of [
 	assert.equal(text.includes('--bypasssync'), crunchy);
 	assert(!text.includes('--forcevid'));
 	assert.equal(text.includes('--check-status'), crunchy);
+	assert.equal(text.includes('--check-auth'), crunchy);
 	assert.equal(text.includes('--device'), crunchy);
 	assert(text.includes('--dry-run'));
 	assert(text.includes('--update'));
@@ -600,6 +608,7 @@ assert.equal((section('-x', null).match(/`x: ` or `server: `/g) ?? []).length, 1
 assert.match(section('--bypasssync'), /`bypasssync: `/);
 assert(!docs.includes('#### `--forcevideo`'));
 assert.match(section('--check-status'), /`—`/);
+assert.match(section('--check-auth'), /`—`/);
 assert.match(section('--vstream'), /`vstream: ` or `vs: `/);
 assert.match(section('--astream'), /`astream: ` or `as: `/);
 
