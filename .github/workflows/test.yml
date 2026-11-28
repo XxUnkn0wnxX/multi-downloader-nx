@@ -113,7 +113,7 @@ jobs:
                   done
 
     cli-preview:
-        name: CLI artifact (${{ inputs.cli_target }})
+        name: Build CLI package (manual)
         needs: [tsc, node22, eslint, prettier]
         if: github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') && inputs.cli_target != 'none'
         runs-on: ${{ endsWith(inputs.cli_target, '-arm64') && 'macos-latest' || 'ubuntu-latest' }}
