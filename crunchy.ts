@@ -137,20 +137,22 @@ function playbackSlot(endpoint: VideoEndpoint): PlaybackSlot {
 	return endpoint === 'androidtv' ? 'androidtv' : endpoint === 'android' || endpoint === 'androidtab' ? 'android' : 'web';
 }
 
+const playbackAuthHint = 'Check your saved sign-ins with --check-auth.';
+
+function reportPlaybackAuthError(message: string): void {
+	console.error(`${message}\n${playbackAuthHint}`);
+}
+
 function playbackAuthError(role: PlaybackRole, endpoint: VideoEndpoint, failure: PlaybackAuthFailure): void {
 	const prefix = `${role} endpoint "${endpoint}"`;
 	const { session, command } = playbackSignIns[playbackSlot(endpoint)];
 	if (failure === 'unavailable') {
-		console.error(`${prefix} could not refresh the saved session. Retry later.`);
-	} else if (failure === 'account') {
-		console.error(
-			`${prefix} requires a session for the active Crunchyroll account. Sign in using the same account.\n${crunchyLoginInstruction(command)}\nWhen AniDL confirms you’re signed in, run your download command again.`
-		);
-	} else {
-		console.error(
-			`${prefix} has no valid ${session} session. Sign in first.\n${crunchyLoginInstruction(command)}\nWhen AniDL confirms you’re signed in, run your download command again.`
-		);
+		reportPlaybackAuthError(`${prefix} could not refresh the saved session. Retry later.`);
+		return;
 	}
+	const reason =
+		failure === 'account' ? 'requires a session for the active Crunchyroll account. Sign in using the same account.' : `has no valid ${session} session. Sign in first.`;
+	reportPlaybackAuthError(`${prefix} ${reason}\n${crunchyLoginInstruction(command)}\nWhen AniDL confirms you’re signed in, run your download command again.`);
 }
 
 async function playbackCredentialsRejected(response?: Response): Promise<boolean> {
@@ -1207,10 +1209,13 @@ export default class Crunchy implements ServiceClass {
 		} catch (error) {
 			const notice = clientSettingsNotice(error);
 			if (!notice) throw error;
-			console.error(notice);
+			reportPlaybackAuthError(notice);
 			return false;
 		}
-		if (!refreshed) return false;
+		if (!refreshed) {
+			console.info(playbackAuthHint);
+			return false;
+		}
 		auth.session = refreshed;
 		return true;
 	}
@@ -1235,12 +1240,12 @@ export default class Crunchy implements ServiceClass {
 		const audioSlot = playbackSlot(audioEndpoint);
 		const videoCheck = await this.checkPlaybackSession(videoSlot);
 		if ('clientSettingsNotice' in videoCheck) {
-			console.error(videoCheck.clientSettingsNotice);
+			reportPlaybackAuthError(videoCheck.clientSettingsNotice);
 			return;
 		}
 		const audioCheck = videoSlot === audioSlot ? videoCheck : await this.checkPlaybackSession(audioSlot);
 		if ('clientSettingsNotice' in audioCheck) {
-			console.error(audioCheck.clientSettingsNotice);
+			reportPlaybackAuthError(audioCheck.clientSettingsNotice);
 			return;
 		}
 		if ('failure' in videoCheck && (!options.novids || options.noaudio)) {
@@ -1251,7 +1256,7 @@ export default class Crunchy implements ServiceClass {
 		const video = this.playbackAuth(videoEndpoint, videoCheck.session);
 		const audio = videoEndpoint === audioEndpoint ? video : this.playbackAuth(audioEndpoint, audioCheck.session);
 		if (video.slot !== audio.slot && (!video.session.account_id || video.session.account_id !== audio.session.account_id)) {
-			console.error('Crunchyroll video and audio sessions must belong to the same account.');
+			reportPlaybackAuthError('Crunchyroll video and audio sessions must belong to the same account.');
 			return;
 		}
 		return { video, audio };
@@ -2645,6 +2650,8 @@ export default class Crunchy implements ServiceClass {
 											);
 											const status = response.res?.status ?? response.error?.res?.status;
 											if (!response.ok || !response.res) {
+												if (await playbackCredentialsRejected(response.res))
+													reportPlaybackAuthError(`Video endpoint "${routing.video.endpoint}" rejected its saved session.`);
 												if (!response.error && (status === 403 || status === 404)) return { status: 'unavailable' as const };
 												if (
 													options.queueRecovery &&
@@ -3500,6 +3507,7 @@ export default class Crunchy implements ServiceClass {
 							hardsub_locale: ''
 						};
 					} else {
+						if (videoDLReq.authRejected) reportPlaybackAuthError(`Video endpoint "${videoAuth.endpoint}" rejected its saved session.`);
 						if (videoDLReq.status === 429) { terminalPlayback429 = true; if (!state.noticeShown) { this.playbackRateNotice(state.resetPerformed, state.permitClear || state.budget.used); state.noticeShown = true; } return undefined; }
 						if ((globalPass || recoveryBudget) && (!('status' in videoDLReq) || (videoDLReq.status !== 403 && videoDLReq.status !== 404) || videoDLReq.transportError)) { if (globalPass) globalPass.cleanupFailed = true; return undefined; }
 						derivedPlaystreams[''] = {

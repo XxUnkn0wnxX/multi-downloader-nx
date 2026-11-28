@@ -834,7 +834,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		name: 'check-auth',
 		describe: 'Check the saved Crunchyroll Android TV, Android phone and browser-cookie sign-ins (optional --debug)',
 		docDescribe:
-			'CLI-only action. Use `--service crunchy --check-auth`, with optional `--debug`. Reports which saved sign-ins are valid, missing, expired, rejected or unverified. Checks each current access token with a profile request and leaves saved sessions as they are. Exit status is 0 when all three checks confirm valid access and 1 otherwise.',
+			'CLI-only action. Use `--service crunchy --check-auth`, with optional `--debug`, to diagnose endpoint sign-in errors. Reports which saved sign-ins are valid, missing, expired, rejected or unverified. Checks each current access token with a profile request and leaves saved sessions as they are. Exit status is 0 when all three checks confirm valid access and 1 otherwise.',
 		group: 'util',
 		service: ['crunchy'],
 		type: 'boolean',

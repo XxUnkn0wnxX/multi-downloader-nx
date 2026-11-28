@@ -1323,6 +1323,7 @@ try {
 			for (const [index, role] of ['Video', 'Audio'].entries()) {
 				assert.match(errors[index], new RegExp(`${role} endpoint "androidtv"`));
 				assert.match(errors[index], expected instanceof RegExp ? expected : new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+				assert.match(errors[index], /Check your saved sign-ins with --check-auth\./);
 			}
 		}
 	});
@@ -1349,6 +1350,7 @@ try {
 				assert.equal(errors.length, 1, `${role}: ${JSON.stringify(errors)}`);
 				assert(errors[0].includes(role === 'audio' ? 'web_basic_auth_token' : 'basic_auth_token'));
 				assert(!/retry later|sign in again|sign in first|fixture-secret/i.test(errors[0]));
+				assert.equal(errors[0].includes('--check-auth'), role !== 'regular');
 				assert.equal(service.token, active);
 			}
 		} finally {

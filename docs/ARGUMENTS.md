@@ -654,7 +654,7 @@ Set the label appended to closed-caption tracks and filenames; this does not sel
 | --- | --- | --- | --- | --- | --- |
 | Crunchyroll | `--service crunchy --check-auth` | `boolean` | `No` | `—` | `—` |
 
-CLI-only action. Use `--service crunchy --check-auth`, with optional `--debug`. Reports which saved sign-ins are valid, missing, expired, rejected or unverified. Checks each current access token with a profile request and leaves saved sessions as they are. Exit status is 0 when all three checks confirm valid access and 1 otherwise.
+CLI-only action. Use `--service crunchy --check-auth`, with optional `--debug`, to diagnose endpoint sign-in errors. Reports which saved sign-ins are valid, missing, expired, rejected or unverified. Checks each current access token with a profile request and leaves saved sessions as they are. Exit status is 0 when all three checks confirm valid access and 1 otherwise.
 #### `--check-status`
 
 | **Service** | **Usage** | **Type** | **Required** | **Alias** | **cli-default Entry** |

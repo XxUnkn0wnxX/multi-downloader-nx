@@ -4001,6 +4001,7 @@ assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/
 		assert.equal(await service.downloadMediaList(mediaData, opts), undefined);
 		assert.equal(roleErrors().length, 1);
 		assert.match(roleErrors()[0], /Audio endpoint "android" has no valid Android phone session\. Sign in first\./);
+		assert.match(roleErrors()[0], /Check your saved sign-ins with --check-auth\./);
 		assert.match(roleErrors()[0], /Keep your Crunchyroll command and replace its options with:[\s\S]*--device android/);
 		assert.doesNotMatch(roleErrors()[0], /--service|aniDL|anidl/);
 		assert.match(roleErrors()[0], /run your download command again\./i);
@@ -4019,9 +4020,10 @@ assert.equal(mediaRequests.filter((r) => r.target === 'https://api.example.test/
 		assert.equal(observed.filter((item) => item.url.includes('/play?')).length, 1);
 		reject = undefined;
 		phone.account_id = 'different-account';
-		observed.length = 0;
+		observed.length = mediaLogs.length = 0;
 		assert.equal(await service.downloadMediaList(mediaData, opts), undefined);
 		assert.deepEqual(observed, []);
+		assert(mediaLogs.some(([message]) => /same account[\s\S]*--check-auth/i.test(String(message))));
 	} finally {
 		service.req = previous.request;
 		service.token = previous.token;
