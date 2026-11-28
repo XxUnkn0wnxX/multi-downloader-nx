@@ -13,14 +13,19 @@ pnpm install --frozen-lockfile
 pnpm exec tsx index.ts --help
 ```
 
-To compile and run the CLI locally, use the following commands from the repository root.
+To compile and run the CLI locally, start from the repository root. **`pnpm run prebuild-cli` deletes and recreates `lib/`.** If you have settings, saved sign-ins, or downloads under `lib/`, copy them to a persistent folder before rebuilding. Keep the same `config/` and `videos/` subfolders.
 
 ```sh
 pnpm run prebuild-cli
 node lib/index.js --help
 ```
 
-Use `node lib/index.js` in place of `aniDL.exe` or `./aniDL` in the user guides. Keep the same service and options. Platform-specific packaging commands are listed in [package.json](../package.json).
+The compiled CLI defaults to `lib/config/` for settings and saved sign-ins and `lib/videos/` for downloads. Before signing in or downloading, set `contentDirectory` to the absolute path of a persistent folder outside `lib/`. Keep the variable set whenever you run the compiled CLI with that data.
+
+- **Linux and macOS** — `export contentDirectory="$HOME/anidl-data"`
+- **Windows Command Prompt** — `set "contentDirectory=%USERPROFILE%\anidl-data"`
+
+Use `pnpm exec tsx index.ts` or `node lib/index.js` in place of `aniDL.exe` or `./aniDL` in the user guides. Keep the same service and options. Platform-specific packaging commands are listed in [package.json](../package.json).
 
 ## Check a change
 
