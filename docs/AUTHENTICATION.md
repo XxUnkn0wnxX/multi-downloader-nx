@@ -44,9 +44,9 @@ aniDL.exe --service crunchy --device androidtv
 
 ### Android phone or tablet
 
-Use `--device android` **(Crunchyroll only)** for phone or tablet video or audio. Starting with Rev8, AniDL includes the phone client settings.
+Use `--device android` **(Crunchyroll only)** for phone or tablet video or audio. Starting with Rev8, AniDL includes the app settings for phone sign-in and automatically uses them when refreshing a saved phone login.
 
-If phone sign-in is unavailable, choose [Android TV](#android-tv) or [a browser cookie](#browser-cookie) and use the [matching single-login commands](GET-STARTED.md#if-you-signed-in-with-one-method).
+If AniDL says a maintainer needs to update the phone settings, check for a newer build. You can also use [Android TV](#android-tv) or [a browser cookie](#browser-cookie) with the [matching single-login commands](GET-STARTED.md#if-you-signed-in-with-one-method). If you report the warning, include only the setting names shown.
 
 <details>
 <summary>🪟 Windows — Command Prompt</summary>
@@ -68,7 +68,7 @@ aniDL.exe --service crunchy --device android
 
 [![AniDL asks for the full browser address and explains that pasted input is hidden](imgs/cli/cr-login-android.png)](imgs/cli/cr-login-android.png)
 
-*Example with the sign-in link redacted. After sign-in, paste the full address from your own browser.*
+*Rev7 screenshot with the sign-in link redacted. Paste the full address from your own browser.*
 
 1. Sign in to Crunchyroll in your browser. If the browser stays closed, open the sign-in link printed in the terminal.
 2. After sign-in, copy the **entire address** from the browser’s address bar, even if the page says **404 – Page Not Found**. AniDL uses the address on that page.

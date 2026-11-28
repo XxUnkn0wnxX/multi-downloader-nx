@@ -6,9 +6,10 @@ Changes specific to this fork are grouped below with their implementation commit
 
 ### Nightly Rev8 — Phone sign-in and subtitle fonts
 
-- Bundle the Android phone sign-in settings with AniDL. Start phone sign-in with `--service crunchy --device android` **(Crunchyroll only)** and complete the browser prompts. [Android phone sign-in](AUTHENTICATION.md#android-phone-or-tablet)
-- Ship a set of [subtitle fonts and their licenses](../fonts/README.md) in `fonts/` and remove the loose font beside the executable.
-- Fetch missing Crunchyroll subtitle fonts before muxing an MKV. AniDL warns about any fonts it could not fetch and continues without those attachments.
+- Android phone sign-in and refresh now use the settings bundled with AniDL. Run the same `--service crunchy --device android` command **(Crunchyroll only)**, complete sign-in in your browser, then paste the final address into the terminal. [Sign-in guide](AUTHENTICATION.md#android-phone-or-tablet) · [Phone settings change](https://github.com/XxUnkn0wnxX/multi-downloader-nx/commit/35786611e712c0ecb1cf30dcea648abe268bcba7)
+- If Crunchyroll or HIDIVE explicitly rejects a bundled app setting, AniDL names the setting a maintainer needs to update and keeps the saved login. [Warning guide](DEVELOPMENT.md#bundled-sign-in-settings) · [Sign-in diagnostics](https://github.com/XxUnkn0wnxX/multi-downloader-nx/commit/ca1b2057285eb280f37f07c9045d005d06ba0470)
+- The CLI archive now includes 31 subtitle fonts and their license notices in `fonts/`, replacing the loose `NotoSans-Regular.ttf` beside the executable. [Bundled fonts](../fonts/README.md) · [Font packaging change](https://github.com/XxUnkn0wnxX/multi-downloader-nx/commit/dd108d5a77123aea17352b3e42e0a1adc8d845b3)
+- When saving a Crunchyroll MKV, AniDL tries to fetch missing catalog fonts referenced by the selected ASS subtitles. It lists any unavailable fonts and continues muxing.
 
 ## 2026-11-28
 
@@ -23,7 +24,7 @@ Changes specific to this fork are grouped below with their implementation commit
 - Start each service command with one `--service` and its name. Bare `--help` opens general help. Bare `--device` and `--token` **(Crunchyroll only)** show examples after the service. HIDIVE and ADN still use `--auth` for username or email and password. [CLI routing](https://github.com/XxUnkn0wnxX/multi-downloader-nx/commit/497e32af4bca05a08d919fd74b9199dbe49a9583)
 - Add `--dry-run` to either Crunchyroll device sign-in to see the prompt. AniDL skips the browser and cancels automatically. Android TV requests a real code before cancelling. [Device sign-in previews](https://github.com/XxUnkn0wnxX/multi-downloader-nx/commit/ec91cd8ec223e36ffbc4b53af3da99ecb2beb944)
 - Reject a repeated service, an invalid saved Crunchyroll token setting, or a dry-run archive addition before taking action. [Validation changes](https://github.com/XxUnkn0wnxX/multi-downloader-nx/commit/1198ac44bce0721c31ed0c5055365fb2659148c5)
-- Follow the Windows or Linux walkthrough from sign-in through a first episode. [Getting started](GET-STARTED.md) · [Service sign-in guide](AUTHENTICATION.md)
+- Follow the Windows, Linux or macOS walkthrough from sign-in through a first episode. [Getting started](GET-STARTED.md) · [Service sign-in guide](AUTHENTICATION.md)
 
 ### Download archive
 

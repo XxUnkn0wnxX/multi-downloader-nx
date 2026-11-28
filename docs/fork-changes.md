@@ -88,7 +88,7 @@ On Crunchyroll, `--auth` redirects the user to device or cookie sign-in. Bare `-
 
 `--device androidtv` **(Crunchyroll only)** opens the activation page in the browser, prints the same link and the user code, waits for approval, and saves an Android TV session after profile/CMS validation. With `--dry-run`, it requests a device code and reports its initial expiry, then cancels automatically before opening the browser or polling for approval. It does not exchange a token or change the saved session; code validity after cancellation is not checked. New logins use `ANDROIDTV (xxxx)`, where `xxxx` is the last four characters of the device UUID. Preserve that UUID, name, `auth_type: device`, User-Agent and issuer across refreshes. Failed login must retain the previous session; transient refresh failures must keep saved credentials and stop affected work. See the [TV approval and validation steps](CRUNCHYROLL-AUTH.md#android-tv-approval).
 
-Use the main authentication endpoint first with one warned beta fallback for eligible failures. Pin polling to the issuer and preserve configured proxy routing. Full request diagnostics remain available with `--debug`.
+Use the main authentication endpoint first with one warned beta fallback for eligible failures. Pin polling to the issuer and preserve configured proxy routing. Keep credential-bearing device and token requests private under `--debug`. For device-code errors, show the HTTP status and recognized OAuth messages. On a confirmed app-client rejection, name the affected bundled setting so a maintainer can update it. [App-setting warnings](DEVELOPMENT.md#bundled-sign-in-settings)
 
 `--device android` **(Crunchyroll only)** opens the Android phone browser sign-in, prints the same URL for manual use, and accepts the full official callback in a hidden Terminal prompt. With `--dry-run`, it builds the URL and shows the paste instructions, then cancels automatically before opening a browser or accepting input. It does not exchange a token or change the saved session. Require the expected HTTPS origin, callback path and one matching state before exchanging the code. Phone sign-in and refresh use the phone OAuth client from the API constants. Preserve the existing GUI flows, other services' auth and browser-cookie `--token` inputs. Device login does not guarantee CBR or an 8,000 kb/s video. See the [Android phone callback structure](CRUNCHYROLL-AUTH.md#android-phone-callback).
 
@@ -154,9 +154,11 @@ Keep one account-wide clear per command, five-second polling under one 60-second
 
 `--dry-run` is a CLI or programmatic action and is not enabled by configuration. It lists available and selected stream information for Crunchyroll, HIDIVE and ADN, then stops before license requests, media/subtitle/font downloads, chapter output, decryption, muxing and completed-download archive writes. Keep outer provider completion guards and cleanup of only the preview's own playback sessions, except for a capacity-based reset enabled by `--tsd` **(Crunchyroll only)** or `tsd: true`, including previews. The standalone font command lists planned URLs in preview mode.
 
-Before muxing a Crunchyroll MKV with selected subtitles, fetch only missing faces in the existing font catalog and cache them in the configured fonts folder. Report fonts still unavailable and continue muxing with the available attachments. The standalone `--dlFonts` command still downloads the full catalog. Skip automatic font requests when muxing or subtitle muxing is disabled, when producing MP4, and during previews.
-
 Preview mode skips automatic updates. An explicit `--update` request prints the fork notice above and exits; archive-add actions remain rejected. Existing authentication/refresh, metadata requests and HEAD checks, logging and GUI queue progression can still occur; this is a download preview. `--debug` remains available. Normal download behavior and prerequisites must be preserved.
+
+### Crunchyroll subtitle font downloads
+
+Before muxing a Crunchyroll MKV, fetch missing catalog files referenced by the selected ASS subtitles and cache them in the configured fonts folder. One 15-second timeout covers automatic requests for that mux. Report unavailable fonts by name and continue with the available attachments. The standalone `--dlFonts` **(Crunchyroll only)** checks the full catalog. HIDIVE and ADN use local fonts. Previews, MP4 output, a missing muxer, and disabled muxing or subtitle muxing skip automatic requests.
 
 ### Crunchyroll mux flags and track order
 
@@ -182,7 +184,7 @@ Both MKVToolNix and FFmpeg set video-track language metadata to `und`. Preserve 
 
 ### Fork CI and Nightly builds
 
-The fork uses two workflows. Tests checks the CLI on Node 22 and 24, validates the generated CLI reference and skips pushes or pull requests limited to Markdown, `docs/` or `tools/`. The upstream Docker and automatic documentation publishing workflows were removed. [Tests workflow](../.github/workflows/test.yml)
+The fork uses two workflows. Tests checks the CLI on Node 22 and 24, validates the generated CLI reference and skips pushes or pull requests limited to Markdown, `docs/` or `tools/`. A manual Tests run can package one CLI target from `develop` or `main` as a downloadable artifact after all checks pass. Such runs are excluded from Nightly release verification. The upstream Docker and automatic documentation publishing workflows were removed. [Tests workflow](../.github/workflows/test.yml)
 
 Nightly Fork publishes eight CLI archives with SHA-256 files at the fixed `nightly-fork` tag. Publication requires a current `main` target and passing Tests for its source inputs. Release notes distinguish the built commit from the tested commit when an eligible manual run reuses a passing ancestor. The macOS CLI packages use Node 22 for Big Sur. [Nightly Fork workflow](../.github/workflows/release-matrix.yml) · [Release and verification steps](DEVELOPMENT.md#publish-a-nightly-release)
 
@@ -192,6 +194,6 @@ The [documentation generator](../modules/build-docs.ts) writes only the [CLI ref
 
 ## Already incorporated upstream
 
-The Android TV client credentials and User-Agent update from fork commit 78ea053 match upstream commit [8599faa](https://github.com/anidl/multi-downloader-nx/commit/8599faab539a878bcfb57a6fc07eac27dab1f873). The auth module has no remaining fork difference after that upstream merge. Follow upstream for subsequent auth changes; do not preserve the old credential values as a permanent fork requirement.
+The Android TV client and User-Agent update from fork commit 78ea053 matched upstream at the time of the merge. Later fork changes assigned separate clients to TV, phone and web sign-in. When integrating a provider update, verify the client for each affected sign-in method and retain its maintainer warning. [Upstream TV update](https://github.com/anidl/multi-downloader-nx/commit/8599faab539a878bcfb57a6fc07eac27dab1f873)
 
 [Back to the developer guide](DEVELOPMENT.md#branches-and-upstream-changes)

@@ -13,7 +13,7 @@ pnpm install --frozen-lockfile
 pnpm exec tsx index.ts --help
 ```
 
-To compile and run the CLI locally, start from the repository root. **`pnpm run prebuild-cli` deletes and recreates `lib/`.** If you have settings, saved sign-ins, or downloads under `lib/`, copy them to a persistent folder before rebuilding. Keep the same `config/` and `videos/` subfolders.
+To compile and run the CLI locally, start from the repository root. **`pnpm run prebuild-cli` deletes and recreates `lib/`.** Before rebuilding, copy any data you keep there to a persistent folder. Preserve the folder names for settings and sign-ins (`config/`), downloads (`videos/`), logs (`logs/`), additional fonts (`fonts/`), and any [device files](../widevine/README.md) in `widevine/` or `playready/`.
 
 ```sh
 pnpm run prebuild-cli
@@ -25,7 +25,7 @@ The compiled CLI defaults to `lib/config/` for settings and saved sign-ins and `
 - **Linux and macOS** — `export contentDirectory="$HOME/anidl-data"`
 - **Windows Command Prompt** — `set "contentDirectory=%USERPROFILE%\anidl-data"`
 
-The build stages [subtitle fonts](../fonts/README.md) in `lib/fonts/`. When using a persistent data folder, you can copy the bundled `fonts/` there or set `fonts` in `config/dir-path.yml` to the absolute path of your font collection.
+The build stages the [bundled subtitle fonts](../fonts/README.md) in `lib/fonts/`. If you set `contentDirectory`, copy the bundled fonts into its `fonts/` subfolder, or point the `fonts` setting in its `config/dir-path.yml` at a folder containing the catalog files. If you have `dir-path.user.yml`, edit that file instead.
 
 Use `pnpm exec tsx index.ts` or `node lib/index.js` in place of `aniDL.exe` or `./aniDL` in the user guides. Keep the same service and options. Platform-specific packaging commands are listed in [package.json](../package.json).
 
@@ -42,6 +42,29 @@ pnpm run prettier
 ```
 
 On pushes and pull requests targeting `develop` or `main`, **Tests** runs every tracked `tests/*.mjs` suite serially on both Node 22 and Node 24. Node 22 covers the runtime used by the macOS CLI. Node 24 also checks types, lint, formatting and the generated CLI reference. Automatic runs skip changes confined to Markdown, `docs/` or `tools/`. A change that also touches application code, dependencies, build configuration or workflows runs the usual checks. Tests for standalone maintenance utilities run locally. [Tests workflow](../.github/workflows/test.yml)
+
+For a control build, open **Actions → Tests → Run workflow**. Choose `develop` or `main`, then pick one target under **Optional CLI package**, such as `windows-x64`. All tests run first. Once they pass, open the completed run and download its ZIP under **Artifacts** within 14 days. Extract the ZIP, then the `.7z` inside. A control build publishes no release. [Tests on GitHub](https://github.com/XxUnkn0wnxX/multi-downloader-nx/actions/workflows/test.yml)
+
+Leave **Optional CLI package** set to `none` for an ordinary manual Tests run. On `main`, a passing ordinary run can trigger [Nightly publication](#publish-a-nightly-release).
+
+To request the Windows x64 package with the GitHub CLI, run this command.
+
+```sh
+gh workflow run test.yml --repo XxUnkn0wnxX/multi-downloader-nx --ref develop -f cli_target=windows-x64
+```
+
+### Bundled sign-in settings
+
+If AniDL says a maintainer needs to update a setting, first check which service and sign-in method failed. These names refer to settings shipped with the build.
+
+| Sign-in method | Setting named in the warning |
+| --- | --- |
+| Crunchyroll Android phone | `phone_client_id` and `phone_client_secret` |
+| Crunchyroll Android TV or native client | `basic_auth_token` |
+| Crunchyroll browser cookie | `web_basic_auth_token` |
+| HIDIVE API | `hd_new_apiKey` |
+
+Crunchyroll can explicitly reject its app client with `invalid_client`. HIDIVE can identify an API-key failure with `invalid_api_key`. An HTTP 401 alone also occurs with an expired account login and does not establish an app-setting failure. When reporting a problem, include the service, setting names and stage that failed. Keep all values private. [Crunchyroll sign-in maintenance notes](CRUNCHYROLL-AUTH.md)
 
 ## Update the CLI docs
 
@@ -80,9 +103,9 @@ Use these steps when bringing upstream work into the fork.
 
 Set `fork.revision` in the root manifest for the next fork revision. Keep that number through fixes and rebuilds on `develop` until it is promoted. Regenerate the CLI reference after changing the revision. A manifest change requires fresh Tests. [Revision metadata](fork-changes.md#nightly-revision-metadata)
 
-Once **Tests** passes on the current `main` revision, **Nightly Fork** builds and publishes that revision automatically. To start a release manually in a fork you maintain, open **Actions → Nightly Fork → Run workflow**, choose `main`, then select **Run workflow**. [Nightly Fork workflow](../.github/workflows/release-matrix.yml)
+Once an ordinary **Tests** run passes on the current `main` revision, **Nightly Fork** builds and publishes that revision automatically. To start a release manually in a fork you maintain, open **Actions → Nightly Fork → Run workflow**, choose `main`, then select **Run workflow**. [Nightly Fork workflow](../.github/workflows/release-matrix.yml)
 
-**Which Tests run counts?** The workflow accepts a successful **Tests** run from a push or manual run on `main` in the same repository. A manual release can reuse a passing ancestor when the entire diff is limited to documentation, the release controller or its focused test. Validate controller changes locally first. Application code, dependencies, workflows, build tooling and other tests require fresh passing Tests. A newer applicable failure or unfinished run blocks release. [Release controller](../.github/scripts/fork-release.mjs) · [Release tests](../tests/fork-release.mjs)
+**Which Tests run counts?** The workflow accepts successful **Tests** runs from pushes to `main` and ordinary manual runs on `main` in the same repository. Runs named **Control build** are excluded from both automatic publication and release verification. A manual release can reuse a passing ancestor when the entire diff is limited to documentation, the release controller or its focused test. Validate controller changes locally first. Application code, dependencies, workflows, build tooling and other tests require fresh passing Tests. A newer applicable failure or unfinished run blocks release. [Release controller](../.github/scripts/fork-release.mjs) · [Release tests](../tests/fork-release.mjs)
 
 **How do I verify the release?** Follow the x64 and arm64 build jobs, then the publisher. Open the **Latest** release at the fixed `nightly-fork` tag. Check the revision in the title, the built and tested commits in the notes, and the eight CLI archives with matching SHA-256 files under **Assets**. GitHub also supplies source archives. [Nightly Fork release](https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork)
 

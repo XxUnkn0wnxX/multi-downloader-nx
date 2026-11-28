@@ -311,14 +311,16 @@ astream: "android"
 dubLang: ["jpn", "eng"]
 ```
 
-To change where AniDL writes downloads, edit `content` in `config/dir-path.yml`. The default is `./videos/`. Forward slashes work in Windows paths.
+To change where AniDL writes downloads, edit `content` in `config/dir-path.yml`. If you already use `config/dir-path.user.yml`, edit that file instead. The default is `./videos/`. Forward slashes work in Windows paths.
 
 ```yaml
 content: D:/Plex/Anime/
 fonts: ./fonts/
 ```
 
-The release includes [subtitle fonts](../fonts/README.md) in `fonts/`. When muxing a Crunchyroll MKV, AniDL automatically fetches missing fonts it recognizes from the selected subtitles. If a font is unavailable, AniDL names it in a warning and continues muxing. To download the full Crunchyroll font catalog in advance, use the [font download command](ARGUMENTS.md#--dlfonts).
+From Rev8 onward, keep the bundled `fonts/` folder beside AniDL. It contains the [subtitle fonts and their licenses](../fonts/README.md).
+
+**(Crunchyroll only)** When saving an MKV, AniDL checks which fonts your selected subtitles use and tries to download any missing fonts it recognizes. If a font is unavailable, AniDL names it and continues. To fetch the full catalog in advance, use [`--dlFonts`](ARGUMENTS.md#--dlfonts).
 
 Use `skipUpdate: true` in the defaults or `--skipUpdate` on a command to disable its [startup update notice check](README.md#fork-update-notices). Save changes before running AniDL again.
 

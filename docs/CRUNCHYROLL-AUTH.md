@@ -2,7 +2,7 @@
 
 AniDL keeps separate Crunchyroll sessions for Android phone, Android TV and browser sign-in. If a login stops working, use the checkpoints below to find which step failed and when AniDL can replace the saved session.
 
-For instructions you can follow at the terminal, see the [🔑 Crunchyroll sign-in guide](AUTHENTICATION.md#crunchyroll).
+For the terminal walkthrough, see the [🔑 Crunchyroll sign-in guide](AUTHENTICATION.md#crunchyroll). The implementation links on this page point into the source checkout. To follow them from a downloaded CLI, [open the maintenance notes on GitHub](https://github.com/XxUnkn0wnxX/multi-downloader-nx/blob/develop/docs/CRUNCHYROLL-AUTH.md).
 
 Start Crunchyroll CLI commands with `--service crunchy` and specify the service only once. Run `aniDL --service crunchy --help` to see the Crunchyroll options, or add `--device` or `--token` **(Crunchyroll only)** after the service to open its sign-in help.
 
@@ -35,7 +35,7 @@ https://sso.crunchyroll.com/android/oauth-callback?code=EXAMPLE_CODE&state=ENCOD
 - **Browser and terminal.** A **404 at this callback is harmless**. Copy the entire address from the browser’s address bar, paste once and press Enter. The terminal hides the paste because the address contains a private sign-in code.
 - **Exchange.** AniDL sends the code and the verifier from that same attempt to the provider. An address can pass the local checks and still contain an expired or fabricated code. A failed exchange leaves the saved session intact. The phone flow requires a usable access token, refresh token, positive expiry and an account ID before saving.
 
-If AniDL reports **missing or invalid phone client settings**, check the build's [API constants](../modules/module.api-urls.ts). If sign-in stops **as soon as the address is pasted**, compare the origin, path and query field names with the example above. If the address passes and the **exchange fails**, retry with a fresh browser sign-in and its matching callback. Keep only the URL shape and redacted error details when recording a change. [Phone flow and callback parser](../modules/module.crunchy-phone-auth.ts)
+If AniDL names `phone_client_id` and `phone_client_secret`, check the bundled settings for that build. The warning covers missing or malformed settings and an explicit `invalid_client` response during sign-in or refresh. An expired sign-in code needs a fresh browser attempt. If the terminal rejects the address as soon as it is pasted, check its origin, path and query field names against the example above. Report only the setting names and the stage that failed. [Bundled sign-in settings](DEVELOPMENT.md#bundled-sign-in-settings) · [Phone flow and callback parser](../modules/module.crunchy-phone-auth.ts)
 
 ## Android TV approval
 
@@ -65,6 +65,7 @@ Run these checks from the repository root after installing its dependencies.
 
 ```sh
 node tests/crunchy-token-input.mjs
+node tests/crunchy-oauth-errors.mjs
 node tests/crunchy-qall-args.mjs
 node tests/crunchy-status-import.mjs
 ```
