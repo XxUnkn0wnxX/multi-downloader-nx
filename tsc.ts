@@ -2,6 +2,7 @@ import { ChildProcess, exec } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import ignoreFactory from 'ignore';
+import { copyWidevineGuides, isPublicDocEntry, privateDeviceFile } from './modules/module.archive-docs';
 
 const argv = process.argv.slice(2);
 let buildIgnore: string[] = [];
@@ -106,8 +107,7 @@ export { ignore };
 		}
 	});
 
-	// Copy the public guide explicitly. The directory filter excludes device files.
-	fs.copyFileSync(path.join(__dirname, 'widevine', 'README.md'), path.join(__dirname, 'lib', 'widevine', 'README.md'));
+	copyWidevineGuides(path.join(__dirname, 'widevine'), path.join(__dirname, 'lib', 'widevine'));
 
 	process.stdout.write('✓\nInstalling dependencies... ');
 	if (!isTest) {
@@ -130,12 +130,15 @@ function readDir(dir: string): {
 	}[] = [];
 	const content = fs.readdirSync(dir);
 	const rootToolsPath = path.join(__dirname, 'tools');
+	const docsPath = path.join(__dirname, 'docs');
 	itemLoop: for (const item of content) {
+		if (privateDeviceFile.test(item)) continue;
 		const itemPath = path.join(dir, item);
 		if (itemPath === rootToolsPath || itemPath.startsWith(rootToolsPath + path.sep)) continue itemLoop;
 		for (const ignoreItem of ignore) {
 			if (ignoreItem.test(itemPath)) continue itemLoop;
 		}
+		if ((itemPath === docsPath || itemPath.startsWith(docsPath + path.sep)) && !isPublicDocEntry(itemPath)) continue;
 		const stats = fs.statSync(itemPath);
 		const relativePath = path.relative(__dirname, itemPath).split(path.sep).join('/');
 		if (repositoryIgnore.ignores(relativePath + (stats.isDirectory() ? '/' : ''))) continue itemLoop;

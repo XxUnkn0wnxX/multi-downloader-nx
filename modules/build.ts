@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import pkg from '../package.json';
 import modulesCleanup from 'removeNPMAbsolutePaths';
+import { copyReleaseDocs } from './module.archive-docs';
 import { exec } from '@yao-pkg/pkg';
 import { execSync } from 'child_process';
 import { console } from './log';
@@ -83,8 +84,6 @@ async function buildBinary(buildType: BuildTypes, gui: boolean) {
 	// Moving required default files/folders into build dir
 	fs.mkdirSync(`${buildDir}/config`, { recursive: true });
 	fs.mkdirSync(`${buildDir}/videos`, { recursive: true });
-	fs.mkdirSync(`${buildDir}/widevine`, { recursive: true });
-	fs.copyFileSync('./widevine/README.md', `${buildDir}/widevine/README.md`);
 	fs.mkdirSync(`${buildDir}/playready`, { recursive: true });
 	fs.copyFileSync('./config/cli-defaults.yml', `${buildDir}/config/cli-defaults.yml`);
 	fs.copyFileSync('./config/dir-path.yml', `${buildDir}/config/dir-path.yml`);
@@ -92,8 +91,7 @@ async function buildBinary(buildType: BuildTypes, gui: boolean) {
 	fs.copyFileSync('./modules/cmd-here.bat', `${buildDir}/cmd-here.bat`);
 	fs.copyFileSync('./modules/NotoSans-Regular.ttf', `${buildDir}/NotoSans-Regular.ttf`);
 	fs.copyFileSync('./package.json', `${buildDir}/package.json`);
-	fs.cpSync('./docs/', `${buildDir}/docs/`, { recursive: true });
-	fs.copyFileSync('./LICENSE.md', `${buildDir}/docs/LICENSE.md`);
+	copyReleaseDocs('.', buildDir);
 	if (gui) {
 		fs.cpSync('./gui', `${buildDir}/gui`, { recursive: true });
 		fs.cpSync('./node_modules/open/xdg-open', `${buildDir}/xdg-open`, { recursive: true });
