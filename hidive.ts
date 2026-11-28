@@ -177,13 +177,7 @@ export default class Hidive implements ServiceClass {
 		return 'failed';
 	}
 
-	private async apiReqOnce(
-		endpoint: string,
-		body: string | object,
-		authType: HidiveAuthType,
-		method: 'GET' | 'POST',
-		authHeader?: string
-	): Promise<HidiveApiResult> {
+	private async apiReqOnce(endpoint: string, body: string | object, authType: HidiveAuthType, method: 'GET' | 'POST', authHeader?: string): Promise<HidiveApiResult> {
 		if (typeof api.hd_new_apiKey !== 'string' || !api.hd_new_apiKey.trim()) {
 			console.error('An AniDL maintainer needs to update hd_new_apiKey.');
 			return { ok: false, appKeyInvalid: true };
