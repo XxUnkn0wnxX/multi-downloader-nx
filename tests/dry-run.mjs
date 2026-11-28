@@ -57,6 +57,7 @@ function fakeFs() {
 
 function loadHidive(mpd = hidiveManifest, canDecrypt = false, cliArgv = {}, archive = sideEffect('archive')) {
 	const stubs = {
+		'node:timers/promises': { setTimeout: () => assert.fail('Unexpected HIDIVE recovery delay in the dry-run fixture') },
 		'./package.json': { version: 'test' },
 		'./modules/module.fork-display': forkDisplay,
 		'./modules/log': { console: fakeConsole },
