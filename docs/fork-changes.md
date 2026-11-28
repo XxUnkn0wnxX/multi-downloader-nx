@@ -47,6 +47,7 @@ An upstream replacement must retain these exclusions and intended exceptions; ve
 - Match normalized repository-relative paths and mark directories with a trailing slash so directory-only rules work.
 - Exclude the complete root `tools/` tree from the application copy, including tracked maintenance source and its local work. Preserve similarly named application paths outside that directory.
 - Ship the guides and screenshots under `docs/`. The packaged `widevine/` folder includes the [CDM setup guide](../widevine/README.md) and any other public Markdown guides directly inside that folder. Hidden files, subfolders and symbolic links in `widevine/` are skipped. CLI release archives exclude `.wvd`, `.cert` and `.pem` files, including mixed-case extensions. The packaged `playready/` folder is empty.
+- Stage the [bundled subtitle fonts and license notices](../fonts/README.md) in `lib/fonts/` and ship the same set in the archive's `fonts/` folder. Keep the normal build copy exclusion and use the explicit bundled list to exclude additional local files. The muxer uses the configured fonts directory and attaches the available fonts referenced by the selected subtitles.
 - Preserve the explicit GUI bundle copy. Keep required runtime defaults and the root package/workspace configuration available to the generated application.
 
 The current filter reads the root `.gitignore`; it does not load nested ignore files, global Git excludes, or `.git/info/exclude`. Private build exclusions must therefore be covered by the root file or the existing build filter.
@@ -152,6 +153,8 @@ Keep one account-wide clear per command, five-second polling under one 60-second
 ### Preview downloads without media output
 
 `--dry-run` is a CLI or programmatic action and is not enabled by configuration. It lists available and selected stream information for Crunchyroll, HIDIVE and ADN, then stops before license requests, media/subtitle/font downloads, chapter output, decryption, muxing and completed-download archive writes. Keep outer provider completion guards and cleanup of only the preview's own playback sessions, except for a capacity-based reset enabled by `--tsd` **(Crunchyroll only)** or `tsd: true`, including previews. The standalone font command lists planned URLs in preview mode.
+
+Before muxing a Crunchyroll MKV with selected subtitles, fetch only missing faces in the existing font catalog and cache them in the configured fonts folder. Report fonts still unavailable and continue muxing with the available attachments. The standalone `--dlFonts` command still downloads the full catalog. Skip automatic font requests when muxing or subtitle muxing is disabled, when producing MP4, and during previews.
 
 Preview mode skips automatic updates. An explicit `--update` request prints the fork notice above and exits; archive-add actions remain rejected. Existing authentication/refresh, metadata requests and HEAD checks, logging and GUI queue progression can still occur; this is a download preview. `--debug` remains available. Normal download behavior and prerequisites must be preserved.
 

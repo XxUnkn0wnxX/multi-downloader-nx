@@ -2,6 +2,7 @@ import { ChildProcess, exec } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import ignoreFactory from 'ignore';
+import { copyBundledFonts } from './modules/module.archive-fonts';
 import { copyWidevineGuides, isPublicDocEntry, privateDeviceFile } from './modules/module.archive-docs';
 
 const argv = process.argv.slice(2);
@@ -107,6 +108,7 @@ export { ignore };
 		}
 	});
 
+	copyBundledFonts(path.join(__dirname, 'fonts'), path.join(__dirname, 'lib', 'fonts'));
 	copyWidevineGuides(path.join(__dirname, 'widevine'), path.join(__dirname, 'lib', 'widevine'));
 
 	process.stdout.write('✓\nInstalling dependencies... ');

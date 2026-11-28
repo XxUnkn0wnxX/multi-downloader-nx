@@ -552,12 +552,13 @@ class Merger {
 			console.info((isNstr ? '\n' : '') + 'Required fonts: %s (Total: %s)', fontsNameList.join(', '), fontsNameList.length);
 		}
 		for (const f of fontsNameList) {
-			const fontFiles = fontFamilies[f];
+			const fontFiles = Object.prototype.hasOwnProperty.call(fontFamilies, f) ? fontFamilies[f] : undefined;
 			if (fontFiles) {
 				for (const fontFile of fontFiles) {
 					const fontPath = path.join(fontsDir, fontFile);
 					const mime = fontMime(fontFile);
-					if (fs.existsSync(fontPath) && fs.statSync(fontPath).size != 0) {
+					const cached = fs.existsSync(fontPath) && fs.statSync(fontPath, { throwIfNoEntry: false });
+					if (cached && cached.isFile() && cached.size > 0) {
 						fontsList.push({
 							name: fontFile,
 							path: fontPath,

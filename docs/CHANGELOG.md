@@ -4,9 +4,11 @@ Changes specific to this fork are grouped below with their implementation commit
 
 ## Unreleased
 
-### Nightly Rev8 — Bundled Android phone sign-in
+### Nightly Rev8 — Phone sign-in and subtitle fonts
 
 - Bundle the Android phone sign-in settings with AniDL. Start phone sign-in with `--service crunchy --device android` **(Crunchyroll only)** and complete the browser prompts. [Android phone sign-in](AUTHENTICATION.md#android-phone-or-tablet)
+- Ship a set of [subtitle fonts and their licenses](../fonts/README.md) in `fonts/` and remove the loose font beside the executable.
+- Fetch missing Crunchyroll subtitle fonts before muxing an MKV. AniDL warns about any fonts it could not fetch and continues without those attachments.
 
 ## 2026-11-28
 

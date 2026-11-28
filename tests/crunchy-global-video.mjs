@@ -10,7 +10,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath, URL, URLSearchParams } from 'node:url';
 import ts from 'typescript';
 
-const { AbortController, Response, Headers, queueMicrotask, structuredClone } = globalThis;
+const { AbortController, AbortSignal, Response, Headers, queueMicrotask, structuredClone } = globalThis;
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const packageMetadata = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 let statusNow;
@@ -53,6 +53,7 @@ function compile(file, deps = {}, overrides = {}) {
 			URL,
 			URLSearchParams,
 			AbortController,
+			AbortSignal,
 			setTimeout,
 			clearTimeout,
 			Buffer,
@@ -1237,6 +1238,12 @@ let fakeMuxerPresent = true;
 let muxCleanupCount = 0;
 let muxTimingCount = 0;
 let observedMerger;
+const fixtureFontData = {
+	root: 'https://fonts.example.test/',
+	assFonts: () => [],
+	fontFamilies: {},
+	fontMime: () => 'application/x-truetype-font'
+};
 class MergerFixture {
 	constructor(options) {
 		observedMerger = options;
@@ -1290,7 +1297,7 @@ const mediaDeps = {
 	},
 	'./modules/log': { console: mediaLogger },
 	'./modules/module.langsData': langData,
-	'./modules/module.fontsData': { assFonts: () => [] },
+	'./modules/module.fontsData': fixtureFontData,
 	'./modules/module.vtt2ass': { default: () => '[Script Info]\nPlayResX: 1920\nPlayResY: 1080', __esModule: true },
 	'./modules/module.transform-mpd': realTransform,
 	'./modules/module.crunchy-manifests': realManifests,
@@ -1763,6 +1770,76 @@ function resetGlobal(overrides = {}) {
 	assert.equal(await service.muxStreams(source, options), false);
 	assert.equal(muxCleanupCount, 1, 'missing muxer preserves source tracks');
 	service.muxStreams = originalMux;
+}
+// Fetch only missing catalog fonts before building attachments. Failures leave the mux usable.
+{
+	const fontDir = path.join(statusFixtureDir('crunchy-fonts-'), 'fonts');
+	const fontService = Object.create(Crunchy.prototype);
+	const fontRequests = [];
+	const fontFile = Buffer.concat([Buffer.from([0, 1, 0, 0]), Buffer.alloc(16)]);
+	fontService.cfg = { dir: { fonts: fontDir } };
+	fontService.req = {
+		getData: async (url) => {
+			const filename = new URL(url).pathname.slice(1);
+			fontRequests.push(filename);
+			if (filename === 'throw.ttf') throw Error('synthetic CDN failure');
+			return { ok: true, res: new Response(filename === 'html.ttf' ? '<html>challenge</html>' : fontFile) };
+		}
+	};
+	const originalFs = { ...mediaDeps.fs };
+	const originalFontList = MergerFixture.makeFontsList;
+	const originalResults = [fakeMuxerPresent, fakeMergeResult];
+	fixtureFontData.fontFamilies = { Cached: ['cached.ttf'], Needed: ['needed.ttf'], Unreachable: ['throw.ttf'], Invalid: ['html.ttf'], Unreferenced: ['other.ttf'] };
+	Object.assign(mediaDeps.fs, { statSync: fs.statSync, mkdirSync: fs.mkdirSync, writeFileSync: fs.writeFileSync, renameSync: fs.renameSync, unlinkSync: fs.unlinkSync });
+
+	try {
+		const { default: AttachmentMerger } = compile('modules/module.merger.ts', {
+			'./module.fontsData': fixtureFontData,
+			'./log': { console: mediaLogger },
+			'./module.helper': {},
+			'./module.ffmpegChapter': {},
+			'mediainfo.js': {}
+		});
+		MergerFixture.makeFontsList = AttachmentMerger.makeFontsList;
+		fs.mkdirSync(fontDir);
+		fs.writeFileSync(path.join(fontDir, 'cached.ttf'), fontFile);
+		const items = [
+			{ type: 'Video', path: '/synthetic/video.mp4', lang: languageItems[0] },
+			{ type: 'Subtitle', path: '/synthetic/subtitle.ass', language: languageItems[0], fonts: ['Cached', 'Needed', 'Needed', 'Unreachable', 'Invalid', 'constructor'] }
+		];
+		const options = { output: '/synthetic/output', nocleanup: true };
+		fakeMergeResult = true;
+		fakeMuxerPresent = false;
+		assert.equal(await fontService.muxStreams(items, options), false);
+		fakeMuxerPresent = true;
+		for (const flags of [{ dryRun: true }, { skipSubMux: true }, { skipmux: true }, { mp4: true }]) {
+			assert.equal(await fontService.muxStreams(items, { ...options, ...flags }), true);
+		}
+		assert.deepEqual(fontRequests, []);
+		assert.equal(await fontService.muxStreams(items, options), true);
+		assert.deepEqual(fontRequests, ['needed.ttf', 'throw.ttf', 'html.ttf']);
+		assert.deepEqual(
+			Array.from(observedMerger.fonts, (font) => font.name),
+			['cached.ttf', 'needed.ttf']
+		);
+		assert.deepEqual(fs.readdirSync(fontDir).sort(), ['cached.ttf', 'needed.ttf']);
+		assert.deepEqual(fs.readFileSync(path.join(fontDir, 'needed.ttf')), fontFile);
+		assert(mediaLogs.some(([message]) => message === 'Could not fetch 3 subtitle fonts (Unreachable, Invalid, constructor). The MKV will omit them.'));
+		items[1].fonts = ['Needed', 'Cached'];
+		assert.equal(await fontService.muxStreams(items, options), true);
+		assert.equal(fontRequests.length, 3, 'cached fonts are reused on the next mux');
+		fontRequests.length = 0;
+		await fontService.getFonts();
+		assert.deepEqual(fontRequests, ['throw.ttf', 'html.ttf', 'other.ttf'], 'the explicit command still includes unreferenced catalog fonts');
+	} finally {
+		MergerFixture.makeFontsList = originalFontList;
+		fixtureFontData.fontFamilies = {};
+		[fakeMuxerPresent, fakeMergeResult] = originalResults;
+		Object.assign(mediaDeps.fs, originalFs);
+		delete mediaDeps.fs.statSync;
+		delete mediaDeps.fs.renameSync;
+		fs.rmSync(path.dirname(fontDir), { recursive: true, force: true });
+	}
 }
 // A failed mux leaves downloaded tracks recoverable and never records the episode as complete.
 {

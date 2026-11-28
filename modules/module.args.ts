@@ -84,7 +84,8 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		name: 'dlFonts',
 		group: 'fonts',
 		describe: 'Download all required fonts for mkv muxing',
-		docDescribe: 'Crunchyroll uses a variaty of fonts for the subtitles.' + '\nUse this command to download all the fonts and add them to the muxed **mkv** file.',
+		docDescribe:
+			'Download the full Crunchyroll subtitle font catalog into the configured fonts directory. AniDL also fetches missing catalog fonts on demand when muxing a Crunchyroll MKV.',
 		service: ['crunchy'],
 		type: 'boolean',
 		usage: ''

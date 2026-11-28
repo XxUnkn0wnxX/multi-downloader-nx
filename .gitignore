@@ -18,7 +18,45 @@ gui/server/build/
 *.ass
 *.srt
 *.resume
+
+## Bundled subtitle fonts
 fonts
+!/fonts/
+/fonts/*
+!/fonts/DejaVu-LICENSE.txt
+!/fonts/DejaVuLGCSansMono-Bold.ttf
+!/fonts/DejaVuLGCSansMono-BoldOblique.ttf
+!/fonts/DejaVuLGCSansMono-Oblique.ttf
+!/fonts/DejaVuLGCSansMono.ttf
+!/fonts/DejaVuSans-Bold.ttf
+!/fonts/DejaVuSans-BoldOblique.ttf
+!/fonts/DejaVuSans-ExtraLight.ttf
+!/fonts/DejaVuSans-Oblique.ttf
+!/fonts/DejaVuSans.ttf
+!/fonts/DejaVuSansCondensed-Bold.ttf
+!/fonts/DejaVuSansCondensed-BoldOblique.ttf
+!/fonts/DejaVuSansCondensed-Oblique.ttf
+!/fonts/DejaVuSansCondensed.ttf
+!/fonts/DejaVuSansMono-Bold.ttf
+!/fonts/DejaVuSansMono-BoldOblique.ttf
+!/fonts/DejaVuSansMono-Oblique.ttf
+!/fonts/DejaVuSansMono.ttf
+!/fonts/MeeraInimai-Regular.ttf
+!/fonts/NotoSansTamilVariable.ttf
+!/fonts/NotoSansTeluguVariable.ttf
+!/fonts/NotoSansThai.ttf
+!/fonts/OFL.txt
+!/fonts/README.md
+!/fonts/Rubik-Black.ttf
+!/fonts/Rubik-BlackItalic.ttf
+!/fonts/Rubik-Bold.ttf
+!/fonts/Rubik-BoldItalic.ttf
+!/fonts/Rubik-Italic.ttf
+!/fonts/Rubik-Light.ttf
+!/fonts/Rubik-LightItalic.ttf
+!/fonts/Rubik-Medium.ttf
+!/fonts/Rubik-MediumItalic.ttf
+!/fonts/Rubik-Regular.ttf
 
 ## Downloaded Android analysis artifacts
 *.apk

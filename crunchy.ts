@@ -856,40 +856,73 @@ export default class Crunchy implements ServiceClass {
 		return allShows;
 	}
 
-	public async getFonts(dryRun = false) {
-		const fonts = Object.values(fontsData.fontFamilies).reduce((pre, curr) => pre.concat(curr));
+	public async getFonts(dryRun = false, requiredFonts?: readonly Font[]) {
+		const catalog = fontsData.fontFamilies;
+		const families = new Map(
+			(requiredFonts ?? (Object.keys(catalog) as Font[])).map((name) => [name, Object.prototype.hasOwnProperty.call(catalog, name) ? catalog[name] : []])
+		);
+		const files = new Set(Array.from(families.values()).flat());
 		if (dryRun) {
-			for (const font of fonts) console.info('Font URL:', fontsData.root + font);
+			for (const font of files) console.info('Font URL:', fontsData.root + font);
 			return;
 		}
-		console.info('Downloading fonts...');
-		for (const f of fonts) {
-			const fontLoc = path.join(this.cfg.dir.fonts, f);
-			if (fs.existsSync(fontLoc) && fs.statSync(fontLoc).size != 0) {
-				console.info(`${f} already downloaded!`);
-			} else {
-				const fontFolder = path.dirname(fontLoc);
-				if (fs.existsSync(fontLoc) && fs.statSync(fontLoc).size == 0) {
-					fs.rmSync(fontLoc, { recursive: true, force: true });
-				}
+
+		if (!requiredFonts) console.info('Downloading fonts...');
+		const signal = requiredFonts ? AbortSignal.timeout(15_000) : undefined;
+		const unavailable = new Set<string>();
+		for (const file of files) {
+			if (await this.cacheSubtitleFont(file, signal)) continue;
+			unavailable.add(file);
+			if (!requiredFonts) console.warn(`Failed to download: ${file}`);
+		}
+
+		if (requiredFonts) {
+			const missing = Array.from(families).filter(([, fonts]) => fonts.length === 0 || fonts.some((file) => unavailable.has(file)));
+			if (missing.length)
+				console.warn(
+					`Could not fetch ${missing.length} subtitle font${missing.length === 1 ? '' : 's'} (${missing.map(([name]) => name).join(', ')}). The MKV will omit them.`
+				);
+		} else if (unavailable.size === 0) {
+			console.info('All required fonts downloaded!');
+		}
+	}
+
+	private async cacheSubtitleFont(filename: string, signal?: AbortSignal): Promise<boolean> {
+		const target = path.join(this.cfg.dir.fonts, filename);
+		let temporary: string | undefined;
+		try {
+			const existing = fs.statSync(target, { throwIfNoEntry: false });
+			if (existing?.isFile() && existing.size > 0) {
+				if (!signal) console.info(`${filename} already downloaded!`);
+				return true;
+			}
+			if ((existing && !existing.isFile()) || signal?.aborted) return false;
+
+			fs.mkdirSync(this.cfg.dir.fonts, { recursive: true });
+			const response = await this.req.getData(fontsData.root + filename, { headers: api.crunchyDefHeader, signal, skipErrorBody: true, quietErrors: Boolean(signal) });
+			if (!response.ok || !response.res) return false;
+			const contents = Buffer.from(await response.res.arrayBuffer());
+			const format = contents.toString('latin1', 0, 4);
+			if (contents.length < 12 || !['\x00\x01\x00\x00', 'OTTO', 'true', 'ttcf'].includes(format)) return false;
+
+			const cached = fs.statSync(target, { throwIfNoEntry: false });
+			if (cached?.isFile() && cached.size > 0) return true;
+			temporary = `${target}.${randomUUID()}.tmp`;
+			fs.writeFileSync(temporary, contents, { flag: 'wx' });
+			fs.renameSync(temporary, target);
+			console.info(`Downloaded: ${filename}`);
+			return true;
+		} catch (error) {
+			if (temporary) {
 				try {
-					fs.existsSync(fontFolder);
-				} catch (e) {
-					console.info('');
-				}
-				const fontUrl = fontsData.root + f;
-				const getFont = await this.req.getData(fontUrl, {
-					headers: api.crunchyDefHeader
-				});
-				if (getFont.ok && getFont.res) {
-					fs.writeFileSync(fontLoc, Buffer.from(await getFont.res.arrayBuffer()));
-					console.info(`Downloaded: ${f}`);
-				} else {
-					console.warn(`Failed to download: ${f}`);
+					fs.unlinkSync(temporary);
+				} catch {
+					/* A failed font cache write is nonfatal. */
 				}
 			}
+			if (this.debug) console.debug(`Font download failed for ${filename}: ${String(error)}`);
+			return false;
 		}
-		console.info('All required fonts downloaded!');
 	}
 
 	public async doAuth(data: AuthData): Promise<AuthResponse> {
@@ -4597,6 +4630,17 @@ export default class Crunchy implements ServiceClass {
 			console.info('Skip muxing since some subtitles failed to download');
 			return true;
 		}
+		const bin = Merger.checkMerger(this.cfg.bin, options.mp4, options.forceMuxer);
+		const muxerPath = bin.MKVmerge || bin.FFmpeg;
+		if (!muxerPath) {
+			console.error('Unable to mux files: no supported muxer is available.');
+			return false;
+		}
+		const subtitles = data.filter((item) => item.type === 'Subtitle');
+		if (!options.dryRun && !options.skipmux && !options.skipSubMux && !options.mp4) {
+			const requiredFonts = subtitles.flatMap((item) => item.fonts);
+			if (requiredFonts.length) await this.getFonts(false, requiredFonts);
+		}
 		const hasAudioStreams = data.some((a) => a.type === 'Audio');
 		const merger = new Merger({
 			onlyVid: data
@@ -4616,19 +4660,17 @@ export default class Crunchy implements ServiceClass {
 						})
 				: [],
 			output: `${options.output}.${options.mp4 ? 'mp4' : 'mkv'}`,
-			subtitles: data
-				.filter((a) => a.type === 'Subtitle')
-				.map((a): SubtitleInput => {
-					return {
-						file: a.path,
-						language: a.language,
-						closedCaption: a.cc,
-						signs: a.signs
-					};
-				}),
+			subtitles: subtitles.map((a): SubtitleInput => {
+				return {
+					file: a.path,
+					language: a.language,
+					closedCaption: a.cc,
+					signs: a.signs
+				};
+			}),
 			simul: false,
 			keepAllVideos: options.keepAllVideos,
-			fonts: Merger.makeFontsList(this.cfg.dir.fonts, data.filter((a) => a.type === 'Subtitle') as sxItem[]),
+			fonts: Merger.makeFontsList(this.cfg.dir.fonts, subtitles),
 			videoAndAudio: data
 				.filter((a) => a.type === 'Video')
 				.filter((a) => a.layout === 'combined' || (a.layout === undefined && !hasAudioStreams))
@@ -4653,22 +4695,11 @@ export default class Crunchy implements ServiceClass {
 			},
 			ccTag: options.ccTag
 		});
-		const bin = Merger.checkMerger(this.cfg.bin, options.mp4, options.forceMuxer);
-		// collect fonts info
-		// mergers
 		const mixedWithSeparateAudio = hasAudioStreams && data.some((item) => item.type === 'Video' && item.layout === 'combined');
 		if (options.syncTiming && !mixedWithSeparateAudio) {
 			await merger.createDelays();
 		}
-		let merged: boolean;
-		if (bin.MKVmerge) {
-			merged = await merger.merge('mkvmerge', bin.MKVmerge);
-		} else if (bin.FFmpeg) {
-			merged = await merger.merge('ffmpeg', bin.FFmpeg);
-		} else {
-			console.error('Unable to mux files: no supported muxer is available.');
-			return false;
-		}
+		const merged = await merger.merge(bin.MKVmerge ? 'mkvmerge' : 'ffmpeg', muxerPath);
 		if (!merged) return false;
 		if (!options.nocleanup) merger.cleanUp();
 		return true;

@@ -25,6 +25,8 @@ The compiled CLI defaults to `lib/config/` for settings and saved sign-ins and `
 - **Linux and macOS** — `export contentDirectory="$HOME/anidl-data"`
 - **Windows Command Prompt** — `set "contentDirectory=%USERPROFILE%\anidl-data"`
 
+The build stages [subtitle fonts](../fonts/README.md) in `lib/fonts/`. When using a persistent data folder, you can copy the bundled `fonts/` there or set `fonts` in `config/dir-path.yml` to the absolute path of your font collection.
+
 Use `pnpm exec tsx index.ts` or `node lib/index.js` in place of `aniDL.exe` or `./aniDL` in the user guides. Keep the same service and options. Platform-specific packaging commands are listed in [package.json](../package.json).
 
 ## Check a change

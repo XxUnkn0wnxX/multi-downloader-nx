@@ -383,8 +383,7 @@ Start with `--service crunchy`. Use `--service crunchy --token` for input exampl
 | --- | --- | --- | --- | --- | --- |
 | Crunchyroll | `--service crunchy --dlFonts` | `boolean` | `No` | `—` | `—` |
 
-Crunchyroll uses a variaty of fonts for the subtitles.
-Use this command to download all the fonts and add them to the muxed **mkv** file.
+Download the full Crunchyroll subtitle font catalog into the configured fonts directory. AniDL also fetches missing catalog fonts on demand when muxing a Crunchyroll MKV.
 
 ### Search
 #### `--search-type`

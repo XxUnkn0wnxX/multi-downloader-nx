@@ -10,6 +10,7 @@ import { require as requireTs } from 'tsx/cjs/api';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { copyReleaseDocs } = requireTs('../modules/module.archive-docs.ts', import.meta.url);
+const { copyBundledFonts } = requireTs('../modules/module.archive-fonts.ts', import.meta.url);
 const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'anidl-archive-staging-'));
 
 try {
@@ -17,7 +18,24 @@ try {
 	fs.copyFileSync(path.join(root, 'tsc.ts'), path.join(fixture, 'tsc.ts'));
 	fs.cpSync(fs.realpathSync(path.join(root, 'node_modules', 'ignore')), path.join(fixture, 'node_modules', 'ignore'), { recursive: true });
 	fs.mkdirSync(path.join(fixture, 'modules'), { recursive: true });
-	fs.copyFileSync(path.join(root, 'modules', 'module.archive-docs.ts'), path.join(fixture, 'modules', 'module.archive-docs.ts'));
+	for (const module of ['module.archive-docs.ts', 'module.archive-fonts.ts', 'module.fontsData.ts']) {
+		fs.copyFileSync(path.join(root, 'modules', module), path.join(fixture, 'modules', module));
+	}
+	const sourceFonts = path.join(fixture, 'fonts');
+	const expectedFonts = fs
+		.readFileSync(path.join(fixture, '.gitignore'), 'utf8')
+		.split(/\r?\n/)
+		.filter((entry) => entry.startsWith('!/fonts/') && entry !== '!/fonts/')
+		.map((entry) => entry.slice('!/fonts/'.length))
+		.sort();
+	copyBundledFonts(path.join(root, 'fonts'), sourceFonts);
+	assert.deepEqual(fs.readdirSync(sourceFonts).sort(), expectedFonts);
+	for (const file of ['DejaVuSans.ttf', 'MeeraInimai-Regular.ttf', 'NotoSansThai.ttf', 'Rubik-Regular.ttf', 'OFL.txt', 'DejaVu-LICENSE.txt']) {
+		assert(expectedFonts.includes(file), file);
+	}
+	fs.writeFileSync(path.join(sourceFonts, 'arial.ttf'), 'synthetic additional font');
+	fs.writeFileSync(path.join(sourceFonts, 'Rubik-Unlisted.ttf'), 'synthetic font outside the subtitle catalog');
+	fs.writeFileSync(path.join(sourceFonts, 'NotoSans-Regular.ttf'), 'synthetic old loose font');
 
 	const files = new Map([
 		['docs/nested/guide.md', Buffer.from('# Fixture guide\n', 'utf8')],
@@ -82,10 +100,21 @@ try {
 	}
 	for (const relative of links) assert.equal(fs.lstatSync(path.join(fixture, 'lib', relative), { throwIfNoEntry: false }), undefined, relative);
 
+	const stagedFonts = path.join(fixture, 'lib', 'fonts');
+	assert.deepEqual(fs.readdirSync(stagedFonts).sort(), expectedFonts);
+	for (const filename of expectedFonts) assert.deepEqual(fs.readFileSync(path.join(stagedFonts, filename)), fs.readFileSync(path.join(sourceFonts, filename)));
+
 	// Exercise final packaging with unfiltered inputs, including files introduced after staging.
 	fs.writeFileSync(path.join(fixture, 'LICENSE.md'), 'Fixture license');
 	const bundle = path.join(fixture, 'bundle');
 	copyReleaseDocs(fixture, bundle);
+	fs.writeFileSync(path.join(stagedFonts, 'arial.ttf'), 'synthetic font added after staging');
+	const packagedFonts = path.join(bundle, 'fonts');
+	copyBundledFonts(stagedFonts, packagedFonts);
+	assert.deepEqual(fs.readdirSync(packagedFonts).sort(), expectedFonts);
+	for (const filename of expectedFonts) assert.deepEqual(fs.readFileSync(path.join(packagedFonts, filename)), fs.readFileSync(path.join(sourceFonts, filename)));
+	fs.truncateSync(path.join(stagedFonts, 'Rubik-Regular.ttf'), 0);
+	assert.throws(() => copyBundledFonts(stagedFonts, path.join(fixture, 'invalid-fonts')), /invalid bundled font asset: Rubik-Regular\.ttf/);
 	for (const relative of publicFiles) assert.deepEqual(fs.readFileSync(path.join(bundle, relative)), files.get(relative), relative);
 	assert.deepEqual(fs.readdirSync(path.join(bundle, 'widevine')).sort(), ['README.md', 'guide.md']);
 	assert.equal(fs.readFileSync(path.join(bundle, 'docs', 'LICENSE.md'), 'utf8'), 'Fixture license');

@@ -318,6 +318,8 @@ content: D:/Plex/Anime/
 fonts: ./fonts/
 ```
 
+The release includes [subtitle fonts](../fonts/README.md) in `fonts/`. When muxing a Crunchyroll MKV, AniDL automatically fetches missing fonts it recognizes from the selected subtitles. If a font is unavailable, AniDL names it in a warning and continues muxing. To download the full Crunchyroll font catalog in advance, use the [font download command](ARGUMENTS.md#--dlfonts).
+
 Use `skipUpdate: true` in the defaults or `--skipUpdate` on a command to disable its [startup update notice check](README.md#fork-update-notices). Save changes before running AniDL again.
 
 ## Crunchyroll CLI
