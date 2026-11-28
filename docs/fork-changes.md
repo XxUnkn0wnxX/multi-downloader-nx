@@ -46,7 +46,7 @@ An upstream replacement must retain these exclusions and intended exceptions; ve
 - Use the `ignore` parser, declared as a development dependency in [package.json](../package.json) and resolved in [pnpm-lock.yaml](../pnpm-lock.yaml). It handles comments, including `##` headers, wildcards, and `!` exceptions.
 - Match normalized repository-relative paths and mark directories with a trailing slash so directory-only rules work.
 - Exclude the complete root `tools/` tree from the application copy, including tracked maintenance source and its local work. Preserve similarly named application paths outside that directory.
-- Ship the full `docs/` tree, including screenshots, and the public [CDM setup guide](../widevine/README.md) in release archives. Only the guide belongs in the packaged `widevine/` folder. The packaged `playready/` folder is empty.
+- Ship the guides and screenshots under `docs/`. The packaged `widevine/` folder includes the [CDM setup guide](../widevine/README.md) and any other public Markdown guides directly inside that folder. Hidden files, subfolders and symbolic links in `widevine/` are skipped. CLI release archives exclude `.wvd`, `.cert` and `.pem` files, including mixed-case extensions. The packaged `playready/` folder is empty.
 - Preserve the explicit GUI bundle copy. Keep required runtime defaults and the root package/workspace configuration available to the generated application.
 
 The current filter reads the root `.gitignore`; it does not load nested ignore files, global Git excludes, or `.git/info/exclude`. Private build exclusions must therefore be covered by the root file or the existing build filter.
