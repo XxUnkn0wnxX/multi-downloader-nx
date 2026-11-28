@@ -2,7 +2,7 @@
 
 [🚀 Getting started](GET-STARTED.md) · [📺 Crunchyroll](#crunchyroll) · [🔐 HIDIVE and ADN](#hidive-and-adn)
 
-Open a terminal in your extracted AniDL folder. Choose your service, then open the Windows or Linux command for your computer.
+Open a terminal in your extracted AniDL folder. Under your service, choose **Windows** for Command Prompt or **Linux and macOS** for Terminal.
 
 ## Crunchyroll
 
@@ -26,7 +26,7 @@ aniDL.exe --service crunchy --device androidtv
 </details>
 
 <details>
-<summary>🐧 Linux — Terminal</summary>
+<summary>💻 Linux and macOS — Terminal</summary>
 
 ```sh
 ./aniDL --service crunchy --device androidtv
@@ -58,7 +58,7 @@ aniDL.exe --service crunchy --device android
 </details>
 
 <details>
-<summary>🐧 Linux — Terminal</summary>
+<summary>💻 Linux and macOS — Terminal</summary>
 
 ```sh
 ./aniDL --service crunchy --device android
@@ -100,7 +100,7 @@ aniDL.exe --service crunchy --token "YOUR_COOKIE_VALUE"
 </details>
 
 <details>
-<summary>🐧 Linux — Terminal</summary>
+<summary>💻 Linux and macOS — Terminal</summary>
 
 **Cookies file**
 
@@ -146,7 +146,7 @@ aniDL.exe --service adn --auth
 </details>
 
 <details>
-<summary>🐧 Linux — Terminal</summary>
+<summary>💻 Linux and macOS — Terminal</summary>
 
 **HIDIVE**
 

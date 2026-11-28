@@ -8,10 +8,15 @@ You’ll open AniDL, sign in to Crunchyroll and preview one episode before downl
 
 ## Open AniDL
 
-1. Download a **CLI** archive for your operating system and processor from the [Nightly Fork release](https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork). For example, a typical Intel or AMD Windows PC uses `multi-downloader-nx-windows-x64-cli.7z`. On Linux, choose the matching `linux-x64` or `linux-arm64` CLI archive. On an ARM-based Windows PC, choose `windows-arm64`.
+1. Download the **CLI** archive for your computer from the [Nightly Fork release](https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork). Look for a filename ending in `-cli.7z`.
+
+   - **Windows** — Choose `windows-x64` for Intel or AMD, or `windows-arm64` for an ARM-based PC.
+   - **Linux** — Choose `linux-x64` or `linux-arm64` to match your processor. For Alpine Linux, choose the matching `alpine` archive.
+   - **macOS** — Choose `macos-arm64` for Apple silicon or `macos-x64` for Intel. You can check under **Apple menu → About This Mac**.
+
 2. Extract the archive into a folder you can find again. Keep the folders together. The `docs/` folder contains the guides and screenshots for offline reading.
-3. Open a terminal in the extracted folder. On Windows, double-click `cmd-here.bat` to open Command Prompt there. On Linux, open your terminal and change to the extracted folder.
-4. Run the command for your computer. You should see the Crunchyroll options.
+3. Open a terminal in the extracted folder. On Windows, double-click `cmd-here.bat` to open Command Prompt there. On Linux or macOS, open Terminal and use `cd` to change to the folder containing `aniDL`.
+4. Choose the command for your computer. Windows Command Prompt uses `aniDL.exe`. On Linux and macOS, `./aniDL` runs the executable in the current folder. The command below lists the Crunchyroll options.
 
 <details>
 <summary>🪟 Windows — Command Prompt</summary>
@@ -23,7 +28,7 @@ aniDL.exe --service crunchy --help
 </details>
 
 <details>
-<summary>🐧 Linux — Terminal</summary>
+<summary>💻 Linux and macOS — Terminal</summary>
 
 ```sh
 ./aniDL --service crunchy --help
@@ -31,9 +36,9 @@ aniDL.exe --service crunchy --help
 
 </details>
 
-The Crunchyroll sign-in commands in this guide work from Rev7 onward. To check your installed revision, look for the number after `Rev` in the startup banner, or run `aniDL.exe --debug` on Windows or `./aniDL --debug` on Linux. For earlier revisions, use the guide in the `docs/` folder that came with your archive.
+The Crunchyroll sign-in commands in this guide work from Rev7 onward. To check your installed revision, look for the number after `Rev` in the startup banner, or run `aniDL.exe --debug` on Windows or `./aniDL --debug` on Linux and macOS. For earlier revisions, use the guide in the `docs/` folder that came with your archive.
 
-Keep this terminal open for the commands below. If Windows cannot find `aniDL.exe` or Linux cannot find `./aniDL`, check that your terminal is open in the extracted folder. Linux may require making the executable runnable first with `chmod +x ./aniDL`.
+Keep this terminal open for the commands below. If the command cannot be found, check that the terminal is in the folder containing the executable. If Linux or macOS reports “Permission denied,” run `chmod +x ./aniDL` and try again.
 
 These examples use the standalone CLI. If you built from source, use `node lib/index.js` from your checkout in place of `aniDL.exe` or `./aniDL`. See [Build from source](DEVELOPMENT.md#build-from-source).
 
@@ -116,7 +121,7 @@ aniDL.exe --service crunchy --search "Spy x Family"
 </details>
 
 <details>
-<summary>🐧 Linux — Terminal</summary>
+<summary>💻 Linux and macOS — Terminal</summary>
 
 ```sh
 ./aniDL --service crunchy --search "Spy x Family"
@@ -140,7 +145,7 @@ aniDL.exe --service crunchy -s SEASON_ID
 </details>
 
 <details>
-<summary>🐧 Linux — Terminal</summary>
+<summary>💻 Linux and macOS — Terminal</summary>
 
 ```sh
 ./aniDL --service crunchy -s SEASON_ID
@@ -164,7 +169,7 @@ aniDL.exe --service crunchy -s SEASON_ID -e 1 --dry-run
 </details>
 
 <details>
-<summary>🐧 Linux — Terminal</summary>
+<summary>💻 Linux and macOS — Terminal</summary>
 
 ```sh
 ./aniDL --service crunchy -s SEASON_ID -e 1 --dry-run
@@ -188,7 +193,7 @@ aniDL.exe --service crunchy -s SEASON_ID -e 1
 </details>
 
 <details>
-<summary>🐧 Linux — Terminal</summary>
+<summary>💻 Linux and macOS — Terminal</summary>
 
 ```sh
 ./aniDL --service crunchy -s SEASON_ID -e 1
@@ -244,7 +249,7 @@ aniDL.exe --service crunchy -s SEASON_ID -e 1 --vstream chrome --astream chrome
 </details>
 
 <details>
-<summary>🐧 Linux — Terminal</summary>
+<summary>💻 Linux and macOS — Terminal</summary>
 
 **Android TV only** · Preview
 
@@ -436,7 +441,7 @@ aniDL.exe --service crunchy --check-status
 </details>
 
 <details>
-<summary>🐧 Linux — Terminal</summary>
+<summary>💻 Linux and macOS — Terminal</summary>
 
 ```sh
 ./aniDL --service crunchy --check-status

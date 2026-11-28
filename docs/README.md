@@ -16,7 +16,7 @@ This fork follows [anidl/multi-downloader-nx](https://github.com/anidl/multi-dow
 
 Download the **Nightly Fork** CLI archive for your operating system and processor, then extract the whole archive. Builds target Windows, macOS, Linux and Alpine on x64 and arm64. Each includes its Node.js runtime. The macOS package uses Node 22 for Big Sur compatibility, and the other packages use Node 24. [Download the Nightly CLI](https://github.com/XxUnkn0wnxX/multi-downloader-nx/releases/tag/nightly-fork)
 
-Start with **Getting Started** to open a terminal, sign in and preview one Crunchyroll episode. The guide includes separate Windows and Linux commands and explains which tools you need to save the finished file. [Open the first-download walkthrough](GET-STARTED.md)
+Start with **Getting Started** to open a terminal, sign in and preview one Crunchyroll episode. The guide shows which command to copy on Windows, Linux or macOS and which tools you need to save the finished file. [Open the first-download walkthrough](GET-STARTED.md)
 
 ## Services
 
