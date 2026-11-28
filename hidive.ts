@@ -1,6 +1,7 @@
 // build-in
 import path from 'path';
 import fs from 'fs';
+import { setTimeout as delay } from 'node:timers/promises';
 
 // package program
 import packageJson from './package.json';
@@ -45,6 +46,14 @@ function recordArchivedEpisode(episode: NewHidiveEpisodeExtra) {
 	if (Number.isSafeInteger(seasonId) && seasonId > 0) {
 		downloaded({ service: 'hidive', type: 's' }, String(seasonId), [String(episode.episodeInformation.episodeNumber)]);
 	}
+}
+
+type HidiveApiResult = Awaited<ReturnType<reqModule.Req['getData']>> & { appKeyInvalid?: boolean };
+type HidiveAuthType = 'refresh' | 'auth' | 'both' | 'other' | 'none';
+type RecoveryResult = 'success' | 'retry' | 'failed' | 'invalid-api-key';
+
+function isUnauthorized(result: HidiveApiResult): boolean {
+	return (result.res ?? result.error?.res)?.status === 401;
 }
 
 async function isExplicitApiKeyRejection(response?: Response): Promise<boolean> {
@@ -134,10 +143,47 @@ export default class Hidive implements ServiceClass {
 	public async apiReq(
 		endpoint: string,
 		body: string | object = '',
-		authType: 'refresh' | 'auth' | 'both' | 'other' | 'none' = 'none',
+		authType: HidiveAuthType = 'none',
 		method: 'GET' | 'POST' = 'POST',
 		authHeader?: string
-	): Promise<Awaited<ReturnType<reqModule.Req['getData']>> & { appKeyInvalid?: boolean }> {
+	): Promise<HidiveApiResult> {
+		let result = await this.apiReqOnce(endpoint, body, authType, method, authHeader);
+		if (result.ok || result.appKeyInvalid || !isUnauthorized(result)) return result;
+		console.warn('Token expired, refreshing token and retrying.');
+		const recovery = await this.runRecovery(async () => {
+			const recovered = await this.recoverSession();
+			if (recovered !== 'success') {
+				if (recovered === 'failed') console.error('Failed to refresh token...');
+				return recovered;
+			}
+			result = await this.apiReqOnce(endpoint, body, authType, method, authHeader);
+			if (result.appKeyInvalid) return 'invalid-api-key';
+			if (result.ok) return 'success';
+			return isUnauthorized(result) ? 'retry' : 'failed';
+		});
+		return recovery === 'invalid-api-key' ? { ...result, appKeyInvalid: true } : result;
+	}
+
+	private async runRecovery(attempt: () => Promise<RecoveryResult>): Promise<RecoveryResult> {
+		for (let index = 0; index < 2; index++) {
+			if (index > 0) {
+				console.warn('Retrying HIDIVE session recovery in 1 second.');
+				await delay(1000);
+			}
+			const result = await attempt();
+			if (result !== 'retry') return result;
+		}
+		console.warn('HIDIVE still returned 401 after two recovery attempts. Stopping.');
+		return 'failed';
+	}
+
+	private async apiReqOnce(
+		endpoint: string,
+		body: string | object,
+		authType: HidiveAuthType,
+		method: 'GET' | 'POST',
+		authHeader?: string
+	): Promise<HidiveApiResult> {
 		if (typeof api.hd_new_apiKey !== 'string' || !api.hd_new_apiKey.trim()) {
 			console.error('An AniDL maintainer needs to update hd_new_apiKey.');
 			return { ok: false, appKeyInvalid: true };
@@ -183,71 +229,16 @@ export default class Hidive implements ServiceClass {
 			// The request headers, body and provider error text can contain credentials.
 			quietDebug: true
 		};
-		const reportFailure = async (result: Awaited<ReturnType<reqModule.Req['getData']>>) => {
-			const response = result.res ?? result.error?.res;
-			const invalidKey = await isExplicitApiKeyRejection(response);
-			if (invalidKey) {
-				console.error('An AniDL maintainer needs to update hd_new_apiKey.');
-			}
-			if (typeof response?.status === 'number' && Number.isInteger(response.status)) {
-				console.error(`HTTP status: ${response.status}`);
-			}
-			return invalidKey;
-		};
-		let apiReq = await this.req.getData(options.url, apiReqOpts);
+		const apiReq = await this.req.getData(options.url, apiReqOpts);
 		if (!apiReq.ok || !apiReq.res) {
-			if (await reportFailure(apiReq)) {
-				console.error('API Request Failed!');
-				return { ok: false, res: apiReq.res, error: apiReq.error, appKeyInvalid: true };
-			}
-			if ((apiReq.error && apiReq.error.res?.status == 401) || (apiReq.res && apiReq.res.status == 401)) {
-				console.warn('Token expired, refreshing token and retrying.');
-				const refreshed = await this.refreshToken();
-				if (refreshed === 'invalid-api-key') {
-					return { ok: false, res: apiReq.res, error: apiReq.error, appKeyInvalid: true };
-				}
-				if (refreshed) {
-					if (authType == 'other') {
-						options.headers['Authorization'] = authHeader;
-					} else if (authType == 'auth') {
-						options.headers['Authorization'] = `Bearer ${this.token.authorisationToken}`;
-					} else if (authType == 'refresh') {
-						options.headers['Authorization'] = `Bearer ${this.token.refreshToken}`;
-					} else if (authType == 'both') {
-						options.headers['Authorization'] = `Mixed ${this.token.authorisationToken} ${this.token.refreshToken}`;
-					}
-					apiReq = await this.req.getData(options.url, apiReqOpts);
-					if (!apiReq.ok || !apiReq.res) {
-						const appKeyInvalid = await reportFailure(apiReq);
-						console.error('API Request Failed!');
-						return {
-							ok: false,
-							res: apiReq.res,
-							error: apiReq.error,
-							appKeyInvalid
-						};
-					}
-				} else {
-					console.error('Failed to refresh token...');
-					return {
-						ok: false,
-						res: apiReq.res,
-						error: apiReq.error
-					};
-				}
-			} else {
-				console.error('API Request Failed!');
-				return {
-					ok: false,
-					res: apiReq.res,
-					error: apiReq.error
-				};
-			}
+			const response = apiReq.res ?? apiReq.error?.res;
+			const appKeyInvalid = await isExplicitApiKeyRejection(response);
+			if (appKeyInvalid) console.error('An AniDL maintainer needs to update hd_new_apiKey.');
+			if (typeof response?.status === 'number' && Number.isInteger(response.status)) console.error(`HTTP status: ${response.status}`);
+			if (appKeyInvalid || response?.status !== 401) console.error('API Request Failed!');
+			return { ok: false, res: apiReq.res, error: apiReq.error, appKeyInvalid };
 		}
-		return {
-			ok: true,
-			res: apiReq.res
-		};
+		return { ok: true, res: apiReq.res };
 	}
 
 	public async doAuth(data: AuthData): Promise<AuthResponse> {
@@ -278,60 +269,60 @@ export default class Hidive implements ServiceClass {
 		return { isOk: true, value: undefined };
 	}
 
-	public async doAnonymousAuth(): Promise<boolean | 'invalid-api-key'> {
-		const authReq = await this.apiReq('/v2/login/guest/checkin');
+	private async guestRecovery(): Promise<RecoveryResult> {
+		const authReq = await this.apiReqOnce('/v2/login/guest/checkin', '', 'none', 'POST');
 		if (!authReq.ok || !authReq.res) {
 			if (authReq.appKeyInvalid) return 'invalid-api-key';
 			console.error('Authentication failed!');
-			return false;
+			return isUnauthorized(authReq) ? 'retry' : 'failed';
 		}
 		const tokens: Record<string, string> = JSON.parse(await authReq.res.text());
-		for (const token in tokens) {
-			this.token[token] = tokens[token];
-		}
-		//this.token.expires = new Date(Date.now() + 300);
+		for (const token in tokens) this.token[token] = tokens[token];
 		this.token.guest = true;
 		yamlCfg.saveNewHDToken(this.token);
-		return true;
+		return 'success';
+	}
+
+	public async doAnonymousAuth(): Promise<boolean | 'invalid-api-key'> {
+		const result = await this.runRecovery(() => this.guestRecovery());
+		return result === 'invalid-api-key' ? result : result === 'success';
+	}
+
+	private async recoverSession(): Promise<RecoveryResult> {
+		if (!this.token.refreshToken || !this.token.authorisationToken) return this.guestRecovery();
+		const authReq = await this.apiReqOnce('/v2/token/refresh', { refreshToken: this.token.refreshToken }, 'auth', 'POST');
+		if (!authReq.ok || !authReq.res) {
+			if (authReq.appKeyInvalid) return 'invalid-api-key';
+			if (isUnauthorized(authReq)) return 'retry';
+			console.error('Token refresh failed, reinitializing session...');
+			return this.initializeRecovery();
+		}
+		const tokens: Record<string, string> = JSON.parse(await authReq.res.text());
+		for (const token in tokens) this.token[token] = tokens[token];
+		yamlCfg.saveNewHDToken(this.token);
+		return 'success';
+	}
+
+	private async initializeRecovery(): Promise<RecoveryResult> {
+		const authReq = await this.apiReqOnce('/v1/init/', '', 'both', 'GET');
+		if (!authReq.ok || !authReq.res) {
+			if (authReq.appKeyInvalid) return 'invalid-api-key';
+			console.error('Failed to initialize session.');
+			return isUnauthorized(authReq) ? 'retry' : 'failed';
+		}
+		const tokens: Record<string, string> = JSON.parse(await authReq.res.text()).authentication;
+		for (const token in tokens) this.token[token] = tokens[token];
+		yamlCfg.saveNewHDToken(this.token);
+		return 'success';
 	}
 
 	public async refreshToken(): Promise<boolean | 'invalid-api-key'> {
-		if (!this.token.refreshToken || !this.token.authorisationToken) {
-			return await this.doAnonymousAuth();
-		} else {
-			const authReq = await this.apiReq(
-				'/v2/token/refresh',
-				{
-					refreshToken: this.token.refreshToken
-				},
-				'auth'
-			);
-			if (!authReq.ok || !authReq.res) {
-				if (authReq.appKeyInvalid) return 'invalid-api-key';
-				console.error('Token refresh failed, reinitializing session...');
-				return this.initSession();
-			}
-			const tokens: Record<string, string> = JSON.parse(await authReq.res.text());
-			for (const token in tokens) {
-				this.token[token] = tokens[token];
-			}
-			yamlCfg.saveNewHDToken(this.token);
-			return true;
-		}
+		const result = await this.runRecovery(() => this.recoverSession());
+		return result === 'invalid-api-key' ? result : result === 'success';
 	}
 
-	public async initSession() {
-		const authReq = await this.apiReq('/v1/init/', '', 'both', 'GET');
-		if (!authReq.ok || !authReq.res) {
-			console.error('Failed to initialize session.');
-			return false;
-		}
-		const tokens: Record<string, string> = JSON.parse(await authReq.res.text()).authentication;
-		for (const token in tokens) {
-			this.token[token] = tokens[token];
-		}
-		yamlCfg.saveNewHDToken(this.token);
-		return true;
+	public async initSession(): Promise<boolean> {
+		return (await this.runRecovery(() => this.initializeRecovery())) === 'success';
 	}
 
 	public async doSearch(data: SearchData): Promise<SearchResponse> {
