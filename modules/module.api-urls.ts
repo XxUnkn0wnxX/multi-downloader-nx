@@ -12,6 +12,8 @@ const domain = {
 export type APIType = {
 	// Crunchyroll API
 	basic_auth_token: string;
+	phone_client_id: string;
+	phone_client_secret: string;
 	auth: string;
 	me: string;
 	profile: string;
@@ -53,6 +55,9 @@ const api: APIType = {
 	// Crunchyroll
 	// Crunchyroll API
 	basic_auth_token: 'ZXI5bmdnMmtvNW9oaXJsYTUxaTI6VmwxVDBQbjhRWko2d3o0NnhYRGxIekRGUDV0Wlgxb3E=',
+	// Android phone OAuth client, used by --device android
+	phone_client_id: 'cwokfwxiwyeonhvkkwoq',
+	phone_client_secret: '66nlgSSvu44gXrAlDMo7EX__zJsl8VXO',
 	auth: `${domain.cr_api}/auth/v1/token`,
 	me: `${domain.cr_api}/accounts/v1/me`,
 	profile: `${domain.cr_api}/accounts/v1/me/profile`,

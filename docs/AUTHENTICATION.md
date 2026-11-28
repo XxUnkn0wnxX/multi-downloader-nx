@@ -44,9 +44,9 @@ aniDL.exe --service crunchy --device androidtv
 
 ### Android phone or tablet
 
-Use `--device android` **(Crunchyroll only)** for phone or tablet video or audio. If AniDL asks for phone client settings, supply both `CRUNCHYROLL_PHONE_CLIENT_ID` and `CRUNCHYROLL_PHONE_CLIENT_SECRET` in your environment or in `config/cr_phone_client.env`. The file takes one `NAME=value` per line. On Linux and macOS, only your user account may have access to it (`chmod 600 config/cr_phone_client.env`).
+Use `--device android` **(Crunchyroll only)** for phone or tablet video or audio. AniDL includes the phone client settings.
 
-If you don’t have these settings, choose [Android TV](#android-tv) or [a browser cookie](#browser-cookie) and use the [matching single-login commands](GET-STARTED.md#if-you-signed-in-with-one-method).
+If phone sign-in is unavailable, choose [Android TV](#android-tv) or [a browser cookie](#browser-cookie) and use the [matching single-login commands](GET-STARTED.md#if-you-signed-in-with-one-method).
 
 <details>
 <summary>🪟 Windows — Command Prompt</summary>

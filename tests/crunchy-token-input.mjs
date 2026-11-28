@@ -69,7 +69,6 @@ try {
 	const sessionStore = compile(path.join(root, 'modules/module.crunchy-session-store.ts'), (id) => require(id));
 	const phoneAuth = compile(path.join(root, 'modules/module.crunchy-phone-auth.ts'), (id) => {
 		if (id === './module.api-urls') return { domain: { cr_www: 'https://www.crunchyroll.com' } };
-		if (id === './module.cfg-loader') return { workingDir: work };
 		if (id === './module.crunchy-device-auth') return deviceHelper;
 		return require(id);
 	});
@@ -1505,14 +1504,16 @@ try {
 				write(value) {
 					outputText += value;
 				}
-			},
-			env: { CRUNCHYROLL_PHONE_CLIENT_ID: 'fixture-id', CRUNCHYROLL_PHONE_CLIENT_SECRET: 'fixture-secret' }
+			}
 		});
 		const flow = compile(
 			path.join(root, 'modules/module.crunchy-phone-auth.ts'),
 			(id) => {
-				if (id === './module.api-urls') return { domain: { cr_www: 'https://www.crunchyroll.com' } };
-				if (id === './module.cfg-loader') return { workingDir: work };
+				if (id === './module.api-urls')
+					return {
+						domain: { cr_www: 'https://www.crunchyroll.com' },
+						api: { phone_client_id: 'fixture-id', phone_client_secret: 'fixture-secret' }
+					};
 				if (id === './module.crunchy-device-auth') return deviceHelper;
 				if (id === 'node:readline') {
 					const readline = require(id);
@@ -1561,6 +1562,8 @@ try {
 		const session = await flow.loginWithPhone(async (url, options) => {
 			requests++;
 			assert.equal(url, 'https://www.crunchyroll.com/auth/v1/token');
+			assert.equal(phoneFixture.launched.searchParams.get('client_id'), 'fixture-id');
+			assert.equal(options.headers.Authorization, `Basic ${Buffer.from('fixture-id:fixture-secret').toString('base64')}`);
 			assert.equal(options.redirect, 'manual');
 			assert.equal(options.quietDebug, true);
 			assert.equal(options.body.get('grant_type'), 'authorization_code');

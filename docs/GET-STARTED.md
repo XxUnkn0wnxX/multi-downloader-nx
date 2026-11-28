@@ -292,7 +292,6 @@ Download
 ### Troubleshooting
 
 - **AniDL asks for an Android TV or Android phone login.** Follow the named method in the [sign-in guide](AUTHENTICATION.md), using the same account for both default streams. Then repeat your original command.
-- **The Android phone command asks for client settings.** Follow the prerequisite steps in [Android phone sign-in](AUTHENTICATION.md#android-phone-or-tablet), then run the phone command again.
 - **The Android TV code expired.** Run the Android TV command again and use the new code.
 - **The browser cookie file cannot be read.** Check the filename and path, then follow [Browser cookie](AUTHENTICATION.md#browser-cookie) to provide the file or cookie value again.
 - **Your selected dub is unavailable.** Choose an available audio language using `--dubLang` or use `--allDubs` for the dubs available for each episode. Both options apply to Crunchyroll selections.

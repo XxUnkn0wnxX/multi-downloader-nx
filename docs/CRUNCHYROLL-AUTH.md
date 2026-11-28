@@ -35,7 +35,7 @@ https://sso.crunchyroll.com/android/oauth-callback?code=EXAMPLE_CODE&state=ENCOD
 - **Browser and terminal.** A **404 at this callback is harmless**. Copy the entire address from the browser’s address bar, paste once and press Enter. The terminal hides the paste because the address contains a private sign-in code.
 - **Exchange.** AniDL sends the code and the verifier from that same attempt to the provider. An address can pass the local checks and still contain an expired or fabricated code. A failed exchange leaves the saved session intact. The phone flow requires a usable access token, refresh token, positive expiry and an account ID before saving.
 
-If sign-in stops **before the browser opens**, check the phone client settings. If it stops **as soon as the address is pasted**, compare the origin, path and query field names with the example above. If the address passes and the **exchange fails**, retry with a fresh browser sign-in and its matching callback. Keep only the URL shape and redacted error details when recording a change. [Phone flow and callback parser](../modules/module.crunchy-phone-auth.ts)
+If AniDL reports **missing or invalid phone client settings**, check the build's [API constants](../modules/module.api-urls.ts). If sign-in stops **as soon as the address is pasted**, compare the origin, path and query field names with the example above. If the address passes and the **exchange fails**, retry with a fresh browser sign-in and its matching callback. Keep only the URL shape and redacted error details when recording a change. [Phone flow and callback parser](../modules/module.crunchy-phone-auth.ts)
 
 ## Android TV approval
 

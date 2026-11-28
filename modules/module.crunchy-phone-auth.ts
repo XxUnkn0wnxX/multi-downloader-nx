@@ -1,11 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { Writable } from 'node:stream';
-import { parse } from 'dotenv';
-import { domain } from './module.api-urls';
-import { workingDir } from './module.cfg-loader';
+import { api, domain } from './module.api-urls';
 import { refreshCredentialsRejected, validDeviceToken } from './module.crunchy-device-auth';
 import type { Req } from './module.fetch';
 import type { CrunchySession } from './module.crunchy-session-store';
@@ -15,29 +11,13 @@ const callbackPath = '/android/oauth-callback';
 const inputTimeoutMs = 10 * 60_000;
 const userAgent = 'Crunchyroll/3.130.0 Android/16 okhttp/5.3.2';
 
-const idKey = 'CRUNCHYROLL_PHONE_CLIENT_ID';
-const secretKey = 'CRUNCHYROLL_PHONE_CLIENT_SECRET';
-export const PHONE_CLIENT_REQUIRED = 'Configure CRUNCHYROLL_PHONE_CLIENT_ID and CRUNCHYROLL_PHONE_CLIENT_SECRET for Android phone sign-in.';
+export const PHONE_CLIENT_REQUIRED = 'Android phone client settings are missing or invalid in this build.';
 
 export const PHONE_CALLBACK_INVALID =
 	'AniDL could not verify that sign-in address. Start Android phone sign-in again and paste the full address from the browser tab opened for that attempt.';
 
 function phoneClient() {
-	let id = process.env[idKey];
-	let secret = process.env[secretKey];
-	if (!id && !secret) {
-		const file = path.join(workingDir, 'config', 'cr_phone_client.env');
-		try {
-			const stat = fs.statSync(file);
-			if (stat.isFile() && stat.size <= 16_384 && (process.platform === 'win32' || (stat.mode & 0o077) === 0)) {
-				const client = parse(fs.readFileSync(file));
-				id = client[idKey];
-				secret = client[secretKey];
-			}
-		} catch {
-			/* The fixed diagnostic below covers absent or inaccessible configuration. */
-		}
-	}
+	const { phone_client_id: id, phone_client_secret: secret } = api;
 	const allowed = /^[a-zA-Z0-9_.~-]+$/;
 	if (!id || !secret || !allowed.test(id) || !allowed.test(secret)) throw new Error(PHONE_CLIENT_REQUIRED);
 	return { id, authorization: `Basic ${Buffer.from(`${id}:${secret}`, 'latin1').toString('base64')}` };
