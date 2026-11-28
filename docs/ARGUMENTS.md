@@ -360,7 +360,7 @@ Use `--service crunchy` before these options. For the full help on your computer
 | --- | --- | --- | --- | --- | --- |
 | Crunchyroll | `--service crunchy --device [type]` | `string` | `No` | `—` | `—` |
 
-Crunchyroll only. Use `--device androidtv` for a browser activation code or `--device android` for the Crunchyroll sign-in window. AniDL handles the phone callback automatically. With `--dry-run`, phone sign-in previews the window and TV sign-in requests a real code. Both cancel before opening a window or exchanging tokens. [Android TV steps](AUTHENTICATION.md#android-tv) · [Android phone steps](AUTHENTICATION.md#android-phone-or-tablet).
+Crunchyroll only. Use `--device androidtv` for TV activation, or `--device android` or `--device web` to sign in through the Crunchyroll window. Web sign-in saves a browser session for Chrome or Firefox streams. `--dry-run` previews without opening a window or exchanging tokens. Android TV still requests a real activation code. [Sign-in guide](AUTHENTICATION.md#crunchyroll).
 #### `--silentAuth`
 
 | **Service** | **Usage** | **Type** | **Required** | **Alias** | **Default** | **cli-default Entry** |

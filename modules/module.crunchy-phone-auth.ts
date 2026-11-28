@@ -25,6 +25,25 @@ export const PHONE_CLIENT_REJECTED =
 
 export const PHONE_WEBVIEW_FAILED = 'AniDL could not complete sign-in in the Crunchyroll window. Close the window and start Android phone sign-in again.';
 export const PHONE_BROWSER_DEVICE_MISSING = 'The sign-in window could not verify the browser device ID for this attempt. The Android exchange was skipped.';
+export const WEB_WINDOW_FAILED = 'AniDL could not complete web sign-in in the Crunchyroll window.';
+export const WEB_COOKIES_MISSING = 'The sign-in window could not verify the Crunchyroll browser session. The web exchange was skipped.';
+
+export type WebAuthProfile = { userAgent: string; deviceType: string };
+
+export function firefoxWebAuthProfile(platform = process.platform, arch = process.arch): WebAuthProfile | undefined {
+	const version = '153.0'; // Firefox ESR version used in desktop sign-in windows.
+	const platforms = {
+		darwin: { name: 'Mac', ua: 'Macintosh; Intel Mac OS X 10.15' },
+		win32: { name: 'Windows', ua: 'Windows NT 10.0; Win64; x64' },
+		linux: { name: 'Linux', ua: `X11; Linux ${arch === 'arm64' ? 'aarch64' : 'x86_64'}` }
+	};
+	if (platform !== 'darwin' && platform !== 'win32' && platform !== 'linux') return;
+	const { name, ua } = platforms[platform];
+	return {
+		deviceType: `Firefox (web) on ${name}`,
+		userAgent: `Mozilla/5.0 (${ua}; rv:${version}) Gecko/20100101 Firefox/${version}`
+	};
+}
 
 function phoneClient() {
 	const { phone_client_id: id, phone_client_secret: secret } = api;
@@ -48,21 +67,27 @@ export function parsePhoneCallback(input: string, state: string): string | undef
 	return codes[0];
 }
 
-async function readWebViewCallback(executable: string, authorize: URL): Promise<{ callback: string; deviceId: string } | undefined> {
+async function readSignInWindow(
+	executable: string,
+	url: URL,
+	{ web = false, userAgent }: { web?: boolean; userAgent?: string }
+): Promise<[credential: string, deviceId: string] | undefined> {
 	const env = phoneWindowEnvironment();
 	const overridden = new Set(['ELECTRON_RUN_AS_NODE', 'ELECTRON_NO_ATTACH_CONSOLE', 'ELECTRON_ENABLE_LOGGING', 'ELECTRON_LOG_FILE', 'NODE_OPTIONS']);
 	for (const name of Object.keys(env)) {
 		if (overridden.has(name.toUpperCase())) delete env[name];
 	}
 	env.ELECTRON_NO_ATTACH_CONSOLE = '1';
-	const profile = await mkdtemp(join(tmpdir(), 'anidl-phone-signin-'));
+	const profile = await mkdtemp(join(tmpdir(), web ? 'anidl-web-signin-' : 'anidl-phone-signin-'));
+	const windowError = web ? WEB_WINDOW_FAILED : PHONE_WEBVIEW_FAILED;
+	const sessionError = web ? WEB_COOKIES_MISSING : PHONE_BROWSER_DEVICE_MISSING;
 	try {
 		return await new Promise((resolve, reject) => {
 			const controller = new AbortController();
 			const cancel = () => controller.abort();
 			const child = execFile(
 				executable,
-				[phoneWindowPath(), profile],
+				[phoneWindowPath(), profile, ...(web ? ['--web-sign-in'] : [])],
 				{
 					encoding: 'utf8',
 					timeout: inputTimeoutMs,
@@ -75,23 +100,30 @@ async function readWebViewCallback(executable: string, authorize: URL): Promise<
 					process.removeListener('SIGINT', cancel);
 					process.removeListener('SIGTERM', cancel);
 					if (controller.signal.aborted || error?.code === 2 || error?.signal === 'SIGINT') return resolve(undefined);
-					if (error?.code === 4) return reject(new Error(PHONE_BROWSER_DEVICE_MISSING));
-					if (error) return reject(new Error(PHONE_WEBVIEW_FAILED));
+					if (error?.code === 4) return reject(new Error(sessionError));
+					if (error) return reject(new Error(windowError));
 					const lines = stdout.trim().split('\n');
-					const [callback, deviceId] = lines;
-					if (!callback || /[\r\n]/.test(callback)) return reject(new Error(PHONE_WEBVIEW_FAILED));
-					if (lines.length !== 2 || !deviceId || !browserDevicePattern.test(deviceId)) return reject(new Error(PHONE_BROWSER_DEVICE_MISSING));
-					resolve({ callback, deviceId });
+					const [credential, deviceId] = lines;
+					if (!credential || /[\r\n]/.test(credential)) return reject(new Error(windowError));
+					if (lines.length !== 2 || !browserDevicePattern.test(deviceId) || (web && !browserDevicePattern.test(credential))) return reject(new Error(sessionError));
+					resolve([credential, deviceId]);
 				}
 			);
 			process.once('SIGINT', cancel);
 			process.once('SIGTERM', cancel);
 			child.stdin?.on('error', () => {});
-			child.stdin?.end(`${authorize.href}\n`);
+			child.stdin?.end(`${url.href}\n${userAgent ? `${userAgent}\n` : ''}`);
 		});
 	} finally {
 		await rm(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).catch(() => {});
 	}
+}
+
+export async function readCrunchyWebCookies(profile = firefoxWebAuthProfile()): Promise<{ refreshToken: string; deviceId: string } | undefined> {
+	const executable = await resolvePhoneRuntime();
+	process.stdout.write('Use the Crunchyroll window to sign in for web streams.\n');
+	const cookies = await readSignInWindow(executable, new URL('/login', ssoOrigin), { web: true, userAgent: profile?.userAgent });
+	if (cookies) return { refreshToken: cookies[0], deviceId: cookies[1] };
 }
 
 async function exchangePhoneToken(request: Req['getData'], fields: Record<string, string>, device: CrunchySession, onRejected?: () => void): Promise<CrunchySession | undefined> {
@@ -146,8 +178,10 @@ async function exchangePhoneToken(request: Req['getData'], fields: Record<string
 
 export async function loginWithPhone(request: Req['getData'], dryRun = false): Promise<CrunchySession | 'dry-run' | undefined> {
 	const client = phoneClient();
+	const webProfile = firefoxWebAuthProfile();
 	if (dryRun) {
 		process.stdout.write('Dry run: the Crunchyroll sign-in window would open.\n');
+		if (webProfile) process.stdout.write(`Sign-in window User-Agent: ${webProfile.userAgent}\n`);
 		return 'dry-run';
 	}
 	const executable = await resolvePhoneRuntime();
@@ -175,12 +209,12 @@ export async function loginWithPhone(request: Req['getData'], dryRun = false): P
 					}
 				}
 			: undefined;
-	const result = await readWebViewCallback(executable, authorize);
+	const result = await readSignInWindow(executable, authorize, { userAgent: webProfile?.userAgent });
 	if (!result) {
 		trace?.('cli.cancelled');
 		return;
 	}
-	const { callback, deviceId } = result;
+	const [callback, deviceId] = result;
 	const code = parsePhoneCallback(callback, state);
 	trace?.(code ? 'cli.callback-validated' : 'cli.callback-rejected');
 	if (!code) throw new Error(PHONE_WEBVIEW_FAILED);

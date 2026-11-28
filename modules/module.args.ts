@@ -72,12 +72,12 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 	},
 	{
 		name: 'device',
-		describe: 'Crunchyroll Android TV or phone sign-in; --dry-run previews and cancels.',
+		describe: 'Crunchyroll Android TV, phone or web sign-in. Use --dry-run for a preview.',
 		type: 'string',
 		group: 'auth',
 		service: ['crunchy'],
 		docDescribe:
-			'Crunchyroll only. Use `--device androidtv` for a browser activation code or `--device android` for the Crunchyroll sign-in window. AniDL handles the phone callback automatically. With `--dry-run`, phone sign-in previews the window and TV sign-in requests a real code. Both cancel before opening a window or exchanging tokens. [Android TV steps](AUTHENTICATION.md#android-tv) · [Android phone steps](AUTHENTICATION.md#android-phone-or-tablet).',
+			'Crunchyroll only. Use `--device androidtv` for TV activation, or `--device android` or `--device web` to sign in through the Crunchyroll window. Web sign-in saves a browser session for Chrome or Firefox streams. `--dry-run` previews without opening a window or exchanging tokens. Android TV still requests a real activation code. [Sign-in guide](AUTHENTICATION.md#crunchyroll).',
 		usage: '[type]'
 	},
 	{

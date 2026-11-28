@@ -71,7 +71,9 @@ aniDL.exe --service crunchy --device android
 
 ### Browser cookie
 
-Use `--token` **(Crunchyroll only)** for Chrome or Firefox streams. Choose **one** command below. Using a file keeps your private cookie value out of the command and your shell history.
+Use `--service crunchy --device web` to sign in through the Crunchyroll window and save a session for Chrome or Firefox streams. It uses the same desktop runtime as [Android phone sign-in](#android-phone-or-tablet). A successful sign-in shows your account and ends with “Session saved.”
+
+To import an existing session, use `--token` **(Crunchyroll only)** with **one** command below. Using a file keeps your private cookie value out of the command and your shell history.
 
 - **Have a file?** Put `cookies.txt` in the folder where the terminal is open, or use its full path in quotes. AniDL accepts a Netscape cookies export or a plain text file containing your Crunchyroll `etp_rt` cookie value.
 - **Have the value itself?** Replace `YOUR_COOKIE_VALUE` with your own `etp_rt` value.

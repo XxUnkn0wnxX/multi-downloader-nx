@@ -7,6 +7,7 @@ Changes specific to this fork are grouped below with their implementation commit
 ### Nightly Rev9 — Crunchyroll sign-in
 
 - `--device android` opens a Crunchyroll sign-in window and handles the return automatically. It reuses Crunchyroll’s device ID for the Android Phone entry. [Sign-in guide](AUTHENTICATION.md#android-phone-or-tablet)
+- `--device web` opens the Crunchyroll window to sign in for Chrome or Firefox streams. [Browser sign-in](AUTHENTICATION.md#browser-cookie)
 - `--check-auth` reports the three saved Crunchyroll sign-ins without refreshing them. [Sign-in check](AUTHENTICATION.md#check-your-saved-crunchyroll-sign-ins)
 
 ### Nightly Rev8 — Sign-in and subtitle fonts

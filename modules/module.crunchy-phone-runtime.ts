@@ -104,7 +104,7 @@ export async function resolvePhoneRuntime(): Promise<string> {
 			() => false
 		));
 	if (!asset || alpine || (linux && !launchEnv.DISPLAY && !launchEnv.WAYLAND_DISPLAY)) {
-		throw runtimeError('Android phone sign-in needs a supported desktop session. Use Android TV sign-in or a browser cookie on this system.');
+		throw runtimeError('The Crunchyroll sign-in window needs a supported desktop session. Use --device androidtv or import a browser cookie with --token.');
 	}
 	const mac = process.platform === 'darwin';
 	const windows = process.platform === 'win32';

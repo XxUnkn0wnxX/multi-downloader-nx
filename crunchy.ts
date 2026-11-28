@@ -80,13 +80,18 @@ import { randomUUID } from 'node:crypto';
 import { FetchParams } from './modules/module.fetch';
 import { CrunchyTokenInputError, parseCrunchyTokenInput } from './modules/module.crunchy-token';
 import {
+	firefoxWebAuthProfile,
 	loginWithPhone,
 	PHONE_BROWSER_DEVICE_MISSING,
 	PHONE_CLIENT_REJECTED,
 	PHONE_CLIENT_REQUIRED,
 	PHONE_RUNTIME_ERROR,
 	PHONE_WEBVIEW_FAILED,
-	refreshPhoneToken
+	readCrunchyWebCookies,
+	refreshPhoneToken,
+	type WebAuthProfile,
+	WEB_COOKIES_MISSING,
+	WEB_WINDOW_FAILED
 } from './modules/module.crunchy-phone-auth';
 import { crunchyCliAuthDecision, crunchyLoginInstruction } from './modules/module.crunchy-cli-auth';
 import { CrunchySession, CrunchySessionSlot, crunchySessionSlot } from './modules/module.crunchy-session-store';
@@ -590,8 +595,11 @@ export default class Crunchy implements ServiceClass {
 			argv.dubLang = langsData.dubLanguageCodes;
 		}
 		// select mode
-		if (argv.device === 'androidtv' || argv.device === 'android') {
-			const completed = argv.device === 'androidtv' ? await this.loginWithDevice(undefined, argv.dryRun) : await this.loginWithAndroidPhone(argv.dryRun);
+		if (argv.device === 'androidtv' || argv.device === 'android' || argv.device === 'web') {
+			let completed: boolean;
+			if (argv.device === 'androidtv') completed = await this.loginWithDevice(undefined, argv.dryRun);
+			else if (argv.device === 'android') completed = await this.loginWithAndroidPhone(argv.dryRun);
+			else completed = await this.loginWithWebWindow(argv.dryRun);
 			if (!completed) process.exitCode = 1;
 			else if (argv.dryRun) console.info('Dry run: sign-in cancelled.');
 		} else if (argv.dlFonts) {
@@ -1279,7 +1287,7 @@ export default class Crunchy implements ServiceClass {
 		const profileReqOptions = {
 			signal,
 			quietErrors,
-			quietDebug: this.token.auth_type === 'android',
+			quietDebug: this.token.auth_type === 'android' || (quietErrors && this.token.auth_type === 'web'),
 			headers: {
 				...this.deviceHeaders(),
 				Authorization: `Bearer ${this.token.access_token}`
@@ -1304,19 +1312,29 @@ export default class Crunchy implements ServiceClass {
 		});
 	}
 
-	private async requestWebToken(refreshToken: string, deviceId: string, errorMessage: string, onRejected?: () => void): Promise<Record<string, any> | undefined> {
+	private async requestWebToken(
+		refreshToken: string,
+		deviceId: string,
+		errorMessage: string,
+		{ onRejected, signal, profile }: { onRejected?: () => void; signal?: AbortSignal; profile?: WebAuthProfile } = {}
+	): Promise<Record<string, any> | undefined> {
 		if (!validBasicClient(api.web_basic_auth_token, true)) throw new Error(CR_WEB_BASIC_REQUIRED);
 		const authData = new URLSearchParams({
 			device_id: deviceId,
-			device_type: 'Firefox on Windows',
+			device_type: profile?.deviceType ?? 'Firefox on Windows',
 			grant_type: 'etp_rt_cookie'
 		}).toString();
 		const authReqOpts: FetchParams = {
 			method: 'POST',
-			headers: { ...api.crunchyWebAuthHeader, Cookie: `device_id=${deviceId}; etp_rt=${refreshToken}` },
+			headers: {
+				...api.crunchyWebAuthHeader,
+				...(profile ? { 'User-Agent': profile.userAgent } : {}),
+				Cookie: `device_id=${deviceId}; etp_rt=${refreshToken}`
+			},
 			body: authData,
 			useProxy: true,
-			quietDebug: true
+			quietDebug: true,
+			...(signal ? { signal, redirect: 'manual' as const } : {})
 		};
 		const authReq = await this.req.getData(api.auth, authReqOpts);
 		if (!authReq.ok || !authReq.res) {
@@ -1341,6 +1359,8 @@ export default class Crunchy implements ServiceClass {
 
 		token.auth_type = 'web';
 		token.device_id = deviceId;
+		if (profile) token.web_auth_profile = profile;
+		else delete token.web_auth_profile;
 		token.expires = new Date(Date.now() + token.expires_in * 1000);
 		return token;
 	}
@@ -1356,23 +1376,53 @@ export default class Crunchy implements ServiceClass {
 			return false;
 		}
 
-		const source = tokenInput.source;
+		return this.loginWithWebCookie(tokenInput.refreshToken, randomUUID(), tokenInput.source);
+	}
+
+	public async loginWithWebWindow(dryRun = false): Promise<boolean> {
+		try {
+			if (!validBasicClient(api.web_basic_auth_token, true)) throw new Error(CR_WEB_BASIC_REQUIRED);
+			const profile = firefoxWebAuthProfile();
+			if (dryRun) {
+				console.info('Dry run: the Crunchyroll web sign-in window would open.');
+				if (profile) console.info('Web token exchange: %s\nUser-Agent: %s', profile.deviceType, profile.userAgent);
+				return true;
+			}
+			const cookies = await readCrunchyWebCookies(profile);
+			if (cookies) return this.loginWithWebCookie(cookies.refreshToken, cookies.deviceId, 'sign-in window', profile);
+			console.error('Crunchyroll web sign-in was cancelled.');
+		} catch (error) {
+			const windowError = error instanceof Error && (error.name === PHONE_RUNTIME_ERROR || [WEB_WINDOW_FAILED, WEB_COOKIES_MISSING].includes(error.message));
+			console.error(clientSettingsNotice(error) ?? (windowError ? error.message : WEB_WINDOW_FAILED));
+		}
+		return false;
+	}
+
+	private async loginWithWebCookie(
+		refreshToken: string,
+		deviceId: string,
+		source: 'direct token' | 'cookies file' | 'sign-in window',
+		profile?: WebAuthProfile
+	): Promise<boolean> {
 		const previousToken = this.token;
 		const previousCMS = this.cmsToken;
 		let committed = false;
 		try {
-			const token = await this.requestWebToken(tokenInput.refreshToken, randomUUID(), `Token authentication failed (${source})!`);
-			if (!token) {
+			const signal = source === 'sign-in window' ? AbortSignal.timeout(30_000) : undefined;
+			const token = await this.requestWebToken(refreshToken, deviceId, `Token authentication failed (${source})!`, { signal, profile });
+			if (!token) return false;
+			if (signal && !validDeviceToken(token)) {
+				console.error('Crunchyroll web sign-in did not return a usable session.');
 				return false;
 			}
 
 			this.token = token;
 			this.cmsToken = {};
-			if (!(await this.getProfile(false))) {
+			if (!(await this.getProfile(false, signal, !!signal)) || signal?.aborted) {
 				console.error(`Token authentication failed (${source}): profile lookup failed.`);
 				return false;
 			}
-			if (!(await this.getCMStoken())) {
+			if (!(await this.getCMStoken(false, signal, !!signal)) || signal?.aborted) {
 				console.error(`Token authentication failed (${source}): CMS authentication failed.`);
 				return false;
 			}
@@ -1539,7 +1589,11 @@ export default class Crunchy implements ServiceClass {
 
 	private async requestRefreshedSession(previous: CrunchySession, onRejected?: () => void): Promise<CrunchySession | undefined> {
 		if (previous.auth_type === 'android') return refreshPhoneToken(this.req.getData.bind(this.req), previous, onRejected);
-		if (previous.auth_type === 'web') return this.requestWebToken(previous.refresh_token, previous.device_id || randomUUID(), 'Token Refresh Failed!', onRejected);
+		if (previous.auth_type === 'web') {
+			const saved = previous.web_auth_profile;
+			const profile = typeof saved?.userAgent === 'string' && typeof saved?.deviceType === 'string' ? saved : undefined;
+			return this.requestWebToken(previous.refresh_token, previous.device_id || randomUUID(), 'Token Refresh Failed!', { onRejected, profile });
+		}
 		if (!validBasicClient(api.basic_auth_token)) throw new Error(CR_BASIC_REQUIRED);
 		if (this.debug && previous.auth_type !== 'device') console.debug(`[DEBUG] Refresh request: ${api.auth}`);
 		const client = atob(api.basic_auth_token).split(':');
@@ -1697,7 +1751,7 @@ export default class Crunchy implements ServiceClass {
 		const cmsTokenReqOpts = {
 			signal,
 			quietErrors,
-			quietDebug: this.token.auth_type === 'android',
+			quietDebug: this.token.auth_type === 'android' || (quietErrors && this.token.auth_type === 'web'),
 			headers: {
 				Authorization: `Bearer ${this.token.access_token}`,
 				...this.deviceHeaders()

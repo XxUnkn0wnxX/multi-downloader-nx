@@ -123,14 +123,19 @@ for (const { name, runtime, expected } of [
 		const decision = auth.crunchyCliAuthDecision(argv);
 		assert.notEqual(decision.kind, 'continue', `${name}: expected a sign-in notice`);
 		assert(decision.message.includes(example), `${name}: missing compact example ${example}`);
-		if (argv.auth) assert.match(decision.message, /Run the same command again, replacing/);
-		else {
+		if (argv.auth) {
+			assert.match(decision.message, /Run the same command again, replacing/);
+			assert.deepEqual(decision.message.match(/^ {2}--device .+$/gm), ['  --device androidtv', '  --device android', '  --device web']);
+		} else {
 			const lines = decision.message.split('\n');
-			assert.equal(lines.length, 5, 'show just two labeled examples');
+			assert.equal(lines.length, argv.device ? 8 : 5, 'show one labeled example per sign-in option');
 			assert.equal(lines[2], '');
 			assert.deepEqual([lines[1], lines[4]], argv.device ? ['  --device androidtv', '  --device android'] : ['  --token "cookies.txt"', '  --token "YOUR_COOKIE_VALUE"']);
-			if (argv.device) assert.match(lines[3], /Crunchyroll window/);
-			else assert.match(lines[3], /etp_rt/);
+			if (argv.device) {
+				assert.match(lines[3], /Crunchyroll window/);
+				assert.match(lines[6], /Web browser/);
+				assert.equal(lines[7], '  --device web');
+			} else assert.match(lines[3], /etp_rt/);
 		}
 		assert.doesNotMatch(decision.message, /--service|(?:^|\n)\s*(?:anidl|aniDL\.exe|node|pnpm exec tsx)\s+--|\/synthetic\/|\/unrelated\/|node_modules|\.\.\/|C:\/synthetic/i);
 	}
@@ -354,6 +359,8 @@ for (const [flag, service] of [
 	else assert.equal(parsed[flag.slice(2)], flag === '--fontName' ? 'Fixture Font' : flag === '--dlVideoOnce' ? true : 0);
 }
 assert.equal(parse(['--device', 'android'], { token: 'configured-cookie' }).token, undefined);
+assert.equal(parse(['--device', 'web'], { token: 'configured-cookie' }).device, 'web');
+assert.equal(parse(['--device=web'], { token: 'configured-cookie' }).token, undefined);
 assert.equal(parse(['--device=--token']).device, '--token');
 assert.deepEqual(Array.from(parse([], { dubLang: ['eng,jpn', 'hin'] }).dubLang), ['eng', 'jpn', 'hin']);
 assert.deepEqual(Array.from(parse(['--dubLang', 'zho,chi'], { dubLang: ['hindi'] }).dubLang), ['zho', 'chi']);

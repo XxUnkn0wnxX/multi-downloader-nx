@@ -6,14 +6,16 @@ const { isAbsolute } = require('node:path');
 const { createInterface } = require('node:readline');
 
 const origin = 'https://sso.crunchyroll.com';
+const webOrigins = new Set(['https://www.crunchyroll.com', 'https://crunchyroll.com']);
 const callbackPath = '/android/oauth-callback';
 const browserDevicePattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
 const header = (headers, name) => Object.entries(headers ?? {}).find(([key]) => key.toLowerCase() === name)?.[1];
 
-function readDeviceCookie(pairs) {
-	const matches = pairs.map((pair) => pair.trim()).filter((pair) => pair.startsWith('device_id='));
-	const value = matches[0]?.slice('device_id='.length).replace(/^"(.*)"$/, '$1');
+function readBrowserCookie(pairs, name) {
+	const prefix = `${name}=`;
+	const matches = pairs.map((pair) => pair.trim()).filter((pair) => pair.startsWith(prefix));
+	const value = matches[0]?.slice(prefix.length).replace(/^"(.*)"$/, '$1');
 	if (matches.length === 1 && browserDevicePattern.test(value)) return value;
 }
 
@@ -123,31 +125,106 @@ function ssoUrl(address) {
 	}
 }
 
-async function readAuthorizeUrl() {
+async function readSignInInput(web) {
 	const input = createInterface({ input: process.stdin, terminal: false });
 	try {
+		let url;
+		let userAgent;
 		for await (const line of input) {
 			if (Buffer.byteLength(line) > 8192) return;
-			const url = ssoUrl(line);
-			if (url?.pathname === '/en/authorize' && !url.href.includes('#')) return url;
-			return;
+			if (!url) {
+				url = ssoUrl(line);
+				if (web ? url?.href !== `${origin}/login` : url?.pathname !== '/en/authorize' || url.href.includes('#')) return;
+			} else {
+				if (userAgent || !/^Mozilla\/5\.0 \([\w.; ]{1,96}; rv:\d+\.0\) Gecko\/20100101 Firefox\/\d+\.0$/.test(line)) return;
+				userAgent = line;
+			}
 		}
+		if (url) return { url, userAgent };
 	} finally {
 		input.close();
 	}
 }
 
+function watchWebCookies(finish, trace) {
+	const authorizePath = /^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?authorize$/i;
+	let loginResponseSeen = false;
+	let loginIssuedCookies = false;
+	let sessionCookies;
+	let authorization;
+	return {
+		sent(details, url) {
+			if (!loginResponseSeen || !url || !authorizePath.test(url.pathname) || details.method !== 'GET' || details.resourceType !== 'mainFrame') return;
+			const sent = (header(details.requestHeaders, 'cookie') ?? '').split(';');
+			const deviceId = readBrowserCookie(sent, 'device_id');
+			const refreshToken = readBrowserCookie(sent, 'etp_rt');
+			const bound = sessionCookies && deviceId === sessionCookies.deviceId && refreshToken === sessionCookies.refreshToken;
+			authorization = { id: details.id, bound };
+			if (bound) trace?.('web.session-cookies-carried');
+		},
+		received(details, url) {
+			if (!url) return false;
+			const pairs = (header(details.responseHeaders, 'set-cookie') ?? []).map((cookie) => cookie.split(';', 1)[0].trim());
+			const setsDevice = pairs.some((pair) => pair.startsWith('device_id='));
+			const setsSession = pairs.some((pair) => pair.startsWith('etp_rt='));
+			if (url.pathname === '/api/login' && details.method === 'POST' && details.statusCode === 200) {
+				loginResponseSeen = true;
+				if (setsDevice || setsSession) {
+					const deviceId = readBrowserCookie(pairs, 'device_id');
+					const refreshToken = readBrowserCookie(pairs, 'etp_rt');
+					sessionCookies = !loginIssuedCookies && deviceId && refreshToken ? { deviceId, refreshToken } : undefined;
+					loginIssuedCookies = true;
+					authorization = undefined;
+					if (sessionCookies) trace?.('web.session-cookies-issued');
+				}
+				return false;
+			}
+			if (!authorizePath.test(url.pathname) || details.id !== authorization?.id) return false;
+			if (!authorization.bound || !sessionCookies) {
+				trace?.('web.session-cookies-unverified');
+				finish(4);
+				return true;
+			}
+			const location = header(details.responseHeaders, 'location')?.[0];
+			const { deviceId } = sessionCookies;
+			const refreshToken = setsSession ? readBrowserCookie(pairs, 'etp_rt') : sessionCookies.refreshToken;
+			if ((setsDevice && readBrowserCookie(pairs, 'device_id') !== deviceId) || !refreshToken) {
+				trace?.('web.session-cookies-unverified');
+				finish(4);
+				return true;
+			}
+			if (location && [301, 302, 303, 307, 308].includes(details.statusCode)) {
+				const target = URL.parse(location, url);
+				if (target && !target.username && !target.password && webOrigins.has(target.origin)) {
+					trace?.('web.session-cookies-verified');
+					finish(0, `${refreshToken}\n${deviceId}\n`);
+					return true;
+				}
+				if (target && ssoUrl(target.href) && authorizePath.test(target.pathname)) {
+					sessionCookies = { deviceId, refreshToken };
+					return false;
+				}
+			}
+			trace?.('web.session-cookies-unverified');
+			finish(4);
+			return true;
+		}
+	};
+}
+
 async function main() {
 	const profile = process.argv[2];
+	const web = process.argv.includes('--web-sign-in');
 	if (!profile || !isAbsolute(profile)) return app.exit(3);
 	app.setPath('userData', profile);
 	app.setPath('sessionData', profile);
 	app.enableSandbox();
-	const authorize = await readAuthorizeUrl();
-	if (!authorize) return app.exit(3);
+	const signIn = await readSignInInput(web);
+	if (!signIn) return app.exit(3);
 
 	await app.whenReady();
 	const signInSession = session.fromPartition('anidl-phone-signin');
+	if (signIn.userAgent) signInSession.setUserAgent(signIn.userAgent);
 	const traceFile = process.env.ANIDL_CRUNCHY_PHONE_TRACE;
 	const trace = traceFile && isAbsolute(traceFile) ? createTrace(traceFile) : undefined;
 	trace?.('web.start');
@@ -180,26 +257,27 @@ async function main() {
 	let issuedDeviceId;
 	let boundAuthorizeId;
 	let boundCallback;
-	function finish(status, callback) {
+	function finish(status, output) {
 		if (finished) return;
 		finished = true;
-		const verified = callback && issuedDeviceId && boundCallback === callback;
-		if (callback) {
-			trace?.(verified ? 'web.browser-device-verified' : 'web.browser-device-unverified');
-			if (!verified) status = 4;
-		}
 		trace?.('web.finish', undefined, { status });
-		if (verified) process.stdout.write(`${callback}\n${issuedDeviceId}\n`, () => app.exit(status));
+		if (output) process.stdout.write(output, () => app.exit(status));
 		else setImmediate(() => app.exit(status));
 	}
 
 	function allowNavigation(address, mainFrame, canReturnCallback) {
 		const url = ssoUrl(address);
+		if (web) return !mainFrame || (!!url && url.pathname !== callbackPath);
 		if (url?.pathname === callbackPath) {
 			trace?.(mainFrame && canReturnCallback ? 'web.callback-intercepted' : 'web.callback-blocked');
 			if (mainFrame && canReturnCallback) {
 				if (url.href.includes('#') || Buffer.byteLength(url.href) > 8192) finish(3);
-				else finish(0, url.href);
+				else {
+					const verified = issuedDeviceId && boundCallback === url.href;
+					trace?.(verified ? 'web.browser-device-verified' : 'web.browser-device-unverified');
+					if (verified) finish(0, `${url.href}\n${issuedDeviceId}\n`);
+					else finish(4);
+				}
 			}
 			return false;
 		}
@@ -213,7 +291,13 @@ async function main() {
 	};
 	contents.on('will-frame-navigate', guardNavigation);
 	contents.on('will-redirect', guardNavigation);
+	contents.on('dom-ready', () => {
+		if (ssoUrl(contents.getURL())) {
+			void contents.insertCSS('#onetrust-banner-sdk { display: none !important; }', { cssOrigin: 'user' }).catch(() => {});
+		}
+	});
 	const requests = signInSession.webRequest;
+	const webCookies = web ? watchWebCookies(finish, trace) : undefined;
 	requests.onBeforeRequest((request, reply) => {
 		const allowed = allowNavigation(request.url, request.resourceType === 'mainFrame', request.webContentsId === contents.id);
 		trace?.('web.request', request, { blocked: !allowed });
@@ -221,8 +305,9 @@ async function main() {
 	});
 	requests.onSendHeaders((details) => {
 		const url = details.webContentsId === contents.id && ssoUrl(details.url);
-		if (url?.pathname === '/authorize' && details.resourceType === 'mainFrame' && details.method === 'GET') {
-			const sent = readDeviceCookie((header(details.requestHeaders, 'cookie') ?? '').split(';'));
+		if (webCookies) webCookies.sent(details, url);
+		else if (url?.pathname === '/authorize' && details.resourceType === 'mainFrame' && details.method === 'GET') {
+			const sent = readBrowserCookie((header(details.requestHeaders, 'cookie') ?? '').split(';'), 'device_id');
 			boundAuthorizeId = sent && sent === issuedDeviceId ? details.id : undefined;
 			boundCallback = undefined;
 			if (boundAuthorizeId !== undefined) trace?.('web.browser-device-carried');
@@ -231,9 +316,19 @@ async function main() {
 	});
 	requests.onHeadersReceived((details, reply) => {
 		const url = details.webContentsId === contents.id && ssoUrl(details.url);
+		if (webCookies) {
+			trace?.('web.response', details);
+			reply({ cancel: webCookies.received(details, url) });
+			return;
+		}
 		if (url?.pathname === '/api/login' && details.method === 'POST' && details.statusCode === 200) {
 			const cookies = header(details.responseHeaders, 'set-cookie') ?? [];
-			issuedDeviceId = loginResponseSeen ? undefined : readDeviceCookie(cookies.map((cookie) => cookie.split(';', 1)[0]));
+			issuedDeviceId = loginResponseSeen
+				? undefined
+				: readBrowserCookie(
+						cookies.map((cookie) => cookie.split(';', 1)[0]),
+						'device_id'
+					);
 			loginResponseSeen = true;
 			boundAuthorizeId = undefined;
 			boundCallback = undefined;
@@ -262,7 +357,7 @@ async function main() {
 	}
 	contents.once('render-process-gone', () => finish(3));
 	window.once('closed', () => finish(2));
-	await contents.loadURL(authorize.href).catch(() => finish(3));
+	await contents.loadURL(signIn.url.href).catch(() => finish(3));
 }
 
 main().catch(() => app.exit(3));

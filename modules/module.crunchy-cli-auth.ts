@@ -12,6 +12,15 @@ export type CrunchyCliAuth = {
 };
 export type CrunchyCliAuthDecision = { kind: 'continue' } | { kind: 'notice' | 'error'; message: string };
 
+const deviceHelp = `Android TV — enter the activation code online
+  --device androidtv
+
+Android phone or tablet — sign in through the Crunchyroll window
+  --device android
+
+Web browser — sign in through the Crunchyroll window
+  --device web`;
+
 /** Keep command examples shareable when a shell alias expands to an absolute script path. */
 export function cliInvocation(): string {
 	if ((process as NodeJS.Process & { pkg?: unknown }).pkg && path.dirname(process.execPath) === process.cwd()) return process.platform === 'win32' ? 'aniDL.exe' : './aniDL';
@@ -42,10 +51,10 @@ export function crunchyCliAuthDecision(argv: CrunchyCliAuth): CrunchyCliAuthDeci
 	const modes = Number(present(argv.device)) + Number(present(argv.token)) + Number(!!argv.auth) + Number(!!argv.silentAuth);
 	if (modes === 0 && argv.username === undefined && argv.password === undefined) return { kind: 'continue' };
 	if (modes > 1) return { kind: 'error', message: 'Choose only one of --device, --token, --auth, or --silentAuth.' };
-	if (argv.device === '') return { kind: 'error', message: 'Missing --device value. Choose androidtv or android, or use --device alone for help.' };
+	if (argv.device === '') return { kind: 'error', message: 'Missing --device value. Choose androidtv, android, or web, or use --device alone for help.' };
 	if (argv.token === '') return { kind: 'error', message: 'Missing --token value. Supply a cookie or file, or use --token alone for help.' };
-	if (argv.device !== undefined && argv.device !== false && argv.device !== true && argv.device !== 'androidtv' && argv.device !== 'android')
-		return { kind: 'error', message: 'Invalid --device value. Choose androidtv or android.' };
+	if (present(argv.device) && argv.device !== true && !['androidtv', 'android', 'web'].includes(argv.device as string))
+		return { kind: 'error', message: 'Invalid --device value. Choose androidtv, android, or web.' };
 	if (!argv.service && (present(argv.device) || present(argv.token))) return { kind: 'error', message: 'Select Crunchyroll with --service crunchy.' };
 	if (argv.service !== 'crunchy') {
 		if (!argv.service && argv.auth) return { kind: 'error', message: 'Choose a service with --service: crunchy, hidive, or adn.' };
@@ -64,24 +73,12 @@ HIDIVE and ADN still use --auth with a username or email and password.
 
 Run the same command again, replacing --auth with one of the options below.
 
-Used --auth for Android phone sign-in? Use
-  --device android
-
-Show the Android TV and phone sign-in options
-  --device
+${deviceHelp}
 
 Show how to sign in with a browser cookie or cookies file
   --token`
 		};
-	if (argv.device === true)
-		return {
-			kind: 'notice',
-			message: `Android TV — enter the activation code online
-  --device androidtv
-
-Android phone or tablet — sign in through the Crunchyroll window
-  --device android`
-		};
+	if (argv.device === true) return { kind: 'notice', message: deviceHelp };
 	if (argv.token === true)
 		return {
 			kind: 'notice',

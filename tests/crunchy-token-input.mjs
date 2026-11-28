@@ -80,13 +80,17 @@ try {
 		{ Buffer, AbortSignal }
 	);
 	const crunchyPhoneAuth = {
+		firefoxWebAuthProfile: phoneAuth.firefoxWebAuthProfile,
 		loginWithPhone: async () => undefined,
+		readCrunchyWebCookies: async () => undefined,
 		refreshPhoneToken: phoneAuth.refreshPhoneToken,
 		PHONE_RUNTIME_ERROR: phoneAuth.PHONE_RUNTIME_ERROR,
 		PHONE_CLIENT_REQUIRED: phoneAuth.PHONE_CLIENT_REQUIRED,
 		PHONE_CLIENT_REJECTED: phoneAuth.PHONE_CLIENT_REJECTED,
 		PHONE_WEBVIEW_FAILED: phoneAuth.PHONE_WEBVIEW_FAILED,
-		PHONE_BROWSER_DEVICE_MISSING: phoneAuth.PHONE_BROWSER_DEVICE_MISSING
+		PHONE_BROWSER_DEVICE_MISSING: phoneAuth.PHONE_BROWSER_DEVICE_MISSING,
+		WEB_COOKIES_MISSING: phoneAuth.WEB_COOKIES_MISSING,
+		WEB_WINDOW_FAILED: phoneAuth.WEB_WINDOW_FAILED
 	};
 	const forkDisplay = compile(path.join(root, 'modules/module.fork-display.ts'), (id) => require(id));
 	const same = (actual, expected) => assert.deepEqual(JSON.parse(JSON.stringify(actual)), expected);
@@ -267,6 +271,10 @@ try {
 		const { service, calls } = makeService(successfulResponses);
 		assert.equal(await service.loginWithToken(`etp_rt=${fakeToken}`), true);
 		assert.equal(calls[0].url, 'auth');
+		assert.equal(new URLSearchParams(calls[0].options.body).get('device_id'), generatedDeviceId);
+		assert.equal(new URLSearchParams(calls[0].options.body).get('device_type'), 'Firefox on Windows');
+		assert.equal(calls[0].options.headers['User-Agent'], api.crunchyWebAuthHeader['User-Agent']);
+		assert.equal(saved.at(-1).web_auth_profile, undefined);
 		assert.match(calls[0].options.headers.Cookie, new RegExp(`etp_rt=${fakeToken}`));
 		assert.equal(calls[1].url, 'profile');
 		assert.equal(calls[2].url, 'cms');
@@ -281,6 +289,82 @@ try {
 		assert(
 			logs.some(([kind, line]) => kind === 'info' && /signed in with a Crunchyroll browser cookie/i.test(line) && /cookies file/i.test(line) && /session saved/i.test(line))
 		);
+	});
+	await test('web sign-in selects a Firefox User-Agent and label for the desktop platform', () => {
+		for (const [platform, arch, name, ua] of [
+			['win32', 'x64', 'Windows', 'Windows NT 10.0; Win64; x64'],
+			['darwin', 'arm64', 'Mac', 'Macintosh; Intel Mac OS X 10.15'],
+			['linux', 'x64', 'Linux', 'X11; Linux x86_64'],
+			['linux', 'arm64', 'Linux', 'X11; Linux aarch64']
+		]) {
+			same(phoneAuth.firefoxWebAuthProfile(platform, arch), {
+				deviceType: `Firefox (web) on ${name}`,
+				userAgent: `Mozilla/5.0 (${ua}; rv:153.0) Gecko/20100101 Firefox/153.0`
+			});
+		}
+		assert.equal(phoneAuth.firefoxWebAuthProfile('freebsd', 'x64'), undefined);
+	});
+	await test('web window uses its cookie and device ID once and only saves after verification', async () => {
+		const readCookies = crunchyPhoneAuth.readCrunchyWebCookies;
+		const issuedId = '123e4567-e89b-42d3-a456-42661417c111';
+		const profile = phoneAuth.firefoxWebAuthProfile();
+		try {
+			for (const mode of ['success', 'profile rejected', 'CMS rejected', 'window cancelled', 'dry run']) {
+				logs.length = 0;
+				let windows = 0;
+				crunchyPhoneAuth.readCrunchyWebCookies = async () => {
+					windows++;
+					if (mode !== 'window cancelled') return { refreshToken: fakeToken, deviceId: issuedId };
+				};
+				const responses = { ...successfulResponses };
+				if (mode === 'profile rejected') responses.profile = { ok: false };
+				if (mode === 'CMS rejected') responses.cms = { ok: false };
+				const { service, calls } = makeService(responses);
+				const previous = (service.token = { auth_type: 'web', access_token: 'previous-web-access' });
+				const previousCms = service.cmsToken;
+				const saveCount = saved.length;
+				assert.equal(await service.loginWithWebWindow(mode === 'dry run'), mode === 'success' || mode === 'dry run');
+				assert.equal(windows, Number(mode !== 'dry run'));
+				assert.equal(saved.length, saveCount + Number(mode === 'success'));
+				if (mode === 'success') {
+					assert.equal(saved.at(-1).auth_type, 'web');
+					assert.equal(saved.at(-1).device_id, issuedId);
+					same(saved.at(-1).web_auth_profile, { ...profile });
+					assert(logs.some(([, line]) => line.includes('test-user')));
+					assert(logs.some(([, line]) => line.includes('Session saved.')));
+				} else {
+					assert.equal(service.token, previous);
+					assert.equal(service.cmsToken, previousCms);
+				}
+				if (mode === 'window cancelled' || mode === 'dry run') assert.equal(calls.length, 0);
+				else {
+					assert.deepEqual(
+						calls.map(({ url }) => url),
+						mode === 'profile rejected' ? ['auth', 'profile'] : ['auth', 'profile', 'cms']
+					);
+					assert.equal(calls[0].options.headers.Cookie, `device_id=${issuedId}; etp_rt=${fakeToken}`);
+					const form = new URLSearchParams(calls[0].options.body);
+					assert.equal(form.get('grant_type'), 'etp_rt_cookie');
+					assert.equal(form.get('device_id'), issuedId);
+					assert.equal(form.get('device_type'), profile.deviceType);
+					assert.equal(calls[0].options.headers['User-Agent'], profile.userAgent);
+					assert.equal(calls[0].options.redirect, 'manual');
+					assert(calls.every(({ options }) => options.signal && options.quietDebug));
+				}
+				assert(!logs.some(([, line]) => line.includes(fakeToken) || line.includes(issuedId)));
+			}
+		} finally {
+			crunchyPhoneAuth.readCrunchyWebCookies = readCookies;
+		}
+	});
+	await test('refreshing a Firefox login reuses the saved browser identity without opening Electron', async () => {
+		const profile = phoneAuth.firefoxWebAuthProfile('win32', 'x64');
+		const { service, calls } = makeService(successfulResponses);
+		service.token = { auth_type: 'web', web_auth_profile: profile, device_id: generatedDeviceId, refresh_token: fakeToken, expires: 0 };
+		assert.equal(await service.refreshToken(), true);
+		assert.equal(calls[0].options.headers['User-Agent'], profile.userAgent);
+		assert.equal(new URLSearchParams(calls[0].options.body).get('device_type'), profile.deviceType);
+		same(saved.at(-1).web_auth_profile, { ...profile });
 	});
 	await test('actual loginWithToken fails without profile success', async () => {
 		logs.length = 0;
@@ -370,6 +454,7 @@ try {
 		for (const [argv, expectedMethod] of [
 			[{ device: 'androidtv' }, 'tv'],
 			[{ device: 'android' }, 'phone'],
+			[{ device: 'web' }, 'web'],
 			[{ token: fakeToken }, 'token'],
 			[{ token: rawPath }, 'token']
 		]) {
@@ -378,14 +463,17 @@ try {
 			process.exitCode = undefined;
 			let deviceCalls = 0;
 			let phoneCalls = 0;
+			let webCalls = 0;
 			const tokenValues = [];
 			const { service } = makeService({});
 			service.loginWithDevice = async () => (deviceCalls++, true);
 			service.loginWithAndroidPhone = async () => (phoneCalls++, true);
+			service.loginWithWebWindow = async () => (webCalls++, true);
 			service.loginWithToken = async (value) => (tokenValues.push(value), true);
 			await service.cli();
 			assert.equal(deviceCalls, Number(expectedMethod === 'tv'));
 			assert.equal(phoneCalls, Number(expectedMethod === 'phone'));
+			assert.equal(webCalls, Number(expectedMethod === 'web'));
 			assert.equal(tokenValues.length, Number(expectedMethod === 'token'));
 			if (expectedMethod === 'token') assert.equal(tokenValues[0], argv.token);
 			assert.equal(process.exitCode, undefined);
@@ -1544,6 +1632,8 @@ try {
 		const fixtureExecutable = path.join(work, 'electron');
 		const fixtureHelper = path.join(work, 'crunchyroll-phone-signin.cjs');
 		const fixtureProcess = Object.assign(new EventEmitter(), {
+			platform: 'darwin',
+			arch: 'x64',
 			env: { ANIDL_CRUNCHY_PHONE_TRACE: traceFile, ELECTRON_RUN_AS_NODE: '1' },
 			stdout: {
 				write(line) {
@@ -1570,7 +1660,8 @@ try {
 					return {
 						execFile(executable, args, options, complete) {
 							assert.equal(executable, fixtureExecutable);
-							assert.equal(args.length, 2);
+							const web = args[2] === '--web-sign-in';
+							assert.equal(args.length, web ? 3 : 2);
 							assert.equal(args[0], fixtureHelper);
 							assert(fs.statSync(args[1]).isDirectory());
 							profiles.push(args[1]);
@@ -1583,7 +1674,14 @@ try {
 								stdin: {
 									on() {},
 									end(line) {
-										launched = new URL(line.trim());
+										const [url, userAgent] = line.trim().split('\n');
+										launched = new URL(url);
+										assert.equal(userAgent, phoneAuth.firefoxWebAuthProfile('darwin', 'x64').userAgent);
+										if (web) {
+											const exit = { cancelled: 2, 'missing-device': 4 }[result];
+											const cookie = result === 'invalid-cookie' ? 'not-a-cookie' : fakeToken;
+											return complete(exit ? { code: exit } : null, `${cookie}\n${issuedBrowserId}\n`);
+										}
 										const callback = new URL(launched.searchParams.get('redirect_uri'));
 										callback.hostname = callbackHost;
 										callback.searchParams.set('code', code);
@@ -1619,6 +1717,19 @@ try {
 			}
 		};
 	}
+	await test('web window passes only a private, validated cookie pair from the official login route', async () => {
+		const fixture = makePhoneFlow();
+		same(await fixture.flow.readCrunchyWebCookies(), { refreshToken: fakeToken, deviceId: issuedBrowserId });
+		assert.equal(fixture.launched.href, 'https://sso.crunchyroll.com/login');
+		fixture.result = 'cancelled';
+		assert.equal(await fixture.flow.readCrunchyWebCookies(), undefined);
+		for (const mode of ['missing-device', 'invalid-cookie']) {
+			fixture.result = mode;
+			await assert.rejects(fixture.flow.readCrunchyWebCookies(), { message: fixture.flow.WEB_COOKIES_MISSING });
+		}
+		assert(fixture.profiles.every((profile) => !fs.existsSync(profile)));
+		assert(!fixture.outputText.includes(fakeToken));
+	});
 	await test('Android phone auth reports invalid client configuration and provider rejection without exposing credentials', async () => {
 		const settingsNotice =
 			'This build has missing or invalid Android phone sign-in settings (phone_client_id and phone_client_secret). An AniDL maintainer needs to update them.';
@@ -1916,7 +2027,10 @@ try {
 		try {
 			await service.cli();
 			await new Promise((resolve) => setTimeout(resolve, 0));
-			assert.equal(phoneFixture.outputText.trim(), 'Dry run: the Crunchyroll sign-in window would open.');
+			assert.deepEqual(phoneFixture.outputText.trim().split('\n'), [
+				'Dry run: the Crunchyroll sign-in window would open.',
+				`Sign-in window User-Agent: ${phoneAuth.firefoxWebAuthProfile('darwin', 'x64').userAgent}`
+			]);
 			assert.equal(phoneFixture.preparations, 0);
 			assert.equal(phoneFixture.launched, undefined);
 			assert.equal(calls.length, 0);
