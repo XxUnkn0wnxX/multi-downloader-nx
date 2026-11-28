@@ -235,7 +235,10 @@ const invalidTokenDefaults = 'token: 1234\n';
 await run(['--service', 'crunchy', '-e', 'FIXTURE01'], { defaults: invalidTokenDefaults, page: /Invalid token in CLI defaults/ });
 await run(['--service', 'crunchy', '--token'], { defaults: invalidTokenDefaults, exitCode: 0, page: /Cookies file/ });
 await run(['--service', 'crunchy', '--device'], { defaults: invalidTokenDefaults, exitCode: 0, page: /--device androidtv/ });
-await run(['--service', 'crunchy', '--auth'], { defaults: 'username: fixture-name\npassword: fixture-password\n', page: /Used --auth/ });
+await run(['--service', 'crunchy', '--auth'], {
+	defaults: 'username: fixture-name\npassword: fixture-password\n',
+	page: /--device androidtv\n[\s\S]*--device android\n[\s\S]*--device web/
+});
 await run(['--service', 'crunchy', '--device', 'bad-selector'], { page: /androidtv/ });
 await run(['--service', 'crunchy', '--device', 'android', '--token'], { page: /only one/ });
 for (const authFlag of ['--device', '--token']) {

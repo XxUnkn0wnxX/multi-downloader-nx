@@ -555,7 +555,7 @@ const args: TAppArg<boolean | number | string | unknown[]>[] = [
 		type: 'boolean',
 		describe: 'Print available qualities and stream URLs without downloading files.',
 		docDescribe:
-			'Preview available qualities and stream URLs without downloading files. During download previews, authentication and token refresh still run. This option is CLI or programmatic only and cannot be enabled through cli-defaults.',
+			'Preview available qualities and stream URLs without downloading files. During download previews, authentication and token refresh still run. Sign-in previews apply only to Crunchyroll CLI device commands. This option is CLI or programmatic only and cannot be enabled through cli-defaults.',
 		default: false,
 		usage: ''
 	},

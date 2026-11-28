@@ -117,7 +117,7 @@ Skips muxing when a subtitle download fails.
 | --- | --- | --- | --- | --- | --- | --- |
 | All services | `--dry-run` | `boolean` | `No` | `--dryRun` | `false` | `—` |
 
-Preview available qualities and stream URLs without downloading files. During download previews, authentication and token refresh still run. This option is CLI or programmatic only and cannot be enabled through cli-defaults.
+Preview available qualities and stream URLs without downloading files. During download previews, authentication and token refresh still run. Sign-in previews apply only to Crunchyroll CLI device commands. This option is CLI or programmatic only and cannot be enabled through cli-defaults.
 #### `--novids`
 
 | **Service** | **Usage** | **Type** | **Required** | **Alias** | **cli-default Entry** |

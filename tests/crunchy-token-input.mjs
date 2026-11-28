@@ -2321,6 +2321,36 @@ try {
 		);
 		assert.equal(await handler.isDownloading(), false);
 	});
+	await test('GUI sign-in still exchanges passwords and imported cookies when dry run is set', async () => {
+		const { default: Handler } = compile(path.join(root, 'gui/server/services/crunchyroll.ts'), (id) => {
+			if (id === '../../../crunchy') return { default: Crunchy, __esModule: true };
+			if (id === './base') return { default: class {}, __esModule: true };
+			if (id === '../../../modules/module.app-args') return { appArgv: () => ({ locale: 'en-US', dryRun: true }) };
+			if (id === '../../../modules/module.args' || id === '../../../modules/module.langsData') return {};
+			if (id === '../../../modules/log') return { console: fakeConsole };
+			throw new Error(`Unexpected GUI import ${id}`);
+		});
+		for (const [username, grant] of [
+			['fixture-user', 'password'],
+			[fakeToken, 'etp_rt_cookie']
+		]) {
+			logs.length = 0;
+			const { service, calls } = makeService({
+				...successfulResponses,
+				auth: { ok: true, res: Response.json({ access_token: 'fixture-access', refresh_token: 'fixture-refresh', expires_in: 3600 }) }
+			});
+			const handler = Object.assign(Object.create(Handler.prototype), { crunchy: service });
+			handler.getDefaults();
+			assert.equal((await handler.auth({ username, password: 'fixture-password' })).isOk, true);
+			assert.deepEqual(
+				calls.map(({ url }) => url),
+				grant === 'password' ? ['auth', 'profile'] : ['auth', 'profile', 'cms']
+			);
+			assert.equal(new URLSearchParams(calls[0].options.body).get('grant_type'), grant);
+			assert.equal(service.token.access_token, 'fixture-access');
+			assert(!logs.some(([, line]) => /Dry run/i.test(line)));
+		}
+	});
 	await test('real GUI queue stops on failed Crunchy episode and advances after successful preview', async () => {
 		let activeState, scenario;
 		const { default: Base } = compile(path.join(root, 'gui/server/services/base.ts'), (id) => {
