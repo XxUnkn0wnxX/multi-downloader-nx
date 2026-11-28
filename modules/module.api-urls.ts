@@ -10,13 +10,21 @@ const domain = {
 };
 
 export type APIType = {
-	// Crunchyroll API
+	// ## Crunchyroll
+
+	// Android TV and native client
 	basic_auth_token: string;
+
+	// Android phone OAuth client (--device android)
 	phone_client_id: string;
 	phone_client_secret: string;
+
+	// Account and sign-in endpoints
 	auth: string;
 	me: string;
 	profile: string;
+
+	// Catalog, playback and license endpoints
 	search: string;
 	content_cms: string;
 	content_music: string;
@@ -25,42 +33,54 @@ export type APIType = {
 	streaming_sessions: string;
 	drm_widevine: string;
 	drm_playready: string;
-	// Crunchyroll Bucket
+
+	// CMS bucket and authorization
 	cms_bucket: string;
 	cms_auth: string;
-	// Crunchyroll Headers
+
+	// Native request headers
 	crunchyDefUserAgent: string;
 	crunchyDefHeader: Record<string, any>;
 	crunchyAuthHeader: Record<string, string>;
 	crunchyAuthRefreshHeader: Record<string, string>;
-	// Crunchyroll Web client (etp_rt cookie login)
+
+	// Browser-cookie client (etp_rt login with --token)
 	web_basic_auth_token: string;
 	crunchyWebUserAgent: string;
 	crunchyWebAuthHeader: Record<string, string>;
-	// Hidive
+
+	// ## HIDIVE
+
+	// Legacy API and client identifiers
 	hd_apikey: string;
 	hd_devName: string;
 	hd_appId: string;
 	hd_clientWeb: string;
 	hd_clientExo: string;
 	hd_api: string;
+
+	// Current API
 	hd_new_api: string;
 	hd_new_apiKey: string;
 	hd_new_version: string;
 };
 
 const api: APIType = {
-	//
-	//
-	// Crunchyroll
-	// Crunchyroll API
+	// ## Crunchyroll
+
+	// Android TV and native client
 	basic_auth_token: 'ZXI5bmdnMmtvNW9oaXJsYTUxaTI6VmwxVDBQbjhRWko2d3o0NnhYRGxIekRGUDV0Wlgxb3E=',
-	// Android phone OAuth client, used by --device android
+
+	// Android phone OAuth client (--device android)
 	phone_client_id: 'cwokfwxiwyeonhvkkwoq',
 	phone_client_secret: '66nlgSSvu44gXrAlDMo7EX__zJsl8VXO',
+
+	// Account and sign-in endpoints
 	auth: `${domain.cr_api}/auth/v1/token`,
 	me: `${domain.cr_api}/accounts/v1/me`,
 	profile: `${domain.cr_api}/accounts/v1/me/profile`,
+
+	// Catalog, playback and license endpoints
 	search: `${domain.cr_api}/content/v2/discover/search`,
 	content_cms: `${domain.cr_api}/content/v2/cms`,
 	content_music: `${domain.cr_api}/content/v2/music`,
@@ -69,32 +89,33 @@ const api: APIType = {
 	streaming_sessions: `${domain.cr_playback}/v1/sessions/streaming`,
 	drm_widevine: `https://cr-license-proxy.prd.crunchyrollsvc.com/v1/license/widevine`,
 	drm_playready: `https://cr-license-proxy.prd.crunchyrollsvc.com/v1/license/playReady`,
-	//
-	// Crunchyroll Bucket
+
+	// CMS bucket and authorization
 	cms_bucket: `${domain.cr_api}/cms/v2`,
 	cms_auth: `${domain.cr_api}/index/v2`,
-	//
-	// Crunchyroll Headers
+
+	// Native request headers
 	crunchyDefUserAgent: 'Crunchyroll/ANDROIDTV/3.76.0_22366 (Android 12; en-US; SHIELD Android TV Build/SR1A.220624.014)',
 	crunchyDefHeader: {},
 	crunchyAuthHeader: {},
 	crunchyAuthRefreshHeader: {},
-	//
-	// Crunchyroll Web client (etp_rt cookie login, used by --token)
+
+	// Browser-cookie client (etp_rt login with --token)
 	web_basic_auth_token: 'bm9haWhkZXZtXzZpeWcwYThsMHE6',
 	crunchyWebUserAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36',
 	crunchyWebAuthHeader: {},
-	//
-	//
-	// Hidive
-	// Hidive API
+
+	// ## HIDIVE
+
+	// Legacy API and client identifiers
 	hd_apikey: '508efd7b42d546e19cc24f4d0b414e57e351ca73',
 	hd_devName: 'Android',
 	hd_appId: '24i-Android',
 	hd_clientWeb: 'okhttp/3.4.1',
 	hd_clientExo: 'smartexoplayer/1.6.0.R (Linux;Android 6.0) ExoPlayerLib/2.6.0',
 	hd_api: `${domain.hd_api}/api/v1`,
-	// Hidive New API
+
+	// Current API
 	hd_new_api: `${domain.hd_new}/api`,
 	hd_new_apiKey: '857a1e5d-e35e-4fdf-805b-a87b6f8364bf',
 	hd_new_version: '6.0.1.bbf09a2'
